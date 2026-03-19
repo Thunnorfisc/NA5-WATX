@@ -1,1 +1,7 @@
 *.vs
+*.tlog
+*.log
+*.recipe
+*.ilk
+*.obj
+*x64
