@@ -1,16 +1,8 @@
 #pragma once
+#include "shared_protocol.hpp"
 #include <optional>
-struct GameState
-{
-
-};
 
 std::optional<GameState> tryGetGameState();
-
-struct InputState
-{
-
-};
 
 void sendInputState(const InputState& is);
 
