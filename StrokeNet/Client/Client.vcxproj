@@ -84,11 +84,21 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="src\coregame.cpp" />
     <ClCompile Include="src\game.cpp" />
     <ClCompile Include="src\main.cpp" />
+    <ClCompile Include="src\mainmenu.cpp" />
+    <ClCompile Include="src\network.cpp" />
+    <ClCompile Include="src\state.cpp" />
+    <ClCompile Include="src\state_machine.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="src\coregame.hpp" />
     <ClInclude Include="src\game.hpp" />
+    <ClInclude Include="src\mainmenu.hpp" />
+    <ClInclude Include="src\network.hpp" />
+    <ClInclude Include="src\state.hpp" />
+    <ClInclude Include="src\state_machine.hpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
