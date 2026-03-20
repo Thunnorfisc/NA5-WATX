@@ -88,6 +88,7 @@
   <ItemGroup>
     <ClCompile Include="src\client.cpp" />
     <ClCompile Include="src\coregame.cpp" />
+    <ClCompile Include="src\Drawing.cpp" />
     <ClCompile Include="src\game.cpp" />
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\mainmenu.cpp" />
@@ -99,6 +100,7 @@
     <ClInclude Include="..\shared\shared_protocol.hpp" />
     <ClInclude Include="src\client.hpp" />
     <ClInclude Include="src\coregame.hpp" />
+    <ClInclude Include="src\Drawing.hpp" />
     <ClInclude Include="src\game.hpp" />
     <ClInclude Include="src\mainmenu.hpp" />
     <ClInclude Include="src\network.hpp" />
