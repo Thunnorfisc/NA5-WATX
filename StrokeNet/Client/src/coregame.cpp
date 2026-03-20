@@ -49,6 +49,47 @@ void CoreGameState::handleEvent(const sf::Event& event)
             m_shouldReturnToMenu = true;
         }
     }
+    if (const auto* pressed = event.getIf<sf::Event::MouseButtonPressed>()) {
+        if (pressed->button == sf::Mouse::Button::Left) {
+            isDrawing = true;
+            currentStroke = {};
+            currentStroke.id = nextId++;
+            currentStroke.colour = sf::Color::White;
+            currentStroke.thickness = 6.f;
+            currentRender = {};
+            currentRender.quads.setPrimitiveType(sf::PrimitiveType::TriangleStrip);
+
+            Point pt{ static_cast<float>(pressed->position.x),
+                        static_cast<float>(pressed->position.y) };
+            currentStroke.points.push_back(pt);
+            AppendPoint(currentRender, pt, currentStroke);
+        }
+    }
+
+    if (const auto* moved = event.getIf<sf::Event::MouseMoved>()) {
+        if (isDrawing) {
+            Point pt{ static_cast<float>(moved->position.x),
+                        static_cast<float>(moved->position.y) };
+
+            // Distance check — skip if too close to last point
+            const auto& last = currentStroke.points.back();
+            float dx = pt.x - last.x;
+            float dy = pt.y - last.y;
+            if (dx * dx + dy * dy < 4.f) return;
+
+            currentStroke.points.push_back(pt);
+            AppendPoint(currentRender, pt, currentStroke);
+        }
+    }
+
+    if (const auto* released = event.getIf<sf::Event::MouseButtonReleased>()) {
+        if (released->button == sf::Mouse::Button::Left && isDrawing) {
+            isDrawing = false;
+            drawing.strokes.push_back(std::move(currentRender));
+            currentRender = {};
+            currentRender.quads.setPrimitiveType(sf::PrimitiveType::TriangleStrip);
+        }
+    }
 }
 
 void CoreGameState::update(sf::Time)
@@ -71,6 +112,15 @@ void CoreGameState::render()
     window.draw(m_titleText);
     window.draw(m_backButton);
     window.draw(m_backText);
+    // Draw completed strokes
+    DrawDrawing(window, drawing);
+
+    // Draw stroke in progress
+    if (isDrawing) {
+        window.draw(currentRender.quads);
+        for (const auto& joint : currentRender.joints)
+            window.draw(joint);
+    }
 }
 
 bool CoreGameState::isMouseOverBackButton() const

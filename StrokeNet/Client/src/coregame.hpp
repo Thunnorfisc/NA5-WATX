@@ -2,7 +2,7 @@
 
 #include "state.hpp"
 #include "network.hpp"
-
+#include "Drawing.hpp"
 #include <optional>
 
 class StateMachine;
@@ -27,4 +27,12 @@ private:
     std::optional<GameState> m_gameState;
     InputState m_inputState;
     bool m_shouldReturnToMenu = false;
+
+    // THESE ARE TO BE REFACTORED
+    Drawing drawing;
+    Stroke currentStroke;
+    RenderStroke currentRender;
+    bool isDrawing = false;
+
+    uint32_t nextId = 1;
 };
