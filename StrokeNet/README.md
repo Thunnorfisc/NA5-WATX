@@ -1,4 +1,7 @@
 # Project Structure
+
+Client architecture notes: see [Client/ARCHITECTURE.md](Client/ARCHITECTURE.md)
+
 - Client
     | - *.vcxproj (visual studio project)
     | - x64 (compiler intermediary data)

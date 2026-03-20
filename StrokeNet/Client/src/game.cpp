@@ -36,9 +36,17 @@ void playGame()
 
     // Start the game loop
     while (window.isOpen())
+#include "game.hpp"
+#include "network.hpp"
+
+#include <optional>
+
+namespace
+{
+    class NetworkSession
     {
-        // Process events
-        while (const std::optional event = window.pollEvent())
+    public:
+        NetworkSession()
         {
             // Close window: exit
             if (event->is<sf::Event::Closed>())
@@ -85,16 +93,29 @@ void playGame()
                     currentRender.quads.setPrimitiveType(sf::PrimitiveType::TriangleStrip);
                 }
             }
+            initNetwork();
         }
 
-        // Clear screen
-        window.clear();
+        ~NetworkSession()
+        {
+            terminateNetwork();
+        }
+    };
+}
 
-        // Draw the sprite
-        window.draw(sprite);
+Game::Game() :
+    m_window(sf::VideoMode({ 1600, 900 }), "Testing window"),
+    m_stateContext{ m_window },
+    m_stateMachine(m_stateContext)
+{
+    m_window.setFramerateLimit(60);
+    m_stateMachine.changeState(StateId::MainMenu);
+}
 
-        // Draw the string
-        window.draw(text);
+void Game::run()
+{
+    NetworkSession networkSession;
+    sf::Clock deltaClock;
 
         // Draw completed strokes
         DrawDrawing(window, drawing);
@@ -108,5 +129,50 @@ void playGame()
 
         // Update the window
         window.display();
+    while (m_window.isOpen())
+    {
+        const sf::Time deltaTime = deltaClock.restart();
+
+        processEvents();
+        update(deltaTime);
+        render();
     }
+}
+
+void Game::processEvents()
+{
+    m_stateContext.event.reset();
+
+    while (const std::optional event = m_window.pollEvent())
+    {
+        m_stateContext.event = *event;
+
+        if (event->is<sf::Event::Closed>())
+        {
+            m_window.close();
+            continue;
+        }
+
+        m_stateMachine.handleEvent(*event);
+    }
+
+    m_stateContext.event.reset();
+}
+
+void Game::update(sf::Time deltaTime)
+{
+    m_stateMachine.update(deltaTime);
+}
+
+void Game::render()
+{
+    m_window.clear();
+    m_stateMachine.render();
+    m_window.display();
+}
+
+void playGame()
+{
+    Game game;
+    game.run();
 }

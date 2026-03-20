@@ -1,0 +1,30 @@
+#pragma once
+
+#include "state.hpp"
+#include "network.hpp"
+
+#include <optional>
+
+class StateMachine;
+
+class CoreGameState final : public State
+{
+public:
+    CoreGameState(StateMachine& stateMachine, StateContext& context);
+
+    void handleEvent(const sf::Event& event) override;
+    void update(sf::Time deltaTime) override;
+    void render() override;
+
+private:
+    [[nodiscard]] bool isMouseOverBackButton() const;
+    void updateLayout();
+
+    sf::CircleShape m_backButton;
+    sf::Font m_font;
+    sf::Text m_titleText;
+    sf::Text m_backText;
+    std::optional<GameState> m_gameState;
+    InputState m_inputState;
+    bool m_shouldReturnToMenu = false;
+};
