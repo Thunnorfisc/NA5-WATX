@@ -13,6 +13,8 @@
 /* End Header
 ***********************************************************************/
 #pragma once
+#include "shared_protocol.hpp"
+
 #include <winsock2.h>
 
 #include <span>
@@ -25,13 +27,6 @@
 #include <cstdint>
 #include <stop_token>
 #include <unordered_map>
-enum class MessageType : std::uint8_t
-{
-    REQ_REGISTER,
-    RSP_REGISTER,
-
-    REQ_UNREGISTER
-};
 
 class Server
 {
@@ -42,8 +37,6 @@ public:
     void startListening();
     bool isListeningThreadFinished() noexcept;
 private:
-    using SessionId = std::uint32_t;
-
     SOCKET _socket = INVALID_SOCKET;
     unsigned _portHostOrder = 0;
     std::string _ip;
@@ -54,7 +47,7 @@ private:
     const int _maxUdpSizeBytes = 65'536;
     const int _maxRetry = 5;
 
-    SessionId _nextSessionIdHostOrder = 1;
+    SessionId _nextSessionIdHostOrder = InvalidSessionId + 1;
 
     void handle_reqRegister(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
     void handle_reqUnregister(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);

@@ -1,3 +1,6 @@
+#include "game.hpp"
+#include "client.hpp"
+
 #include <Windows.h>
 #include <Shlwapi.h>
 
@@ -5,7 +8,6 @@
 #include <stdexcept>
 #include <filesystem>
 
-#include "game.hpp"
 int main()
 {
     // set executable path as the working directory
@@ -20,5 +22,6 @@ int main()
     PathRemoveFileSpecA(buffer);
     std::filesystem::current_path(buffer);
 
+    Client client;
     playGame();
 }

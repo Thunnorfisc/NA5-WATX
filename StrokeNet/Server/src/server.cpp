@@ -52,47 +52,6 @@ namespace
         std::lock_guard lock(s_ostreamMutex);
         os << msg << '\n';
     }
-    std::string wsaErrorStr()
-    {
-        int err = WSAGetLastError();
-        char* msg = nullptr;
-
-        FormatMessageA(
-            FORMAT_MESSAGE_ALLOCATE_BUFFER |
-            FORMAT_MESSAGE_FROM_SYSTEM |
-            FORMAT_MESSAGE_IGNORE_INSERTS,
-            nullptr,
-            err,
-            0,
-            (LPSTR)&msg,
-            0,
-            nullptr
-        );
-
-        std::string result = msg ? msg : "Unknown error";
-        LocalFree(msg);
-        return result;
-    }
-    bool isRecoverableWSAError(int err)
-    {
-        switch (err)
-        {
-            // --- Non-fatal / expected conditions ---
-        case WSAEWOULDBLOCK:     // no data available (non-blocking socket)
-        case WSAEINTR:           // interrupted call
-        case WSAETIMEDOUT:       // timeout (common for UDP)
-        case WSAECONNRESET:      // UDP: ICMP port unreachable
-        case WSAENETRESET:       // connection dropped temporarily
-        case WSAENOBUFS:         // buffer pressure, can retry
-        case WSAEINPROGRESS:     // async still in progress
-        case WSAEALREADY:        // operation already ongoing
-            return true;
-
-            // --- Everything else: treat as fatal ---
-        default:
-            return false;
-        }
-    }
 }
 
 Server::Server()
@@ -151,8 +110,7 @@ Server::Server()
     inet_ntop(AF_INET, &(ipv4->sin_addr), ipStr, sizeof(ipStr));
     _ip = ipStr;
     freeaddrinfo(result);
-
-    std::cout << "Listening on " << _ip << ":" << _portHostOrder << '\n';
+    threadSafeOStream(std::cout, std::format("Server: {}:{}", _ip, _portHostOrder));
 }
 Server::~Server() 
 {
@@ -316,9 +274,9 @@ void Server::actualStartListening(std::stop_token st) noexcept
     _threadFinished = true;
 }
 
-Server::SessionId Server::getNextSessionIdHostOrder()
+SessionId Server::getNextSessionIdHostOrder()
 {
-    assert(_nextSessionIdHostOrder > 0 && "Ran out of session ids!");
+    assert(_nextSessionIdHostOrder != InvalidSessionId && "Ran out of session ids!");
     return _nextSessionIdHostOrder++;
 }
 
