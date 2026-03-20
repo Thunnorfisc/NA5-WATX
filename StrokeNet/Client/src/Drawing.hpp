@@ -6,9 +6,9 @@ struct Point {
 };
 
 struct Stroke {
-	uint32_t id;
+	uint32_t id{};
 	sf::Color colour;
-	float thickness;
+	float thickness{ 1.0f };
 	std::vector<Point> points;
 };
 
