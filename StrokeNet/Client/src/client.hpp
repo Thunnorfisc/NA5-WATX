@@ -20,10 +20,12 @@
 class Client
 {
 public:
-    Client();
-    ~Client();
+    static void initalize();
+    static void terminate();
+
+    static void connect(std::string serverIp, std::string serverPort);
 private:
-    SOCKET _socket = INVALID_SOCKET;
-    unsigned _portHostOrder = 0;
-    std::string _ip;
+    static inline SOCKET _socket = INVALID_SOCKET;
+    static inline unsigned _portHostOrder = 0;
+    static inline std::string _ip;
 };

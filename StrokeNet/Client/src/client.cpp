@@ -25,7 +25,7 @@ namespace
         os << msg << '\n';
     }
 }
-Client::Client()
+void Client::initalize()
 {
     constexpr int winsockMajorVersion = 2;
     constexpr int winsockMinorVersion = 2;
@@ -84,8 +84,13 @@ Client::Client()
     threadSafeOStream(std::cout, std::format("Client: {}:{}", _ip, _portHostOrder));
 }
 
-Client::~Client()
+void Client::terminate()
 {
     if (_socket != INVALID_SOCKET) closesocket(_socket);
     WSACleanup();
+}
+
+void Client::connect(std::string serverIp, std::string serverPort)
+{
+
 }
