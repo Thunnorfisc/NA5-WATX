@@ -45,11 +45,11 @@
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <LibraryPath>$(SolutionDir)extern/SFML-3.0.2/lib;$(LibraryPath)</LibraryPath>
-    <OutDir>$(SolutionDir)ClientApp\$(Platform)\$(Configuration)\</OutDir>
+    <OutDir>$(SolutionDir)bin\$(Configuration)\</OutDir>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LibraryPath>$(SolutionDir)extern/SFML-3.0.2/lib;$(LibraryPath)</LibraryPath>
-    <OutDir>$(SolutionDir)ClientApp\$(Platform)\$(Configuration)\</OutDir>
+    <OutDir>$(SolutionDir)bin\$(Configuration)\</OutDir>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
