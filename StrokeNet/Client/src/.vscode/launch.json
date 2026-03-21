@@ -1,0 +1,24 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "C/C++ Runner: Debug Session",
+      "type": "cppdbg",
+      "request": "launch",
+      "args": [],
+      "stopAtEntry": false,
+      "externalConsole": true,
+      "cwd": "c:/Users/user/University/Year 2/Trimester 2/Computer Networks (CSD2161)/ASsignment 5/NA5-WATX/StrokeNet/Client/src",
+      "program": "c:/Users/user/University/Year 2/Trimester 2/Computer Networks (CSD2161)/ASsignment 5/NA5-WATX/StrokeNet/Client/src/build/Debug/outDebug",
+      "MIMode": "gdb",
+      "miDebuggerPath": "gdb",
+      "setupCommands": [
+        {
+          "description": "Enable pretty-printing for gdb",
+          "text": "-enable-pretty-printing",
+          "ignoreFailures": true
+        }
+      ]
+    }
+  ]
+}
