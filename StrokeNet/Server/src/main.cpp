@@ -13,6 +13,7 @@
     /* End Header
     ***********************************************************************/
 #include "server.hpp"
+#include "shared_protocol.hpp"
 
 #include <Windows.h>
 #include <Shlwapi.h>
@@ -44,12 +45,22 @@ int main()
         std::filesystem::current_path(buffer);
 
         Server server;
+
+        auto handleCanvasDrawCommandFn = [&server](SessionId sessionIdHostOrder,
+            const CanvasDrawState& cds)
+            {
+                // should determine if the client can draw using session id
+                // to determine turn
+                server.sendCanvasDrawState(cds); 
+                // will need to refactor later
+            };
+        auto handleCanvasFnId = server.registerCdsFn(handleCanvasDrawCommandFn);
         server.startListening();
         while (!server.isListeningThreadFinished())
         {
-            // game is running
-            // do game logic here...
+            
         }
+        server.deregisterCdsFn(handleCanvasFnId);
     }
     catch (const std::exception& e)
     {

@@ -135,6 +135,247 @@ bool Server::isListeningThreadFinished() noexcept
     return _threadFinished;
 }
 
+void Server::sendCanvasDrawState(const CanvasDrawState& cds)
+{
+    std::vector<char> msg;
+    switch (cds._type)
+    {
+        using enum MessageType;
+    case PF_START_STROKE:
+    {
+        // 1 for id
+        // 8 for header (seq + session id)
+        // 13 for actual payload
+        msg.resize(1 + 8 + 13);
+        msg[0] = static_cast<char>(cds._type);
+        auto sequenceNumberNetworkOrder = htonl(cds._sqNumberHostOrder);
+        //std::memcpy(msg.data() + 1, ) // SESSION ID FILL IN LATER
+        std::memcpy(msg.data() + 5, &sequenceNumberNetworkOrder, sizeof(sequenceNumberNetworkOrder));
+
+        std::uint32_t idNetworkOrder;
+        std::uint16_t mxNetworkOrder;
+        std::uint16_t myNetworkOrder;
+        //std::uint8_t r;
+        //std::uint8_t g;
+        //std::uint8_t b;
+        //std::uint8_t a;
+        //std::uint8_t t;
+        std::memcpy(&idNetworkOrder, cds._msg.data(), sizeof(idNetworkOrder));
+        std::memcpy(&mxNetworkOrder, cds._msg.data() + 4, sizeof(mxNetworkOrder));
+        std::memcpy(&myNetworkOrder, cds._msg.data() + 6, sizeof(myNetworkOrder));
+        //std::memcpy(&r, cds._msg.data() + 8, 1);
+        //std::memcpy(&g, cds._msg.data() + 9, 1);
+        //std::memcpy(&b, cds._msg.data() + 10, 1);
+        //std::memcpy(&a, cds._msg.data() + 11, 1);
+        //std::memcpy(&t, cds._msg.data() + 12, 1);
+        idNetworkOrder = htonl(idNetworkOrder);
+        mxNetworkOrder = htons(mxNetworkOrder);
+        myNetworkOrder = htons(myNetworkOrder);
+
+        std::memcpy(msg.data() + 9, &idNetworkOrder, sizeof(idNetworkOrder));
+        std::memcpy(msg.data() + 13, &mxNetworkOrder, sizeof(mxNetworkOrder));
+        std::memcpy(msg.data() + 15, &myNetworkOrder, sizeof(myNetworkOrder));
+        std::memcpy(msg.data() + 17, cds._msg.data() + 8, 5);
+        break;
+    }
+    case PF_ADD_POINT:
+    {
+        // 1 for id
+        // 8 for header (seq + session id)
+        // 4 for actual payload
+        msg.resize(1 + 8 + 4);
+        msg[0] = static_cast<char>(cds._type);
+        auto sequenceNumberNetworkOrder = htonl(cds._sqNumberHostOrder);
+        //std::memcpy(msg.data() + 1, ) // SESSION ID FILL IN LATER
+        std::memcpy(msg.data() + 5, &sequenceNumberNetworkOrder, sizeof(sequenceNumberNetworkOrder));
+        
+        std::uint16_t mxNetworkOrder;
+        std::uint16_t myNetworkOrder;
+
+        std::memcpy(&mxNetworkOrder, cds._msg.data(), sizeof(mxNetworkOrder));
+        std::memcpy(&myNetworkOrder, cds._msg.data() + 2, sizeof(myNetworkOrder));
+
+        mxNetworkOrder = htons(mxNetworkOrder);
+        myNetworkOrder = htons(myNetworkOrder);
+
+        std::memcpy(msg.data() + 9, &mxNetworkOrder, sizeof(mxNetworkOrder));
+        std::memcpy(msg.data() + 11, &myNetworkOrder, sizeof(myNetworkOrder));
+        break;
+    }
+    case PF_END_STROKE:
+    {
+        // 1 for id
+        // 8 for header (seq + session id)
+        msg.resize(1 + 8);
+        msg[0] = static_cast<char>(cds._type);
+        auto sequenceNumberNetworkOrder = htonl(cds._sqNumberHostOrder);
+        //std::memcpy(msg.data() + 1, ) // SESSION ID FILL IN LATER
+        std::memcpy(msg.data() + 5, &sequenceNumberNetworkOrder, sizeof(sequenceNumberNetworkOrder));
+        break;
+    }
+    default:
+    {
+        assert(false && "Send canvas draw state is only meant for certain message types");
+    }
+    }
+    for (const auto& [sessionIdHostOrder, client] : _sessionIdToClient)
+    {
+        // update session id
+        SessionId sessionIdNetworkOrder = htonl(sessionIdHostOrder);
+        std::memcpy(msg.data() + 1, &sessionIdNetworkOrder, sizeof(sessionIdNetworkOrder));
+    for (int attempt = 0; attempt < _maxRetry; ++attempt)
+    {
+
+        int sentBytes = sendto(
+            _socket,
+            msg.data(),
+            static_cast<int>(msg.size()),
+            0,
+            reinterpret_cast<const sockaddr*>(&client.sa),
+            sizeof(client.sa)
+        );
+
+        if (sentBytes == SOCKET_ERROR)
+        {
+            const int err = WSAGetLastError();
+            if (isRecoverableWSAError(err))
+            {
+                continue;
+            }
+
+            threadSafeOStream(
+                std::cerr,
+                std::format("[Server] sendto() failed: {}", wsaErrorStr())
+            );
+            return;
+        }
+        else
+        {
+            return; // success
+        }
+    }
+    threadSafeOStream(std::cerr,
+        std::format("[Server] Failed to send canvas state to client {}",client.ipPort));
+    }
+}
+
+Server::RegCdsFnId Server::registerCdsFn(std::function<void(SessionId sessionIdHostOrder,const CanvasDrawState&)> fn)
+{
+    std::lock_guard lock(_cdsFnsMutex);
+    _cdsFns.emplace(_nextRegCdsFnId, fn);
+    return _nextRegCdsFnId++;
+}
+
+void Server::deregisterCdsFn(RegCdsFnId id)
+{
+    std::lock_guard lock(_cdsFnsMutex);
+    auto it = _cdsFns.find(id);
+    if (it == _cdsFns.end())
+    {
+        threadSafeOStream(std::cerr,
+            std::format("[Server] Requested to deregister callback function but id is not found: {}", id));
+        return;
+    }
+    _cdsFns.erase(it);
+    return;
+}
+
+void Server::handle_pfStartStroke(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
+{
+    assert(udpPacketWithoutMID.size() == 21 && "Start stroke size is wrong");
+    SessionId sessionIdHostOrder;
+    SequenceNumber sequenceNumberHostOrder;
+    std::memcpy(&sessionIdHostOrder, udpPacketWithoutMID.data(), sizeof(sessionIdHostOrder));
+    std::memcpy(&sequenceNumberHostOrder, udpPacketWithoutMID.data() + 4, sizeof(sequenceNumberHostOrder));
+    
+    sessionIdHostOrder = ntohl(sessionIdHostOrder);
+    sequenceNumberHostOrder = ntohl(sequenceNumberHostOrder);
+    // TODO : VALIDATE SEQUENCE NUMBER
+
+    std::uint32_t idHostOrder;
+    std::uint16_t mxHostOrder, myHostOrder;
+    std::uint8_t r, g, b, a, t;
+
+    std::memcpy(&idHostOrder, udpPacketWithoutMID.data() + 8, sizeof(idHostOrder));
+    std::memcpy(&mxHostOrder, udpPacketWithoutMID.data() + 12, sizeof(mxHostOrder));
+    std::memcpy(&myHostOrder, udpPacketWithoutMID.data() + 14, sizeof(myHostOrder));
+
+    idHostOrder = ntohl(idHostOrder);
+    mxHostOrder = ntohs(mxHostOrder);
+    myHostOrder = ntohs(myHostOrder);
+
+    std::memcpy(&r, udpPacketWithoutMID.data() + 16, sizeof(r));
+    std::memcpy(&g, udpPacketWithoutMID.data() + 17, sizeof(g));
+    std::memcpy(&b, udpPacketWithoutMID.data() + 18, sizeof(b));
+    std::memcpy(&a, udpPacketWithoutMID.data() + 19, sizeof(a));
+    std::memcpy(&t, udpPacketWithoutMID.data() + 20, sizeof(t));
+
+    CanvasDrawState cds;
+    cds._sqNumberHostOrder = sequenceNumberHostOrder;
+    cds._type = MessageType::PF_START_STROKE;
+    cds._msg.resize(13);
+    
+    std::memcpy(cds._msg.data(), &idHostOrder, sizeof(idHostOrder));
+    std::memcpy(cds._msg.data() + 4, &mxHostOrder, sizeof(mxHostOrder));
+    std::memcpy(cds._msg.data() + 6, &myHostOrder, sizeof(myHostOrder));
+    std::memcpy(cds._msg.data() + 8, &r, sizeof(r));
+    std::memcpy(cds._msg.data() + 9, &g, sizeof(g));
+    std::memcpy(cds._msg.data() + 10, &b, sizeof(b));
+    std::memcpy(cds._msg.data() + 11, &a, sizeof(a));
+    std::memcpy(cds._msg.data() + 12, &t, sizeof(t));
+    handle_CanvasDrawingCommand(cds, sessionIdHostOrder);
+}
+
+void Server::handle_pfAddPoint(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
+{
+    assert(udpPacketWithoutMID.size() == 12 && "Add point size is wrong");
+    SessionId sessionIdHostOrder;
+    SequenceNumber sequenceNumberHostOrder;
+    std::memcpy(&sessionIdHostOrder, udpPacketWithoutMID.data(), sizeof(sessionIdHostOrder));
+    std::memcpy(&sequenceNumberHostOrder, udpPacketWithoutMID.data() + 4, sizeof(sequenceNumberHostOrder));
+
+    sessionIdHostOrder = ntohl(sessionIdHostOrder);
+    sequenceNumberHostOrder = ntohl(sequenceNumberHostOrder);
+
+    std::uint16_t mxHostOrder, myHostOrder;
+    std::memcpy(&mxHostOrder, udpPacketWithoutMID.data() + 8, sizeof(mxHostOrder));
+    std::memcpy(&myHostOrder, udpPacketWithoutMID.data() + 10, sizeof(myHostOrder));
+    mxHostOrder = ntohs(mxHostOrder);
+    myHostOrder = ntohs(myHostOrder);
+
+    CanvasDrawState cds;
+    cds._sqNumberHostOrder = sequenceNumberHostOrder;
+    cds._type = MessageType::PF_ADD_POINT;
+    cds._msg.resize(4);
+
+    std::memcpy(cds._msg.data(), &mxHostOrder, sizeof(mxHostOrder));
+    std::memcpy(cds._msg.data() + 2, &myHostOrder, sizeof(myHostOrder));
+    handle_CanvasDrawingCommand(cds, sessionIdHostOrder);
+}
+
+void Server::handle_pfEndStroke(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
+{
+    assert(udpPacketWithoutMID.size() == 8 && "End stroke size is wrong");
+    SessionId sessionIdHostOrder;
+    SequenceNumber sequenceNumberHostOrder;
+    std::memcpy(&sessionIdHostOrder, udpPacketWithoutMID.data(), sizeof(sessionIdHostOrder));
+    std::memcpy(&sequenceNumberHostOrder, udpPacketWithoutMID.data() + 4, sizeof(sequenceNumberHostOrder));
+
+    sessionIdHostOrder = ntohl(sessionIdHostOrder);
+    sequenceNumberHostOrder = ntohl(sequenceNumberHostOrder);
+
+    CanvasDrawState cds;
+    cds._sqNumberHostOrder = sequenceNumberHostOrder;
+    cds._type = MessageType::PF_END_STROKE;
+    handle_CanvasDrawingCommand(cds, sessionIdHostOrder);
+}
+
+void Server::handle_CanvasDrawingCommand(CanvasDrawState cds, SessionId sessionIdHostOrder)
+{
+    std::lock_guard lock(_cdsFnsMutex);
+    for (const auto& [_ignore, fns] : _cdsFns) fns(sessionIdHostOrder, cds);
+}
+
 void Server::handle_reqRegister(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
 {
     char ipStr[INET_ADDRSTRLEN]{};
@@ -177,7 +418,11 @@ void Server::handle_reqRegister(std::span<const char> udpPacketWithoutMID, socka
     }
     if (success)
     {
-        auto [_ignore,succeed] = _sessionIdToIpPort.emplace(std::make_pair(sessionIdHostOrder, ipStrAndPort));
+        auto [_ignore,succeed] = _sessionIdToClient.emplace(
+            std::make_pair(
+                sessionIdHostOrder,
+                Client{ .ipPort = ipStrAndPort, .sa = *sa }
+            ));
         assert(succeed && "Session id registration has logic error");
         threadSafeOStream(std::cout, std::format("[Server] Client: {} connected", ipStrAndPort));
     }
@@ -234,21 +479,6 @@ void Server::handle_pfInputState(std::span<const char> udpPacketWithoutMID, sock
     inputBitsHostOrder = ntohl(inputBitsHostOrder);
     mousePositionHostOrder[0] = ntohs(mousePositionHostOrder[0]);
     mousePositionHostOrder[1] = ntohs(mousePositionHostOrder[1]);
-
-    //threadSafeOStream(std::cout,
-    //    std::format("[Server] Session id {} mouse is at x: {} | y: {}",
-    //        sessionIdHostOrder,
-    //        mousePositionHostOrder[0],
-    //        mousePositionHostOrder[1]));
-
-    bool leftDown = test(inputBitsHostOrder, InputState::Input::LMOUSE);
-    if (leftDown)
-    {
-        threadSafeOStream(std::cout,std::format("[Server] Session id {} left click down",
-            sessionIdHostOrder));
-    }
-    else threadSafeOStream(std::cout, std::format("[Server] Session id {} NOT left click down",
-        sessionIdHostOrder));
 }
 
 void Server::actualStartListening(std::stop_token st) noexcept
@@ -317,19 +547,19 @@ SessionId Server::getNextSessionIdHostOrder()
 
 bool Server::destroySessionIdHostOrder(SessionId id, std::string ipPort)
 {
-    auto it3 = _sessionIdToIpPort.find(id);
-    if (it3 == _sessionIdToIpPort.end())
+    auto it3 = _sessionIdToClient.find(id);
+    if (it3 == _sessionIdToClient.end())
     {
         threadSafeOStream(std::cerr,
             std::format("[Server] Client {}: Requested to destroy a session id that is not active!!!!!",ipPort));
         return false;
     }
-    if (it3->second != ipPort)
+    if (it3->second.ipPort != ipPort)
     {
         threadSafeOStream(std::cerr,
             std::format("[Server] Client {}: Requested to destroy a session id that is not theirs.",ipPort));
         return false;
     }
-    _sessionIdToIpPort.erase(it3);
+    _sessionIdToClient.erase(it3);
     return true;
 }

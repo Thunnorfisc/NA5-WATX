@@ -5,9 +5,10 @@
 #include <Shlwapi.h>
 
 #include <string>
+#include <thread>
 #include <stdexcept>
+#include <stop_token>
 #include <filesystem>
-
 int main()
 {
     // set executable path as the working directory
@@ -21,9 +22,24 @@ int main()
     }
     PathRemoveFileSpecA(buffer);
     std::filesystem::current_path(buffer);
+    std::stop_source ss;
+
 
     Client::initalize();
-    Client::connect("192.168.68.56", "60895");
+    Client::connect("192.168.68.56", "54308");
+    std::jthread listeningThread{
+        [st = ss.get_token()]()
+        {
+            Client::startListening(st);
+        }
+    };
     playGame();
+
+    if (listeningThread.joinable())
+    {
+        ss.request_stop();
+        listeningThread.join();
+    }
+
     Client::terminate();
 }
