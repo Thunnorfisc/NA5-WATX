@@ -23,6 +23,7 @@ int main()
     std::filesystem::current_path(buffer);
 
     Client::initalize();
+    Client::connect("192.168.68.56", "60895");
     playGame();
     Client::terminate();
 }

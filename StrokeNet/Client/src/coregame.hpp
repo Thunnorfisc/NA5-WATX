@@ -1,7 +1,6 @@
 #pragma once
-
+#include "shared_protocol.hpp"
 #include "state.hpp"
-#include "network.hpp"
 #include "Drawing.hpp"
 #include <optional>
 
@@ -33,6 +32,8 @@ private:
     Stroke currentStroke;
     RenderStroke currentRender;
     bool isDrawing = false;
-
     uint32_t nextId = 1;
+
+    // For networking
+    SequenceNumber sequenceNumber = 1;
 };

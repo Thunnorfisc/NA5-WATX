@@ -52,12 +52,14 @@ private:
 
     void handle_reqRegister(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
     void handle_reqUnregister(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
+    void handle_pfInputState(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
 
     using MessageFn = void(Server::*)(std::span<const char>, sockaddr_in*);
     const std::unordered_map<MessageType, MessageFn> _messageTypeFns
     {
         std::make_pair(MessageType::REQ_REGISTER,&Server::handle_reqRegister),
-        std::make_pair(MessageType::REQ_UNREGISTER,&Server::handle_reqUnregister)
+        std::make_pair(MessageType::REQ_UNREGISTER,&Server::handle_reqUnregister),
+        std::make_pair(MessageType::PF_INPUTSTATE,&Server::handle_pfInputState)
     };
 
     // right now, if client misbehaves and keeps sending

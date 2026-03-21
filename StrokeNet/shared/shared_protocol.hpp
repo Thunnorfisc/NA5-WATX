@@ -1,8 +1,15 @@
 #pragma once
+#include <array>
 #include <string>
+#include <bitset>
 #include <cstdint>
+#include <cstddef>
+#include <cassert>
 // ========================================== PROTOCOL STUFF START
-using SessionId = std::uint32_t;
+using SessionId = std::uint32_t; // 2 ^ 32 sessions
+using SequenceNumber = std::uint32_t; // 2 ^ 32 sequences
+using InputBits = std::uint32_t;
+using MousePosition = std::array<std::uint16_t, 2>;
 inline constexpr SessionId InvalidSessionId = 0;
 inline constexpr std::size_t MaxUdpPacketBytes = 65'536;
 enum class MessageType : std::uint8_t
@@ -12,15 +19,54 @@ enum class MessageType : std::uint8_t
     REQ_UNREGISTER,
 
     // need to handle rsp_unregister...
+
+    PF_INPUTSTATE
 };
 struct GameState
 {
 
 };
+
 struct InputState
 {
-
+    enum class Input { LMOUSE = 0 };
+    SequenceNumber currentSequenceNumber;
+    InputBits currentInput = static_cast<InputBits>(0);
+    MousePosition currentMousePos;
+    constexpr static inline std::size_t SIZE_OF_INPUT_STATE =
+        sizeof(currentSequenceNumber) + sizeof(currentInput) +
+        sizeof(currentMousePos);
 };
+// helpers for input bits
+inline void setBit(InputBits& inputBits,std::uint8_t index)
+{
+    assert((index < sizeof(InputBits) * 8) && "Index passed in must be less than 32!");
+    InputBits mask = static_cast<InputBits>(1) << index;
+    inputBits |= mask;
+}
+inline void setAllBits(InputBits& inputBits)
+{
+    inputBits = ~static_cast<InputBits>(0);
+}
+inline void clearBit(InputBits& inputBits, std::uint8_t index)
+{
+    assert((index < sizeof(InputBits) * 8) && "Index passed in must be less than 32!");
+    InputBits mask = ~(static_cast<InputBits>(1) << index);
+    inputBits &= mask;
+}
+inline void clearAllBits(InputBits& inputBits)
+{
+    inputBits = static_cast<InputBits>(0);
+}
+inline bool test(const InputBits& inputBits,std::uint8_t index)
+{
+    assert((index < sizeof(InputBits) * 8) && "Index passed in must be less than 32!");
+    return static_cast<bool>((inputBits >> index) & static_cast<InputBits>(1));
+}
+inline bool test(const InputBits& inputBits, InputState::Input input)
+{
+    return test(inputBits,static_cast<std::uint8_t>(input));
+}
 // ========================================== PROTOCOL STUFF END
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
