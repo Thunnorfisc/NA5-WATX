@@ -1,25 +1,5 @@
 #include "game.hpp"
-#include "network.hpp"
-
 #include <optional>
-
-namespace
-{
-    class NetworkSession
-    {
-    public:
-        NetworkSession()
-        {           
-            initNetwork();
-        }
-
-        ~NetworkSession()
-        {
-            terminateNetwork();
-        }
-    };
-}
-
 Game::Game() :
     m_window(sf::VideoMode({ 1600, 900 }), "Testing window"),
     m_stateContext{ m_window },
@@ -31,7 +11,6 @@ Game::Game() :
 
 void Game::run()
 {
-    NetworkSession networkSession;
     sf::Clock deltaClock;
 
     while (m_window.isOpen())
@@ -57,7 +36,7 @@ void Game::processEvents()
             m_window.close();
             continue;
         }
-
+        
         m_stateMachine.handleEvent(*event);
     }
 

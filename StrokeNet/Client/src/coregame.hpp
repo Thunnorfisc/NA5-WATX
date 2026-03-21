@@ -1,7 +1,6 @@
 #pragma once
-
+#include "shared_protocol.hpp"
 #include "state.hpp"
-#include "network.hpp"
 #include "Drawing.hpp"
 #include "Canvas.hpp"
 #include <optional>
@@ -30,4 +29,13 @@ private:
     bool m_shouldReturnToMenu = false;
 
     Canvas m_canvas;
+    // THESE ARE TO BE REFACTORED
+    Drawing drawing;
+    Stroke currentStroke;
+    RenderStroke currentRender;
+    bool isDrawing = false;
+    uint32_t nextId = 1;
+
+    // For networking
+    SequenceNumber sequenceNumber = 1;
 };

@@ -216,6 +216,41 @@ void Server::handle_reqUnregister(std::span<const char> udpPacketWithoutMID, soc
     return;
 }
 
+void Server::handle_pfInputState(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
+{
+    SessionId sessionIdHostOrder;
+    SequenceNumber sqNumberHostOrder;
+    InputBits inputBitsHostOrder;
+    MousePosition mousePositionHostOrder;
+
+    std::memcpy(&sessionIdHostOrder, udpPacketWithoutMID.data(), sizeof(sessionIdHostOrder));
+    std::memcpy(&sqNumberHostOrder, udpPacketWithoutMID.data() + 4, sizeof(sqNumberHostOrder));
+    std::memcpy(&inputBitsHostOrder, udpPacketWithoutMID.data() + 8, sizeof(inputBitsHostOrder));
+    std::memcpy(mousePositionHostOrder.data(), udpPacketWithoutMID.data() + 12,
+        mousePositionHostOrder.size() * sizeof(mousePositionHostOrder[0]));
+
+    sessionIdHostOrder = ntohl(sessionIdHostOrder);
+    sqNumberHostOrder = ntohl(sqNumberHostOrder);
+    inputBitsHostOrder = ntohl(inputBitsHostOrder);
+    mousePositionHostOrder[0] = ntohs(mousePositionHostOrder[0]);
+    mousePositionHostOrder[1] = ntohs(mousePositionHostOrder[1]);
+
+    //threadSafeOStream(std::cout,
+    //    std::format("[Server] Session id {} mouse is at x: {} | y: {}",
+    //        sessionIdHostOrder,
+    //        mousePositionHostOrder[0],
+    //        mousePositionHostOrder[1]));
+
+    bool leftDown = test(inputBitsHostOrder, InputState::Input::LMOUSE);
+    if (leftDown)
+    {
+        threadSafeOStream(std::cout,std::format("[Server] Session id {} left click down",
+            sessionIdHostOrder));
+    }
+    else threadSafeOStream(std::cout, std::format("[Server] Session id {} NOT left click down",
+        sessionIdHostOrder));
+}
+
 void Server::actualStartListening(std::stop_token st) noexcept
 {
     std::vector<char> udpPacket;
