@@ -1,9 +1,10 @@
+#include "client.hpp"
 #include "coregame.hpp"
-
 #include "state_machine.hpp"
 
 #include <algorithm>
 
+#undef min // stupid microsoft
 namespace
 {
     void centerText(sf::Text& text, sf::Vector2f position)
@@ -91,8 +92,19 @@ void CoreGameState::handleEvent(const sf::Event& event)
 
 void CoreGameState::update(sf::Time)
 {
-    m_gameState = tryGetGameState();
-    sendInputState(m_inputState);
+    //m_gameState = tryGetGameState();
+
+    // create a new input state and send over to the server
+    InputState is;
+    // handle key / mouse presses
+    if (sf::Mouse::isButtonPressed(sf::Mouse::Button::Left)) 
+        setBit(is.currentInput,static_cast<std::uint8_t>(InputState::Input::LMOUSE));
+    // handle mouse position
+    auto [mx, my] = sf::Mouse::getPosition(context().window);
+    is.currentMousePos[0] = static_cast<MousePosition::value_type>(mx);
+    is.currentMousePos[1] = static_cast<MousePosition::value_type>(my);
+    is.currentSequenceNumber = sequenceNumber;
+    Client::sendInputState(is);
 
     updateLayout();
 
@@ -101,6 +113,7 @@ void CoreGameState::update(sf::Time)
         m_shouldReturnToMenu = false;
         requestStateChange(StateId::MainMenu);
     }
+    sequenceNumber++;
 }
 
 void CoreGameState::render()

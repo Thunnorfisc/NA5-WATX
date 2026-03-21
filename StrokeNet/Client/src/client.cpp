@@ -113,6 +113,7 @@ bool Client::connect(std::string serverIp, std::string serverPort)
         threadSafeOStream(std::cerr, std::format("[Client] Tried to connect with an invalid ip {}",serverIp));
         return false;
     }
+    _serverAddr = addr;
     std::vector<char> udpPacket;
     udpPacket.resize(MaxUdpPacketBytes);
     for (int attempt = 0; attempt < _maxRetries; ++attempt)
@@ -124,8 +125,8 @@ bool Client::connect(std::string serverIp, std::string serverPort)
             &mid,
             1,
             0,
-            reinterpret_cast<sockaddr*>(&addr),
-            sizeof(addr)
+            reinterpret_cast<sockaddr*>(&_serverAddr),
+            sizeof(_serverAddr)
         );
 
         if (sentBytes == SOCKET_ERROR)
@@ -235,4 +236,59 @@ bool Client::connect(std::string serverIp, std::string serverPort)
         return true;
     }
     return false;
+}
+
+void Client::sendInputState(const InputState& inputState)
+{
+    std::vector<char> msg;
+    // +1 for the message type, +4 for session id
+    msg.resize(InputState::SIZE_OF_INPUT_STATE + 1 + sizeof(SessionId));
+    msg[0] = static_cast<char>(static_cast<std::uint8_t>(MessageType::PF_INPUTSTATE));
+    SessionId sessionIdNetworkOrder = htonl(_sessionId);
+    std::memcpy(msg.data() + 1, &sessionIdNetworkOrder, sizeof(sessionIdNetworkOrder));
+    SequenceNumber sqNumberNetworkOrder = htonl(inputState.currentSequenceNumber);
+    std::memcpy(msg.data() + 5, &sqNumberNetworkOrder, sizeof(sqNumberNetworkOrder));
+    InputBits inputBitsNetworkOrder = htonl(inputState.currentInput);
+    std::memcpy(msg.data() + 9,&inputBitsNetworkOrder,sizeof(inputBitsNetworkOrder));
+    std::uint16_t mouseXNetworkOrder = htons(inputState.currentMousePos[0]);
+    std::uint16_t mouseYNetworkOrder = htons(inputState.currentMousePos[1]);
+    std::memcpy(msg.data() + 13, &mouseXNetworkOrder, sizeof(mouseXNetworkOrder));
+    std::memcpy(msg.data() + 15, &mouseYNetworkOrder, sizeof(mouseYNetworkOrder));
+    for (int attempt = 0; attempt < _maxRetries; ++attempt)
+    {
+        int sentBytes = sendto(
+            _socket,
+            msg.data(),
+            static_cast<int>(msg.size()),
+            0,
+            reinterpret_cast<sockaddr*>(&_serverAddr),
+            sizeof(_serverAddr)
+        );
+
+        if (sentBytes == SOCKET_ERROR)
+        {
+            const int err = WSAGetLastError();
+            if (isRecoverableWSAError(err))
+            {
+                continue;
+            }
+
+            threadSafeOStream(
+                std::cerr,
+                std::format("[Client] sendto() failed: {}", wsaErrorStr())
+            );
+            return;
+        }
+        else
+        {
+            //threadSafeOStream(std::cout,
+            //    std::format("[Client] Successfully sent input state for sequence {} on attempt {}",
+            //        inputState.currentSequenceNumber, attempt + 1));
+            return;
+        }
+    }
+    threadSafeOStream(std::cerr,
+        std::format("[Client] Failed to send input state for sequence {}",
+            inputState.currentSequenceNumber));
+    return;
 }

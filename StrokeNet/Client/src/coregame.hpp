@@ -1,7 +1,6 @@
 #pragma once
-
+#include "shared_protocol.hpp"
 #include "state.hpp"
-#include "network.hpp"
 #include "Drawing.hpp"
 #include "Canvas.hpp"
 #include "ColourPicker.hpp"
@@ -32,4 +31,6 @@ private:
 
     Canvas m_canvas;
     ColourPicker m_cpicker;
+    // For networking
+    SequenceNumber sequenceNumber = 1;
 };
