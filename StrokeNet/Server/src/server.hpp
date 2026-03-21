@@ -44,8 +44,9 @@ private:
     std::atomic<bool> _threadFinished = false;
     std::stop_source _stopSource;
 
-    const int _maxUdpSizeBytes = 65'536;
     const int _maxRetry = 5;
+
+    const double _recvTimeOut = 0.1;
 
     SessionId _nextSessionIdHostOrder = InvalidSessionId + 1;
 

@@ -4,11 +4,14 @@
 // ========================================== PROTOCOL STUFF START
 using SessionId = std::uint32_t;
 inline constexpr SessionId InvalidSessionId = 0;
+inline constexpr std::size_t MaxUdpPacketBytes = 65'536;
 enum class MessageType : std::uint8_t
 {
     REQ_REGISTER = 1,
     RSP_REGISTER,
     REQ_UNREGISTER,
+
+    // need to handle rsp_unregister...
 };
 struct GameState
 {

@@ -22,6 +22,7 @@ int main()
     PathRemoveFileSpecA(buffer);
     std::filesystem::current_path(buffer);
 
-    Client client;
+    Client::initalize();
     playGame();
+    Client::terminate();
 }

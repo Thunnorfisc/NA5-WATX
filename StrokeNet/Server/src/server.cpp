@@ -67,13 +67,13 @@ Server::Server()
 
     if (iResult != 0)
     {
-        std::string err = std::format("WSAStartup failed: {}", iResult);
+        std::string err = std::format("[Server] WSAStartup failed: {}", iResult);
         throw std::runtime_error(err);
     }
 
     _socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (_socket == INVALID_SOCKET) 
-        throw std::runtime_error(std::format("socket() failed, unable to set up udp socket: {}", wsaErrorStr()));
+        throw std::runtime_error(std::format("[Server] socket() failed, unable to set up udp socket: {}", wsaErrorStr()));
 
     sockaddr_in addr{};
     addr.sin_family = AF_INET; // ipv4
@@ -81,20 +81,20 @@ Server::Server()
     addr.sin_port = htons(0);
 
     if (bind(_socket, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == SOCKET_ERROR) 
-        throw std::runtime_error(std::format("bind() failed, unable to set up udp socket: {}", wsaErrorStr()));
+        throw std::runtime_error(std::format("[Server] bind() failed, unable to set up udp socket: {}", wsaErrorStr()));
 
     // get port
     sockaddr_in boundAddr{};
     int boundAddrLen = sizeof(boundAddr);
     if (getsockname(_socket, reinterpret_cast<sockaddr*>(&boundAddr), &boundAddrLen) == SOCKET_ERROR)
-        throw std::runtime_error(std::format("getsockname() failed, unable to setup udp socket: {}", wsaErrorStr()));
+        throw std::runtime_error(std::format("[Server] getsockname() failed, unable to setup udp socket: {}", wsaErrorStr()));
 
     _portHostOrder = ntohs(boundAddr.sin_port);
 
     // get machine host name
     char hostName[256]{};
     if (gethostname(hostName, sizeof(hostName)) == SOCKET_ERROR)
-        throw std::runtime_error(std::format("gethostname() failed, unable to setup udp socket: {}", wsaErrorStr()));
+        throw std::runtime_error(std::format("[Server] gethostname() failed, unable to setup udp socket: {}", wsaErrorStr()));
 
     addrinfo hints{};
     hints.ai_family = AF_INET;
@@ -103,14 +103,14 @@ Server::Server()
 
     addrinfo* result = nullptr;
     if (getaddrinfo(hostName, nullptr, &hints, &result) != 0)
-        throw std::runtime_error(std::format("getaddrinfo() failed, unable to setup udp socket"));
+        throw std::runtime_error(std::format("[Server] getaddrinfo() failed, unable to setup udp socket"));
 
     char ipStr[INET_ADDRSTRLEN]{};
     auto* ipv4 = reinterpret_cast<sockaddr_in*>(result->ai_addr);
     inet_ntop(AF_INET, &(ipv4->sin_addr), ipStr, sizeof(ipStr));
     _ip = ipStr;
     freeaddrinfo(result);
-    threadSafeOStream(std::cout, std::format("Server: {}:{}", _ip, _portHostOrder));
+    threadSafeOStream(std::cout, std::format("[Server]: {}:{}", _ip, _portHostOrder));
 }
 Server::~Server() 
 {
@@ -123,7 +123,7 @@ Server::~Server()
 
 void Server::startListening()
 {
-    if (_thread.joinable()) throw std::runtime_error("startAcceptingClients() failed, thread is already assigned");
+    if (_thread.joinable()) throw std::runtime_error("[Server] startAcceptingClients() failed, thread is already assigned");
     _thread = std::thread([this]()
         {
             actualStartListening(_stopSource.get_token());
@@ -144,7 +144,7 @@ void Server::handle_reqRegister(std::span<const char> udpPacketWithoutMID, socka
     if (!udpPacketWithoutMID.empty())
     {
         threadSafeOStream(std::cerr,
-            std::format("Client {}: REQ_REGISTER received {} bytes but expected 0 bytes in its payload",
+            std::format("[Server] Client {}: REQ_REGISTER received {} bytes but expected 0 bytes in its payload",
                 ipStrAndPort, udpPacketWithoutMID.size()));
         return;
     }
@@ -179,11 +179,11 @@ void Server::handle_reqRegister(std::span<const char> udpPacketWithoutMID, socka
     {
         auto [_ignore,succeed] = _sessionIdToIpPort.emplace(std::make_pair(sessionIdHostOrder, ipStrAndPort));
         assert(succeed && "Session id registration has logic error");
-        threadSafeOStream(std::cout, std::format("Client: {} connected", ipStrAndPort));
+        threadSafeOStream(std::cout, std::format("[Server] Client: {} connected", ipStrAndPort));
     }
     else
     {
-        threadSafeOStream(std::cerr, std::format("Client {}: Unable to register",ipStrAndPort));
+        threadSafeOStream(std::cerr, std::format("[Server] Client {}: Unable to register",ipStrAndPort));
     }
 }
 
@@ -197,7 +197,7 @@ void Server::handle_reqUnregister(std::span<const char> udpPacketWithoutMID, soc
     if (udpPacketWithoutMID.size() != expectedBytes)
     {
         threadSafeOStream(std::cerr,
-            std::format("Client {}: REQ_UNREGISTER received {} bytes but expected {} bytes in its payload",
+            std::format("[Server] Client {}: REQ_UNREGISTER received {} bytes but expected {} bytes in its payload",
                 ipStrAndPort,udpPacketWithoutMID.size(), expectedBytes));
         return;
     }
@@ -208,18 +208,18 @@ void Server::handle_reqUnregister(std::span<const char> udpPacketWithoutMID, soc
     if (!destroySessionIdHostOrder(sessionIdHostOrder, ipStrAndPort))
     {
         threadSafeOStream(std::cerr,
-            std::format("Client {}: Request to destroy session id {} but not found on server side",
+            std::format("[Server] Client {}: Request to destroy session id {} but not found on server side",
                 ipStrAndPort,sessionIdHostOrder));
         return;
     }
-    threadSafeOStream(std::cout, std::format("Client: {} disconnected", ipStrAndPort));
+    threadSafeOStream(std::cout, std::format("[Server] Client: {} disconnected", ipStrAndPort));
     return;
 }
 
 void Server::actualStartListening(std::stop_token st) noexcept
 {
     std::vector<char> udpPacket;
-    udpPacket.resize(_maxUdpSizeBytes);
+    udpPacket.resize(MaxUdpPacketBytes);
     while (!st.stop_requested())
     {
         fd_set readSet;
@@ -228,7 +228,7 @@ void Server::actualStartListening(std::stop_token st) noexcept
 
         timeval timeout{};
         timeout.tv_sec = 0;
-        timeout.tv_usec = 100000; // 100 ms
+        timeout.tv_usec = static_cast<int>(_recvTimeOut * 1000); // 100 ms
         int ready = select(
             0,
             &readSet,
@@ -239,7 +239,7 @@ void Server::actualStartListening(std::stop_token st) noexcept
 
         if (ready == SOCKET_ERROR)
         {
-            threadSafeOStream(std::cerr,std::format("select() failed: {}", wsaErrorStr()));
+            threadSafeOStream(std::cerr,std::format("[Server] select() failed: {}", wsaErrorStr()));
             goto end;
         }
         else if (ready == 0) continue; // timeout, no data, check stop token again
@@ -259,7 +259,7 @@ void Server::actualStartListening(std::stop_token st) noexcept
             );
             if (bytesReceived == SOCKET_ERROR)
             {
-                threadSafeOStream(std::cerr, std::format("recvfrom() failed: {}", wsaErrorStr()));
+                threadSafeOStream(std::cerr, std::format("[Server] recvfrom() failed: {}", wsaErrorStr()));
                 goto end;
             }
             assert(bytesReceived != 0 && "Bytes received should not be zero");
@@ -286,13 +286,13 @@ bool Server::destroySessionIdHostOrder(SessionId id, std::string ipPort)
     if (it3 == _sessionIdToIpPort.end())
     {
         threadSafeOStream(std::cerr,
-            std::format("Client {}: Requested to destroy a session id that is not active!!!!!",ipPort));
+            std::format("[Server] Client {}: Requested to destroy a session id that is not active!!!!!",ipPort));
         return false;
     }
     if (it3->second != ipPort)
     {
         threadSafeOStream(std::cerr,
-            std::format("Client {}: Requested to destroy a session id that is not theirs.",ipPort));
+            std::format("[Server] Client {}: Requested to destroy a session id that is not theirs.",ipPort));
         return false;
     }
     _sessionIdToIpPort.erase(it3);
