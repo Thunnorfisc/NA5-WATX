@@ -4,6 +4,7 @@
 #include "network.hpp"
 #include "Drawing.hpp"
 #include "Canvas.hpp"
+#include "ColourPicker.hpp"
 #include <optional>
 
 class StateMachine;
@@ -30,4 +31,5 @@ private:
     bool m_shouldReturnToMenu = false;
 
     Canvas m_canvas;
+    ColourPicker m_cpicker;
 };

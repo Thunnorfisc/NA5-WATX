@@ -11,6 +11,7 @@
     <ClCompile Include="src\state_machine.cpp" />
     <ClCompile Include="src\Drawing.cpp" />
     <ClCompile Include="src\Canvas.cpp" />
+    <ClCompile Include="src\ColourPicker.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\shared_protocol.hpp" />
@@ -23,5 +24,6 @@
     <ClInclude Include="src\state_machine.hpp" />
     <ClInclude Include="src\Drawing.hpp" />
     <ClInclude Include="src\Canvas.hpp" />
+    <ClInclude Include="src\ColourPicker.hpp" />
   </ItemGroup>
 </Project>

@@ -88,6 +88,7 @@
   <ItemGroup>
     <ClCompile Include="src\Canvas.cpp" />
     <ClCompile Include="src\client.cpp" />
+    <ClCompile Include="src\ColourPicker.cpp" />
     <ClCompile Include="src\coregame.cpp" />
     <ClCompile Include="src\Drawing.cpp" />
     <ClCompile Include="src\game.cpp" />
@@ -101,6 +102,7 @@
     <ClInclude Include="..\shared\shared_protocol.hpp" />
     <ClInclude Include="src\Canvas.hpp" />
     <ClInclude Include="src\client.hpp" />
+    <ClInclude Include="src\ColourPicker.hpp" />
     <ClInclude Include="src\coregame.hpp" />
     <ClInclude Include="src\Drawing.hpp" />
     <ClInclude Include="src\game.hpp" />

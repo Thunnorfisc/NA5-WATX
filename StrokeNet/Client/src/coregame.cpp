@@ -57,11 +57,22 @@ void CoreGameState::handleEvent(const sf::Event& event)
             m_shouldReturnToMenu = true;
         }
 
-        sf::Vector2f pos(static_cast<float>(mousePressed->position.x),
-            static_cast<float>(mousePressed->position.y));
-        if (mousePressed->button == sf::Mouse::Button::Left && m_canvas.contains(pos))
-        {
-            m_canvas.beginStroke(pos, sf::Color::Black, 6.f);
+        if (const auto* mousePressed = event.getIf<sf::Event::MouseButtonPressed>()) {
+            sf::Vector2f pos(static_cast<float>(mousePressed->position.x),
+                static_cast<float>(mousePressed->position.y));
+
+            if (mousePressed->button == sf::Mouse::Button::Left) {
+                if (isMouseOverBackButton()) {
+                    m_shouldReturnToMenu = true;
+                    return;
+                }
+                if (m_cpicker.handleClick(pos)) {
+                    return;  // picked a colour, don't start drawing
+                }
+                if (m_canvas.contains(pos)) {
+                    m_canvas.beginStroke(pos, m_cpicker.getSelectedColour(), 6.f);
+                }
+            }
         }
     }
 
@@ -99,6 +110,7 @@ void CoreGameState::render()
     window.draw(m_backButton);
     window.draw(m_backText);
     m_canvas.draw(window);
+    m_cpicker.draw(window);
 }
 
 bool CoreGameState::isMouseOverBackButton() const
@@ -129,4 +141,10 @@ void CoreGameState::updateLayout()
     m_canvas.bounds = sf::FloatRect(canvasPos, canvasSize);
     m_canvas.border.setPosition(canvasPos);
     m_canvas.border.setSize(canvasSize);
+
+    float pickerWidth = ColourPicker::COLS * (ColourPicker::SWATCH_SIZE + ColourPicker::PADDING) - ColourPicker::PADDING;
+    m_cpicker.setPosition({
+        m_canvas.bounds.position.x + (m_canvas.bounds.size.x - pickerWidth) / 2.f,
+        m_canvas.bounds.position.y + m_canvas.bounds.size.y + 10.f
+        });
 }
