@@ -196,7 +196,12 @@ void Server::sendCanvasDrawState(const CanvasDrawState& cds)
         assert(false && "Send canvas draw state is only meant for certain message types");
     }
     }
-    for (const auto& [sessionIdHostOrder, client] : _sessionIdToClient)
+    decltype (_sessionIdToClient) copySessionIdToClient;
+    {
+    std::lock_guard lock(_clientStorageMutex);
+    copySessionIdToClient = _sessionIdToClient;
+    }
+    for (const auto& [sessionIdHostOrder, client] : copySessionIdToClient)
     {
         // update session id
         SessionId sessionIdNetworkOrder = htonl(sessionIdHostOrder);
@@ -346,7 +351,9 @@ void Server::handle_reqRegister(std::span<const char> udpPacketWithoutMID, socka
     inet_ntop(AF_INET, &sa->sin_addr, ipStr, INET_ADDRSTRLEN);
     auto port = ntohs(sa->sin_port);
     std::string ipStrAndPort = std::format("{}:{}", ipStr, port);
+    {
     // see if there are any sessions from the same udp port and ip, if so, we ignore this
+    std::lock_guard lock(_clientStorageMutex);
     for (const auto& [_ignore, client] : _sessionIdToClient)
     {
         if (client.ipPort == ipStrAndPort)
@@ -356,6 +363,7 @@ void Server::handle_reqRegister(std::span<const char> udpPacketWithoutMID, socka
                 std::format("[Server] Client {} has already been registered, ignoring this REQ_REGISTER message", ipStrAndPort));
             return;
         }
+    }
     }
 
     if (!udpPacketWithoutMID.empty())
@@ -395,12 +403,15 @@ void Server::handle_reqRegister(std::span<const char> udpPacketWithoutMID, socka
     }
     if (success)
     {
+        {
+        std::lock_guard lock(_clientStorageMutex);
         auto [_ignore,succeed] = _sessionIdToClient.emplace(
             std::make_pair(
                 sessionIdHostOrder,
                 Client{ .ipPort = ipStrAndPort, .sa = *sa }
             ));
         assert(succeed && "Session id registration has logic error");
+        }
         threadSafeOStream(std::cout, std::format("[Server] Client: {} connected", ipStrAndPort));
     }
     else
@@ -505,11 +516,13 @@ void Server::actualStartListening(std::stop_token st) noexcept
 SessionId Server::getNextSessionIdHostOrder()
 {
     assert(_nextSessionIdHostOrder != InvalidSessionId && "Ran out of session ids!");
+    std::lock_guard lock(_clientStorageMutex);
     return _nextSessionIdHostOrder++;
 }
 
 bool Server::destroySessionIdHostOrder(SessionId id, std::string ipPort)
 {
+    std::lock_guard lock(_clientStorageMutex);
     auto it3 = _sessionIdToClient.find(id);
     if (it3 == _sessionIdToClient.end())
     {

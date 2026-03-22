@@ -63,6 +63,8 @@ private:
 
     SessionId _nextSessionIdHostOrder = InvalidSessionId + 1;
 
+    std::mutex _clientStorageMutex;
+
     std::mutex _cdsFnsMutex;
     RegCdsFnId _nextRegCdsFnId = 1;
     std::unordered_map<RegCdsFnId,
