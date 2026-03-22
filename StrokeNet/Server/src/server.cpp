@@ -382,6 +382,18 @@ void Server::handle_reqRegister(std::span<const char> udpPacketWithoutMID, socka
     inet_ntop(AF_INET, &sa->sin_addr, ipStr, INET_ADDRSTRLEN);
     auto port = ntohs(sa->sin_port);
     std::string ipStrAndPort = std::format("{}:{}", ipStr, port);
+    // see if there are any sessions from the same udp port and ip, if so, we ignore this
+    for (const auto& [_ignore, client] : _sessionIdToClient)
+    {
+        if (client.ipPort == ipStrAndPort)
+        {
+            // we found a connection that already has the ip address and port
+            threadSafeOStream(std::cout,
+                std::format("[Server] Client {} has already been registered, ignoring this REQ_REGISTER message"));
+            return;
+        }
+    }
+
     if (!udpPacketWithoutMID.empty())
     {
         threadSafeOStream(std::cerr,
