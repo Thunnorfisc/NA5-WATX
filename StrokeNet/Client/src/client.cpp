@@ -275,7 +275,7 @@ bool Client::connect(std::string serverIp, std::string serverPort)
         }
 
         // Validate payload size
-        if (bytesReceived != 5)
+        if (bytesReceived != PacketSize::RSP_REGISTER)
         {
             continue;
         }
@@ -289,8 +289,8 @@ bool Client::connect(std::string serverIp, std::string serverPort)
         }
 
         // okay we successfully received rsp_register, now to get the session id
-        std::memcpy(&_sessionId, udpPacket.data() + 1, sizeof(_sessionId));
-        _sessionId = ntohl(_sessionId);
+        ByteReader rdr{ .buffer = std::span<const char>(udpPacket).subspan(1, bytesReceived) };
+        _sessionId = ntohl(rdr.read<SessionId>());
         _serverIpAndPort = std::format("{}:{}", serverIp, serverPort);
         threadSafeOStream(std::cout, std::format("[Client] Successfully connected to {} after {} attempts!", _serverIpAndPort, attempt + 1));
         return true;
