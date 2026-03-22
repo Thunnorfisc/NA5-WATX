@@ -1,5 +1,6 @@
 #include "client.hpp"
 
+#include <array>
 #include <mutex>
 #include <vector>
 #include <format>
@@ -384,10 +385,66 @@ bool Client::connect(std::string serverIp, std::string serverPort)
         // okay we successfully received rsp_register, now to get the session id
         std::memcpy(&_sessionId, udpPacket.data() + 1, sizeof(_sessionId));
         _sessionId = ntohl(_sessionId);
-        threadSafeOStream(std::cout, std::format("[Client] Successfully connected to {}:{} after {} attempts!", serverIp, serverPort, attempt + 1));
+        _serverIpAndPort = std::format("{}:{}", serverIp, serverPort);
+        threadSafeOStream(std::cout, std::format("[Client] Successfully connected to {} after {} attempts!", _serverIpAndPort, attempt + 1));
         return true;
     }
     return false;
+}
+
+void Client::disconnect()
+{
+    if (_sessionId == InvalidSessionId)
+    {
+        threadSafeOStream(std::cerr,
+            "[Client] Disconnect called when there is not a valid session id");
+        return;
+    }
+    std::array<char, 5> msg;
+    msg[0] = static_cast<char>(MessageType::REQ_UNREGISTER);
+    SessionId sessionIdNetworkOrder = htonl(_sessionId);
+    assert(sizeof(sessionIdNetworkOrder) + 1 == msg.size() && "Payload size does not match in Client::disconnect()");
+    std::memcpy(msg.data() + 1, &sessionIdNetworkOrder, sizeof(sessionIdNetworkOrder));
+    for (int attempt = 0; attempt < _maxRetries; ++attempt)
+    {
+        int sentBytes = sendto(
+            _socket,
+            msg.data(),
+            static_cast<int>(msg.size()),
+            0,
+            reinterpret_cast<sockaddr*>(&_serverAddr),
+            sizeof(_serverAddr)
+        );
+
+        if (sentBytes == SOCKET_ERROR)
+        {
+            const int err = WSAGetLastError();
+            if (isRecoverableWSAError(err))
+            {
+                continue;
+            }
+
+            threadSafeOStream(
+                std::cerr,
+                std::format("[Client] sendto() failed, disconnecting from the server had issues: {}", wsaErrorStr())
+            );
+            return;
+        }
+        else
+        {
+            // success
+            threadSafeOStream(
+                std::cout,
+                std::format("[Client] Successfully disconnected from Server {}", _serverIpAndPort));
+            _serverIpAndPort.clear();
+            std::memset(&_serverAddr, 0, sizeof(_serverAddr));
+            _sessionId = InvalidSessionId;
+            return;
+        }
+    }
+    threadSafeOStream(
+        std::cerr,
+        std::format("[Client] Disconnecting from the server had issues"));
 }
 
 void Client::sendInputState(const InputState& inputState)

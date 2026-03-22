@@ -26,7 +26,7 @@ int main()
 
 
     Client::initalize();
-    Client::connect("192.168.68.56", "62769");
+    Client::connect("192.168.68.56", "64615");
     std::jthread listeningThread{
         [st = ss.get_token()]()
         {
@@ -34,6 +34,7 @@ int main()
         }
     };
     playGame();
+    Client::disconnect();
 
     if (listeningThread.joinable())
     {
