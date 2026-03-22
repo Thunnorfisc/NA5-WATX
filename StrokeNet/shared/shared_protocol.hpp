@@ -1,8 +1,11 @@
 #pragma once
+#include <span>
 #include <array>
 #include <string>
 #include <vector>
 #include <bitset>
+#include <format>
+#include <cassert>
 #include <cstdint>
 #include <cstddef>
 #include <cassert>
@@ -143,3 +146,35 @@ inline bool isRecoverableWSAError(int err)
     }
 }
 // ========================================== WIN SOCK STUFF END
+// ========================================== NETWORKING SHARED UTILITIES START
+struct ByteWriter
+{
+    std::string name;
+    std::vector<char>& buffer;
+    std::size_t offset = 0;
+
+    template <typename T>
+    void write(T val)
+    {
+        assert(offset + sizeof(T) <= buffer.size() && std::format("{}: ByteWriter Overflow",name));
+        std::memcpy(buffer.data() + offset, &val, sizeof(T));
+        offset += sizeof(T);
+    }
+};
+struct ByteReader
+{
+    std::string name;
+    std::span<const char> buffer;
+    std::size_t offset = 0;
+
+    template <typename T>
+    T read()
+    {
+        assert(offset + sizeof(T) <= buffer.size() && std::format("{}: ByteReader Overflow", name));
+        T val{};
+        std::memcpy(&val, buffer.data() + offset, sizeof(T));
+        offset += sizeof(T);
+        return val;
+    }
+};
+// ========================================== NETWORKING SHARED UTILITIES END
