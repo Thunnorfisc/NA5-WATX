@@ -491,8 +491,7 @@ void Server::actualStartListening(std::stop_token st) noexcept
                 threadSafeOStream(std::cerr, std::format("[Server] recvfrom() failed: {}", wsaErrorStr()));
                 goto end;
             }
-            assert(bytesReceived != 0 && "Bytes received should not be zero");
-            assert(!udpPacket.empty() && "Udp packet shouldn't be empty here");
+            else if (bytesReceived == 0) continue; // move on with our lives
             MessageType message = static_cast<MessageType>(udpPacket[0]);
             auto it = _messageTypeFns.find(message);
             if (it != _messageTypeFns.end())

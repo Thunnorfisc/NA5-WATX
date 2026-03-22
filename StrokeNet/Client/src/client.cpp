@@ -139,107 +139,13 @@ void Client::startListening(std::stop_token st)
                 threadSafeOStream(std::cerr, std::format("[Client] recvfrom() failed: {}", wsaErrorStr()));
                 return;
             }
-            assert(bytesReceived != 0 && "Bytes received should not be zero");
-            assert(!udpPacket.empty() && "Udp packet shouldn't be empty here");
+            else if (bytesReceived == 0) continue; // empty datagram, move on
+
             MessageType message = static_cast<MessageType>(udpPacket[0]);
-            if (message == MessageType::PF_START_STROKE)
+            auto it = _listenMsgFns.find(message);
+            if (it != _listenMsgFns.end())
             {
-                CanvasDrawState cds;
-                cds._type = MessageType::PF_START_STROKE;
-                cds._msg.resize(13);
-                SessionId sessionIdHostOrder;
-                std::memcpy(&sessionIdHostOrder, udpPacket.data() + 1, sizeof(sessionIdHostOrder));
-                sessionIdHostOrder = ntohl(sessionIdHostOrder);
-
-                if (sessionIdHostOrder != _sessionId)
-                {
-                    threadSafeOStream(std::cerr,
-                        std::format("[Client] Server sent canvas packet but sent to wrong client, sent session id {}, expected session id {}",
-                            sessionIdHostOrder, _sessionId));
-                    continue; // dont bother pushing it as an event, move on
-                }
-
-                // not important
-                std::memcpy(&cds._sqNumberHostOrder, udpPacket.data() + 5, sizeof(sessionIdHostOrder));
-                cds._sqNumberHostOrder = ntohl(cds._sqNumberHostOrder);
-
-                std::uint32_t idHostOrder;
-                std::memcpy(&idHostOrder, udpPacket.data() + 9, sizeof(idHostOrder));
-                idHostOrder = ntohl(idHostOrder);
-
-                std::uint16_t mxHostOrder;
-                std::uint16_t myHostOrder;
-                std::memcpy(&mxHostOrder, udpPacket.data() + 13, sizeof(mxHostOrder));
-                std::memcpy(&myHostOrder, udpPacket.data() + 15, sizeof(myHostOrder));
-
-                mxHostOrder = ntohs(mxHostOrder);
-                myHostOrder = ntohs(myHostOrder);
-
-                std::memcpy(cds._msg.data(), &idHostOrder, sizeof(idHostOrder));
-                std::memcpy(cds._msg.data() + 4, &mxHostOrder, sizeof(mxHostOrder));
-                std::memcpy(cds._msg.data() + 6, &myHostOrder, sizeof(myHostOrder));
-                std::memcpy(cds._msg.data() + 8, udpPacket.data() + 17, 5);
-
-                std::lock_guard lock(_canvasDrawStateFunctionsMutex);
-                for (const auto& [_ignore,fn] : _canvasDrawStateFunctions) fn(cds);
-            }
-            else if (message == MessageType::PF_ADD_POINT)
-            {
-                CanvasDrawState cds;
-                cds._type = MessageType::PF_ADD_POINT;
-                cds._msg.resize(4);
-                SessionId sessionIdHostOrder;
-                std::memcpy(&sessionIdHostOrder, udpPacket.data() + 1, sizeof(sessionIdHostOrder));
-                sessionIdHostOrder = ntohl(sessionIdHostOrder);
-
-                if (sessionIdHostOrder != _sessionId)
-                {
-                    threadSafeOStream(std::cerr,
-                        std::format("[Client] Server sent canvas packet but sent to wrong client, sent session id {}, expected session id {}",
-                            sessionIdHostOrder, _sessionId));
-                    continue; // dont bother pushing it as an event, move on
-                }
-
-                // not important
-                std::memcpy(&cds._sqNumberHostOrder, udpPacket.data() + 5, sizeof(sessionIdHostOrder));
-                cds._sqNumberHostOrder = ntohl(cds._sqNumberHostOrder);
-
-                std::uint16_t mxHostOrder;
-                std::uint16_t myHostOrder;
-                std::memcpy(&mxHostOrder, udpPacket.data() + 9, sizeof(mxHostOrder));
-                std::memcpy(&myHostOrder, udpPacket.data() + 11, sizeof(myHostOrder));
-
-                mxHostOrder = ntohs(mxHostOrder);
-                myHostOrder = ntohs(myHostOrder);
-
-                std::memcpy(cds._msg.data(), &mxHostOrder, sizeof(mxHostOrder));
-                std::memcpy(cds._msg.data() + 2, &myHostOrder, sizeof(myHostOrder));
-
-                std::lock_guard lock(_canvasDrawStateFunctionsMutex);
-                for (const auto& [_ignore, fn] : _canvasDrawStateFunctions) fn(cds);
-            }
-            else if (message == MessageType::PF_END_STROKE)
-            {
-                CanvasDrawState cds;
-                cds._type = MessageType::PF_END_STROKE;
-                SessionId sessionIdHostOrder;
-                std::memcpy(&sessionIdHostOrder, udpPacket.data() + 1, sizeof(sessionIdHostOrder));
-                sessionIdHostOrder = ntohl(sessionIdHostOrder);
-
-                if (sessionIdHostOrder != _sessionId)
-                {
-                    threadSafeOStream(std::cerr,
-                        std::format("[Client] Server sent canvas packet but sent to wrong client, sent session id {}, expected session id {}",
-                            sessionIdHostOrder, _sessionId));
-                    continue; // dont bother pushing it as an event, move on
-                }
-
-                // not important
-                std::memcpy(&cds._sqNumberHostOrder, udpPacket.data() + 5, sizeof(sessionIdHostOrder));
-                cds._sqNumberHostOrder = ntohl(cds._sqNumberHostOrder);
-
-                std::lock_guard lock(_canvasDrawStateFunctionsMutex);
-                for (const auto& [_ignore, fn] : _canvasDrawStateFunctions) fn(cds);
+                (it->second)(std::span<const char>(udpPacket).subspan(1, bytesReceived -1));
             }
         }
     }
@@ -400,11 +306,12 @@ void Client::disconnect()
             "[Client] Disconnect called when there is not a valid session id");
         return;
     }
-    std::array<char, 5> msg;
-    msg[0] = static_cast<char>(MessageType::REQ_UNREGISTER);
-    SessionId sessionIdNetworkOrder = htonl(_sessionId);
-    assert(sizeof(sessionIdNetworkOrder) + 1 == msg.size() && "Payload size does not match in Client::disconnect()");
-    std::memcpy(msg.data() + 1, &sessionIdNetworkOrder, sizeof(sessionIdNetworkOrder));
+    std::vector<char> msg;
+    msg.resize(PacketSize::REQ_UNREGISTER);
+
+    ByteWriter wrt{ .buffer = msg };
+    wrt.write(static_cast<char>(MessageType::REQ_UNREGISTER));
+    wrt.write(htonl(_sessionId));
     for (int attempt = 0; attempt < _maxRetries; ++attempt)
     {
         int sentBytes = sendto(
@@ -450,19 +357,18 @@ void Client::disconnect()
 void Client::sendInputState(const InputState& inputState)
 {
     std::vector<char> msg;
-    // +1 for the message type, +4 for session id
-    msg.resize(InputState::SIZE_OF_INPUT_STATE + 1 + sizeof(SessionId));
-    msg[0] = static_cast<char>(static_cast<std::uint8_t>(MessageType::PF_INPUT_STATE));
-    SessionId sessionIdNetworkOrder = htonl(_sessionId);
-    std::memcpy(msg.data() + 1, &sessionIdNetworkOrder, sizeof(sessionIdNetworkOrder));
-    SequenceNumber sqNumberNetworkOrder = htonl(inputState.currentSequenceNumber);
-    std::memcpy(msg.data() + 5, &sqNumberNetworkOrder, sizeof(sqNumberNetworkOrder));
-    InputBits inputBitsNetworkOrder = htonl(inputState.currentInput);
-    std::memcpy(msg.data() + 9,&inputBitsNetworkOrder,sizeof(inputBitsNetworkOrder));
-    std::uint16_t mouseXNetworkOrder = htons(inputState.currentMousePos[0]);
-    std::uint16_t mouseYNetworkOrder = htons(inputState.currentMousePos[1]);
-    std::memcpy(msg.data() + 13, &mouseXNetworkOrder, sizeof(mouseXNetworkOrder));
-    std::memcpy(msg.data() + 15, &mouseYNetworkOrder, sizeof(mouseYNetworkOrder));
+    msg.resize(PacketSize::PF_INPUT_STATE);
+
+    MousePosition mousePosNetworkOrder = inputState.currentMousePos;
+    mousePosNetworkOrder[0] = htons(mousePosNetworkOrder[0]);
+    mousePosNetworkOrder[1] = htons(mousePosNetworkOrder[1]);
+
+    ByteWriter wrt{ .buffer = msg };
+    wrt.write(static_cast<char>(MessageType::PF_INPUT_STATE));
+    wrt.write(htonl(_sessionId));
+    wrt.write(htonl(inputState.currentSequenceNumber));
+    wrt.write(htonl(inputState.currentInput));
+    wrt.write(mousePosNetworkOrder);
     for (int attempt = 0; attempt < _maxRetries; ++attempt)
     {
         int sentBytes = sendto(
@@ -490,10 +396,7 @@ void Client::sendInputState(const InputState& inputState)
         }
         else
         {
-            //threadSafeOStream(std::cout,
-            //    std::format("[Client] Successfully sent input state for sequence {} on attempt {}",
-            //        inputState.currentSequenceNumber, attempt + 1));
-            return;
+            return; // success
         }
     }
     threadSafeOStream(std::cerr,
@@ -509,84 +412,62 @@ void Client::sendCanvasCommand(const CanvasDrawState& drawState)
     MessageType type = drawState._type;
     if (type == MessageType::PF_START_STROKE)
     {
-        assert(drawState._msg.size() == 13 && "Size is wrong when sending start stroke");
-        // 1 for the type
-        // 8 for the header (session id (4) + seqNumber (4) )
-        // 13 for the data
-        msg.resize(1 + 8 + 13);
-        char* msgPtr = msg.data();
-        const char* drawMsgPtr = drawState._msg.data();
-
-        msg[0] = static_cast<char>(drawState._type);
-        msgPtr += sizeof(msg[0]);
+        assert((drawState._msg.size() == PacketSize::PF_START_STROKE - PacketSize::HEADER_SIZE)
+            && "Size is wrong when sending start stroke");
+        msg.resize(PacketSize::PF_START_STROKE);
 
         auto sessionIdNetworkOrder = htonl(_sessionId);
         auto seqNumberNetworkOrder = htonl(drawState._sqNumberHostOrder);
-        
-        std::memcpy(msgPtr, &sessionIdNetworkOrder, sizeof(sessionIdNetworkOrder));
-        msgPtr += sizeof(sessionIdNetworkOrder);
 
-        std::memcpy(msgPtr, &seqNumberNetworkOrder, sizeof(seqNumberNetworkOrder));
-        msgPtr += sizeof(seqNumberNetworkOrder);
+        ByteReader rdr{ .buffer = drawState._msg };
+        auto strokeIdNetworkOrder = htonl(rdr.read<std::uint32_t>());
+        auto mousePositionNetworkOrder = rdr.read<MousePosition>();
+        auto RGBAT = rdr.read<std::array<char, 5>>();
 
-        std::uint32_t idNetworkOrder;
-        std::memcpy(&idNetworkOrder, drawMsgPtr, sizeof(idNetworkOrder));
-        drawMsgPtr += sizeof(idNetworkOrder);
-        idNetworkOrder = htonl(idNetworkOrder);
+        mousePositionNetworkOrder[0] = htons(mousePositionNetworkOrder[0]);
+        mousePositionNetworkOrder[1] = htons(mousePositionNetworkOrder[1]);
 
-        std::memcpy(msgPtr, &idNetworkOrder, sizeof(idNetworkOrder));
-        msgPtr += sizeof(idNetworkOrder);
-
-        std::uint16_t mxNetworkOrder;
-        std::memcpy(&mxNetworkOrder, drawMsgPtr, sizeof(mxNetworkOrder));
-        drawMsgPtr += sizeof(mxNetworkOrder);
-        mxNetworkOrder = htons(mxNetworkOrder);
-        std::memcpy(msgPtr, &mxNetworkOrder, sizeof(mxNetworkOrder));
-        msgPtr += sizeof(mxNetworkOrder);
-
-        std::uint16_t myNetworkOrder;
-        std::memcpy(&myNetworkOrder, drawMsgPtr, sizeof(myNetworkOrder));
-        drawMsgPtr += sizeof(myNetworkOrder);
-        myNetworkOrder = htons(myNetworkOrder);
-        std::memcpy(msgPtr, &myNetworkOrder, sizeof(myNetworkOrder));
-        msgPtr += sizeof(myNetworkOrder);
-
-        std::memcpy(msgPtr, drawMsgPtr, 5);
-        drawMsgPtr += 5;
-        msgPtr += 5;
+        ByteWriter wrt{ .buffer = msg };
+        wrt.write(static_cast<char>(MessageType::PF_START_STROKE));
+        wrt.write(sessionIdNetworkOrder);
+        wrt.write(seqNumberNetworkOrder);
+        wrt.write(strokeIdNetworkOrder);
+        wrt.write(mousePositionNetworkOrder);
+        wrt.write(RGBAT);
     }
     else if (type == MessageType::PF_ADD_POINT)
     {
-        assert(drawState._msg.size() == 4 && "Size is wrong when sending add point");
-        msg.resize(1 + 8 + 4);
-        msg[0] = static_cast<char>(drawState._type);
+        assert((drawState._msg.size() == PacketSize::PF_ADD_POINT - PacketSize::HEADER_SIZE)
+            && "Size is wrong when sending add point");
+        msg.resize(PacketSize::PF_ADD_POINT);
+
         auto sessionIdNetworkOrder = htonl(_sessionId);
         auto seqNumberNetworkOrder = htonl(drawState._sqNumberHostOrder);
-        std::memcpy(msg.data() + 1, &sessionIdNetworkOrder, sizeof(sessionIdNetworkOrder));
-        std::memcpy(msg.data() + 5, &seqNumberNetworkOrder, sizeof(seqNumberNetworkOrder));
 
-        std::uint16_t mxNetworkOrder;
-        std::uint16_t myNetworkOrder;
+        ByteReader rdr{ .buffer = drawState._msg };
+        auto mousePositionNetworkOrder = rdr.read<MousePosition>();
+        mousePositionNetworkOrder[0] = htons(mousePositionNetworkOrder[0]);
+        mousePositionNetworkOrder[1] = htons(mousePositionNetworkOrder[1]);
 
-        std::memcpy(&mxNetworkOrder, drawState._msg.data(), sizeof(mxNetworkOrder));
-        std::memcpy(&myNetworkOrder, drawState._msg.data() + 2, sizeof(myNetworkOrder));
-
-        mxNetworkOrder = htons(mxNetworkOrder);
-        myNetworkOrder = htons(myNetworkOrder);
-
-        std::memcpy(msg.data() + 9, &mxNetworkOrder, sizeof(mxNetworkOrder));
-        std::memcpy(msg.data() + 11, &myNetworkOrder, sizeof(myNetworkOrder));
-
+        ByteWriter wrt{ .buffer = msg };
+        wrt.write(static_cast<char>(MessageType::PF_ADD_POINT));
+        wrt.write(sessionIdNetworkOrder);
+        wrt.write(seqNumberNetworkOrder);
+        wrt.write(mousePositionNetworkOrder);
     }
     else if (type == MessageType::PF_END_STROKE)
     {
-        assert(drawState._msg.size() == 0 && "Size is wrong when sending end stroke");
-        msg.resize(1 + 8);
-        msg[0] = static_cast<char>(drawState._type);
+        assert((drawState._msg.size() == PacketSize::PF_END_STROKE - PacketSize::HEADER_SIZE)
+            && "Size is wrong when sending end stroke");
+        msg.resize(PacketSize::PF_END_STROKE);
+
         auto sessionIdNetworkOrder = htonl(_sessionId);
         auto seqNumberNetworkOrder = htonl(drawState._sqNumberHostOrder);
-        std::memcpy(msg.data() + 1, &sessionIdNetworkOrder, sizeof(sessionIdNetworkOrder));
-        std::memcpy(msg.data() + 5, &seqNumberNetworkOrder, sizeof(seqNumberNetworkOrder));
+
+        ByteWriter wrt{ .buffer = msg };
+        wrt.write(static_cast<char>(MessageType::PF_END_STROKE));
+        wrt.write(sessionIdNetworkOrder);
+        wrt.write(seqNumberNetworkOrder);
     }
     else assert(false && "sendCanvasCommand() received an invalid message type");
 
@@ -644,4 +525,82 @@ void Client::deregisterCanvasStateCommandEvent(RegCanvasStateFnId id)
         return;
     }
     _canvasDrawStateFunctions.erase(id);
+}
+
+void Client::handle_StartStroke(std::span<const char> msgWithoutMID)
+{
+    assert((msgWithoutMID.size() == PacketSize::PF_START_STROKE - 1)
+        && "Size is wrong when receiving start stroke");
+
+    CanvasDrawState cds;
+    cds._type = MessageType::PF_START_STROKE;
+    cds._msg.resize(PacketSize::PF_START_STROKE - PacketSize::HEADER_SIZE);
+    ByteWriter wrt{ .buffer = cds._msg };
+
+    ByteReader rdr{ .buffer = msgWithoutMID };
+    auto sessionIdHostOrder = ntohl(rdr.read<SessionId>());
+
+    // datagram not meant for us, ignore it
+    if (sessionIdHostOrder != _sessionId) return;
+
+    cds._sqNumberHostOrder = ntohl(rdr.read<SequenceNumber>());
+    wrt.write(ntohl(rdr.read<std::uint32_t>())); // stroke id
+
+    auto mousePositionHostOrder = rdr.read<MousePosition>();
+    mousePositionHostOrder[0] = ntohs(mousePositionHostOrder[0]);
+    mousePositionHostOrder[1] = ntohs(mousePositionHostOrder[1]);
+    wrt.write(mousePositionHostOrder);
+
+    wrt.write(rdr.read<std::array<char, 5>>());
+    
+    invokeCanvasDrawCallbacks(cds);
+}
+
+void Client::handle_AddPoint(std::span<const char> msgWithoutMID)
+{
+    assert((msgWithoutMID.size() == PacketSize::PF_ADD_POINT - 1)
+        && "Size is wrong when receiving add point");
+
+    CanvasDrawState cds;
+    cds._type = MessageType::PF_ADD_POINT;
+    cds._msg.resize(PacketSize::PF_ADD_POINT - PacketSize::HEADER_SIZE);
+    ByteWriter wrt{ .buffer = cds._msg };
+
+    ByteReader rdr{ .buffer = msgWithoutMID };
+    auto sessionIdHostOrder = ntohl(rdr.read<SessionId>());
+
+    // datagram not meant for us, ignore it
+    if (sessionIdHostOrder != _sessionId) return;
+
+    cds._sqNumberHostOrder = ntohl(rdr.read<SequenceNumber>());
+
+    auto mousePositionHostOrder = rdr.read<MousePosition>();
+    mousePositionHostOrder[0] = ntohs(mousePositionHostOrder[0]);
+    mousePositionHostOrder[1] = ntohs(mousePositionHostOrder[1]);
+    wrt.write(mousePositionHostOrder);
+
+    invokeCanvasDrawCallbacks(cds);
+}
+
+void Client::handle_EndStroke(std::span<const char> msgWithoutMID)
+{
+    assert((msgWithoutMID.size() == PacketSize::PF_END_STROKE - 1)
+        && "Size is wrong when receiving end stroke");
+
+    CanvasDrawState cds;
+    cds._type = MessageType::PF_END_STROKE;
+    ByteReader rdr{ .buffer = msgWithoutMID };
+    auto sessionIdHostOrder = ntohl(rdr.read<SessionId>());
+
+    // datagram not meant for us, ignore it
+    if (sessionIdHostOrder != _sessionId) return;
+
+    cds._sqNumberHostOrder = ntohl(rdr.read<SequenceNumber>());
+    invokeCanvasDrawCallbacks(cds);
+}
+
+void Client::invokeCanvasDrawCallbacks(const CanvasDrawState& cds)
+{
+    std::lock_guard lock(_canvasDrawStateFunctionsMutex);
+    for (const auto& [_ignore, fn] : _canvasDrawStateFunctions) fn(cds);
 }

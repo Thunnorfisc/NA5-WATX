@@ -63,22 +63,6 @@ struct CanvasDrawState
     MessageType _type;
     std::vector<char> _msg;
     SequenceNumber _sqNumberHostOrder;
-
-//    void assertCanvasDrawState() const
-//    {
-//        assert((_type == MessageType::PF_START_STROKE ||
-//            _type == MessageType::PF_ADD_POINT ||
-//            _type == MessageType::PF_END_STROKE) && "Canvas draw command holds invalid values");
-//        // sanity check for the size of the payload for the message type
-//#if _DEBUG
-//        if (_type == MessageType::PF_ADD_POINT && (_msg.size() != 4))
-//            assert(false && "PF_ADD_POINT expects 4 bytes! [uint16_t x][uint16_t y], in host order");
-//        else if (_type == MessageType::PF_START_STROKE && (_msg.size() != 13))
-//            assert(false && "PF_START_STROKE expects 13 bytes! [uint32_t id][uint16_t x][uint16_t y][uint8_t r][uint8_t g][uint8_t b][uint8_t a][uint8_t thickness], in host order");
-//        else if (_type == MessageType::PF_END_STROKE && (_msg.size() != 0))
-//            assert(false && "PF_START_STROKE expects 0 bytes!");
-//#endif
-//    }
 };
 struct InputState
 {
@@ -86,9 +70,6 @@ struct InputState
     SequenceNumber currentSequenceNumber;
     InputBits currentInput = static_cast<InputBits>(0);
     MousePosition currentMousePos;
-    constexpr static inline std::size_t SIZE_OF_INPUT_STATE =
-        sizeof(currentSequenceNumber) + sizeof(currentInput) +
-        sizeof(currentMousePos);
 };
 // helpers for input bits
 inline void setBit(InputBits& inputBits,std::uint8_t index)

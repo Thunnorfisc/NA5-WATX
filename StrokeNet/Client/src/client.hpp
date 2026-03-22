@@ -19,6 +19,7 @@
 #include <mutex>
 #include <string>
 #include <vector>
+#include <utility>
 #include <stop_token>
 #include <functional>
 #include <unordered_map>
@@ -56,4 +57,18 @@ private:
     static inline std::unordered_map<RegCanvasStateFnId,
         std::function<void(const CanvasDrawState&)>> _canvasDrawStateFunctions;
     static inline std::mutex _canvasDrawStateFunctionsMutex;
+
+    static void handle_StartStroke(std::span<const char> msgWithoutMID);
+    static void handle_AddPoint(std::span<const char> msgWithoutMID);
+    static void handle_EndStroke(std::span<const char> msgWithoutMID);
+
+    static void invokeCanvasDrawCallbacks(const CanvasDrawState& cds);
+
+    using ListenMsgFn = void(*)(std::span<const char> msgWithoutMID);
+    static inline std::unordered_map<MessageType,ListenMsgFn> _listenMsgFns
+    {
+        std::make_pair(MessageType::PF_START_STROKE,handle_StartStroke),
+        std::make_pair(MessageType::PF_ADD_POINT,handle_AddPoint),
+        std::make_pair(MessageType::PF_END_STROKE,handle_EndStroke),
+    };
 };
