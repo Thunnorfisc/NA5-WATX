@@ -223,6 +223,7 @@ void Server::sendCanvasDrawState(const CanvasDrawState& cds)
         // update session id
         SessionId sessionIdNetworkOrder = htonl(sessionIdHostOrder);
         std::memcpy(msg.data() + 1, &sessionIdNetworkOrder, sizeof(sessionIdNetworkOrder));
+        bool successClient = false;
     for (int attempt = 0; attempt < _maxRetry; ++attempt)
     {
 
@@ -245,15 +246,17 @@ void Server::sendCanvasDrawState(const CanvasDrawState& cds)
 
             threadSafeOStream(
                 std::cerr,
-                std::format("[Server] sendto() failed: {}", wsaErrorStr())
-            );
-            return;
+                std::format("[Server] sendto() failed: {}", wsaErrorStr()));
+            successClient = false;
+            break;
         }
         else
         {
+            successClient = true;
             break; // success
         }
     }
+    if (!successClient)
     threadSafeOStream(std::cerr,
         std::format("[Server] Failed to send canvas state to client {}",client.ipPort));
     }
