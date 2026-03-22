@@ -33,6 +33,7 @@ public:
     static void startListening(std::stop_token st);
     // no separate thread, will do on the main thread (for now)
     static bool connect(std::string serverIp, std::string serverPort);
+    static void disconnect();
     // no separate thread, will do on the main thread (for now)
     static void sendInputState(const InputState& inputState);
     // no separate thread, will do on main thread (for now)
@@ -49,6 +50,7 @@ private:
     
     static inline SessionId _sessionId = InvalidSessionId;
     static inline sockaddr_in _serverAddr;
+    static inline std::string _serverIpAndPort;
 
     static inline RegCanvasStateFnId _nextCanvasStateFnId = 1;
     static inline std::unordered_map<RegCanvasStateFnId,
