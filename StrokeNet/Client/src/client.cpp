@@ -452,7 +452,7 @@ void Client::sendInputState(const InputState& inputState)
     std::vector<char> msg;
     // +1 for the message type, +4 for session id
     msg.resize(InputState::SIZE_OF_INPUT_STATE + 1 + sizeof(SessionId));
-    msg[0] = static_cast<char>(static_cast<std::uint8_t>(MessageType::PF_INPUTSTATE));
+    msg[0] = static_cast<char>(static_cast<std::uint8_t>(MessageType::PF_INPUT_STATE));
     SessionId sessionIdNetworkOrder = htonl(_sessionId);
     std::memcpy(msg.data() + 1, &sessionIdNetworkOrder, sizeof(sessionIdNetworkOrder));
     SequenceNumber sqNumberNetworkOrder = htonl(inputState.currentSequenceNumber);
@@ -504,7 +504,7 @@ void Client::sendInputState(const InputState& inputState)
 
 void Client::sendCanvasCommand(const CanvasDrawState& drawState)
 {
-    drawState.assertCanvasDrawState();
+    //drawState.assertCanvasDrawState();
     std::vector<char> msg;
     MessageType type = drawState._type;
     if (type == MessageType::PF_START_STROKE)
@@ -588,7 +588,7 @@ void Client::sendCanvasCommand(const CanvasDrawState& drawState)
         std::memcpy(msg.data() + 1, &sessionIdNetworkOrder, sizeof(sessionIdNetworkOrder));
         std::memcpy(msg.data() + 5, &seqNumberNetworkOrder, sizeof(seqNumberNetworkOrder));
     }
-    else assert(false && "Logic failure");
+    else assert(false && "sendCanvasCommand() received an invalid message type");
 
     for (int attempt = 0; attempt < _maxRetries; ++attempt)
     {

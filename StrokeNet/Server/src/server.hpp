@@ -82,7 +82,7 @@ private:
     {
         std::make_pair(MessageType::REQ_REGISTER,&Server::handle_reqRegister),
         std::make_pair(MessageType::REQ_UNREGISTER,&Server::handle_reqUnregister),
-        std::make_pair(MessageType::PF_INPUTSTATE,&Server::handle_pfInputState),
+        std::make_pair(MessageType::PF_INPUT_STATE,&Server::handle_pfInputState),
 
         std::make_pair(MessageType::PF_START_STROKE,&Server::handle_pfStartStroke),
         std::make_pair(MessageType::PF_ADD_POINT,&Server::handle_pfAddPoint),

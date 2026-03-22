@@ -15,6 +15,7 @@
 #define _WINSOCK_DEPRECATED_NO_WARNINGS
 
 #include "server.hpp"
+#include "shared_protocol.hpp"
 
 #include <mutex>
 #include <cmath>
@@ -138,79 +139,56 @@ bool Server::isListeningThreadFinished() noexcept
 void Server::sendCanvasDrawState(const CanvasDrawState& cds)
 {
     std::vector<char> msg;
+    const SessionId dummySessionId = InvalidSessionId;
     switch (cds._type)
     {
         using enum MessageType;
     case PF_START_STROKE:
     {
-        // 1 for id
-        // 8 for header (seq + session id)
-        // 13 for actual payload
-        msg.resize(1 + 8 + 13);
-        msg[0] = static_cast<char>(cds._type);
-        auto sequenceNumberNetworkOrder = htonl(cds._sqNumberHostOrder);
-        //std::memcpy(msg.data() + 1, ) // SESSION ID FILL IN LATER
-        std::memcpy(msg.data() + 5, &sequenceNumberNetworkOrder, sizeof(sequenceNumberNetworkOrder));
+        msg.resize(PacketSize::PF_START_STROKE);
+        ByteReader rdr{ .buffer = cds._msg };
+        auto idNetworkOrder = htonl(rdr.read<std::uint32_t>());
+        auto mousePositionNetworkOrder = rdr.read<MousePosition>();
+        auto RGBAT = rdr.read<std::array<char, 5>>();
 
-        std::uint32_t idNetworkOrder;
-        std::uint16_t mxNetworkOrder;
-        std::uint16_t myNetworkOrder;
-        //std::uint8_t r;
-        //std::uint8_t g;
-        //std::uint8_t b;
-        //std::uint8_t a;
-        //std::uint8_t t;
-        std::memcpy(&idNetworkOrder, cds._msg.data(), sizeof(idNetworkOrder));
-        std::memcpy(&mxNetworkOrder, cds._msg.data() + 4, sizeof(mxNetworkOrder));
-        std::memcpy(&myNetworkOrder, cds._msg.data() + 6, sizeof(myNetworkOrder));
-        //std::memcpy(&r, cds._msg.data() + 8, 1);
-        //std::memcpy(&g, cds._msg.data() + 9, 1);
-        //std::memcpy(&b, cds._msg.data() + 10, 1);
-        //std::memcpy(&a, cds._msg.data() + 11, 1);
-        //std::memcpy(&t, cds._msg.data() + 12, 1);
-        idNetworkOrder = htonl(idNetworkOrder);
-        mxNetworkOrder = htons(mxNetworkOrder);
-        myNetworkOrder = htons(myNetworkOrder);
+        mousePositionNetworkOrder[0] = htons(mousePositionNetworkOrder[0]);
+        mousePositionNetworkOrder[1] = htons(mousePositionNetworkOrder[1]);
 
-        std::memcpy(msg.data() + 9, &idNetworkOrder, sizeof(idNetworkOrder));
-        std::memcpy(msg.data() + 13, &mxNetworkOrder, sizeof(mxNetworkOrder));
-        std::memcpy(msg.data() + 15, &myNetworkOrder, sizeof(myNetworkOrder));
-        std::memcpy(msg.data() + 17, cds._msg.data() + 8, 5);
+        ByteWriter wrt{ .buffer = msg };
+
+        wrt.write(static_cast<char>(cds._type));
+        wrt.write(dummySessionId);
+        wrt.write(htonl(cds._sqNumberHostOrder));
+        wrt.write(idNetworkOrder);
+        wrt.write(mousePositionNetworkOrder);
+        wrt.write(RGBAT);
         break;
     }
     case PF_ADD_POINT:
     {
-        // 1 for id
-        // 8 for header (seq + session id)
-        // 4 for actual payload
-        msg.resize(1 + 8 + 4);
-        msg[0] = static_cast<char>(cds._type);
-        auto sequenceNumberNetworkOrder = htonl(cds._sqNumberHostOrder);
-        //std::memcpy(msg.data() + 1, ) // SESSION ID FILL IN LATER
-        std::memcpy(msg.data() + 5, &sequenceNumberNetworkOrder, sizeof(sequenceNumberNetworkOrder));
-        
-        std::uint16_t mxNetworkOrder;
-        std::uint16_t myNetworkOrder;
+        msg.resize(PacketSize::PF_ADD_POINT);
 
-        std::memcpy(&mxNetworkOrder, cds._msg.data(), sizeof(mxNetworkOrder));
-        std::memcpy(&myNetworkOrder, cds._msg.data() + 2, sizeof(myNetworkOrder));
+        ByteReader rdr{ .buffer = cds._msg };
+        auto mousePositionNetworkOrder = rdr.read<MousePosition>();
 
-        mxNetworkOrder = htons(mxNetworkOrder);
-        myNetworkOrder = htons(myNetworkOrder);
+        mousePositionNetworkOrder[0] = htons(mousePositionNetworkOrder[0]);
+        mousePositionNetworkOrder[1] = htons(mousePositionNetworkOrder[1]);
 
-        std::memcpy(msg.data() + 9, &mxNetworkOrder, sizeof(mxNetworkOrder));
-        std::memcpy(msg.data() + 11, &myNetworkOrder, sizeof(myNetworkOrder));
+        ByteWriter wrt{ .buffer = msg };
+        wrt.write(static_cast<char>(cds._type));
+        wrt.write(dummySessionId);
+        wrt.write(htonl(cds._sqNumberHostOrder));
+        wrt.write(mousePositionNetworkOrder);
         break;
     }
     case PF_END_STROKE:
     {
-        // 1 for id
-        // 8 for header (seq + session id)
-        msg.resize(1 + 8);
-        msg[0] = static_cast<char>(cds._type);
-        auto sequenceNumberNetworkOrder = htonl(cds._sqNumberHostOrder);
-        //std::memcpy(msg.data() + 1, ) // SESSION ID FILL IN LATER
-        std::memcpy(msg.data() + 5, &sequenceNumberNetworkOrder, sizeof(sequenceNumberNetworkOrder));
+        msg.resize(PacketSize::PF_END_STROKE);
+
+        ByteWriter wrt{ .buffer = msg };
+        wrt.write(static_cast<char>(cds._type));
+        wrt.write(dummySessionId);
+        wrt.write(htonl(cds._sqNumberHostOrder));
         break;
     }
     default:
@@ -285,87 +263,68 @@ void Server::deregisterCdsFn(RegCdsFnId id)
 
 void Server::handle_pfStartStroke(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
 {
-    assert(udpPacketWithoutMID.size() == 21 && "Start stroke size is wrong");
-    SessionId sessionIdHostOrder;
-    SequenceNumber sequenceNumberHostOrder;
-    std::memcpy(&sessionIdHostOrder, udpPacketWithoutMID.data(), sizeof(sessionIdHostOrder));
-    std::memcpy(&sequenceNumberHostOrder, udpPacketWithoutMID.data() + 4, sizeof(sequenceNumberHostOrder));
-    
-    sessionIdHostOrder = ntohl(sessionIdHostOrder);
-    sequenceNumberHostOrder = ntohl(sequenceNumberHostOrder);
-    // TODO : VALIDATE SEQUENCE NUMBER
+    assert((udpPacketWithoutMID.size() == PacketSize::PF_START_STROKE - 1) &&
+        "Size of PF_START_STROKE packet received is wrong");
 
-    std::uint32_t idHostOrder;
-    std::uint16_t mxHostOrder, myHostOrder;
-    std::uint8_t r, g, b, a, t;
+    ByteReader rdr{ .buffer = udpPacketWithoutMID };
+    auto sessionIdHostOrder = ntohl(rdr.read<SessionId>());
+    auto sequenceNumberHostOrder = ntohl(rdr.read<SequenceNumber>());
+    auto idHostOrder = ntohl(rdr.read<std::uint32_t>());
+    auto mousePositionHostOrder = rdr.read<MousePosition>();
+    auto RGBAT = rdr.read<std::array<char, 5>>();
 
-    std::memcpy(&idHostOrder, udpPacketWithoutMID.data() + 8, sizeof(idHostOrder));
-    std::memcpy(&mxHostOrder, udpPacketWithoutMID.data() + 12, sizeof(mxHostOrder));
-    std::memcpy(&myHostOrder, udpPacketWithoutMID.data() + 14, sizeof(myHostOrder));
-
-    idHostOrder = ntohl(idHostOrder);
-    mxHostOrder = ntohs(mxHostOrder);
-    myHostOrder = ntohs(myHostOrder);
-
-    std::memcpy(&r, udpPacketWithoutMID.data() + 16, sizeof(r));
-    std::memcpy(&g, udpPacketWithoutMID.data() + 17, sizeof(g));
-    std::memcpy(&b, udpPacketWithoutMID.data() + 18, sizeof(b));
-    std::memcpy(&a, udpPacketWithoutMID.data() + 19, sizeof(a));
-    std::memcpy(&t, udpPacketWithoutMID.data() + 20, sizeof(t));
+    mousePositionHostOrder[0] = ntohs(mousePositionHostOrder[0]);
+    mousePositionHostOrder[1] = ntohs(mousePositionHostOrder[1]);
 
     CanvasDrawState cds;
     cds._sqNumberHostOrder = sequenceNumberHostOrder;
     cds._type = MessageType::PF_START_STROKE;
-    cds._msg.resize(13);
-    
-    std::memcpy(cds._msg.data(), &idHostOrder, sizeof(idHostOrder));
-    std::memcpy(cds._msg.data() + 4, &mxHostOrder, sizeof(mxHostOrder));
-    std::memcpy(cds._msg.data() + 6, &myHostOrder, sizeof(myHostOrder));
-    std::memcpy(cds._msg.data() + 8, &r, sizeof(r));
-    std::memcpy(cds._msg.data() + 9, &g, sizeof(g));
-    std::memcpy(cds._msg.data() + 10, &b, sizeof(b));
-    std::memcpy(cds._msg.data() + 11, &a, sizeof(a));
-    std::memcpy(cds._msg.data() + 12, &t, sizeof(t));
+    cds._msg.resize(PacketSize::PF_START_STROKE - PacketSize::HEADER_SIZE);
+
+    ByteWriter wrt{ .buffer = cds._msg };
+    wrt.write(idHostOrder);
+    wrt.write(mousePositionHostOrder[0]);
+    wrt.write(mousePositionHostOrder[1]);
+    wrt.write(RGBAT[0]);
+    wrt.write(RGBAT[1]);
+    wrt.write(RGBAT[2]);
+    wrt.write(RGBAT[3]);
+    wrt.write(RGBAT[4]);
+
     handle_CanvasDrawingCommand(cds, sessionIdHostOrder);
 }
 
 void Server::handle_pfAddPoint(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
 {
-    assert(udpPacketWithoutMID.size() == 12 && "Add point size is wrong");
-    SessionId sessionIdHostOrder;
-    SequenceNumber sequenceNumberHostOrder;
-    std::memcpy(&sessionIdHostOrder, udpPacketWithoutMID.data(), sizeof(sessionIdHostOrder));
-    std::memcpy(&sequenceNumberHostOrder, udpPacketWithoutMID.data() + 4, sizeof(sequenceNumberHostOrder));
+    assert((udpPacketWithoutMID.size() == PacketSize::PF_ADD_POINT - 1) &&
+        "Size of PF_ADD_POINT packet received is wrong");
 
-    sessionIdHostOrder = ntohl(sessionIdHostOrder);
-    sequenceNumberHostOrder = ntohl(sequenceNumberHostOrder);
-
-    std::uint16_t mxHostOrder, myHostOrder;
-    std::memcpy(&mxHostOrder, udpPacketWithoutMID.data() + 8, sizeof(mxHostOrder));
-    std::memcpy(&myHostOrder, udpPacketWithoutMID.data() + 10, sizeof(myHostOrder));
-    mxHostOrder = ntohs(mxHostOrder);
-    myHostOrder = ntohs(myHostOrder);
+    ByteReader rdr{ .buffer = udpPacketWithoutMID };
+    auto sessionIdHostOrder = ntohl(rdr.read<SessionId>());
+    auto sequenceNumberHostOrder = ntohl(rdr.read<SequenceNumber>());
+    auto mouseHostOrder = rdr.read<MousePosition>();
+    mouseHostOrder[0] = ntohs(mouseHostOrder[0]);
+    mouseHostOrder[1] = ntohs(mouseHostOrder[1]);
 
     CanvasDrawState cds;
     cds._sqNumberHostOrder = sequenceNumberHostOrder;
     cds._type = MessageType::PF_ADD_POINT;
-    cds._msg.resize(4);
+    cds._msg.resize(PacketSize::PF_ADD_POINT - PacketSize::HEADER_SIZE);
 
-    std::memcpy(cds._msg.data(), &mxHostOrder, sizeof(mxHostOrder));
-    std::memcpy(cds._msg.data() + 2, &myHostOrder, sizeof(myHostOrder));
+    ByteWriter wrt{ .buffer = cds._msg };
+    wrt.write(mouseHostOrder[0]);
+    wrt.write(mouseHostOrder[1]);
     handle_CanvasDrawingCommand(cds, sessionIdHostOrder);
 }
 
 void Server::handle_pfEndStroke(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
 {
-    assert(udpPacketWithoutMID.size() == 8 && "End stroke size is wrong");
-    SessionId sessionIdHostOrder;
-    SequenceNumber sequenceNumberHostOrder;
-    std::memcpy(&sessionIdHostOrder, udpPacketWithoutMID.data(), sizeof(sessionIdHostOrder));
-    std::memcpy(&sequenceNumberHostOrder, udpPacketWithoutMID.data() + 4, sizeof(sequenceNumberHostOrder));
+    assert((udpPacketWithoutMID.size() == PacketSize::PF_END_STROKE - 1) &&
+        "Size of PF_END_STROKE packet received is wrong");
 
-    sessionIdHostOrder = ntohl(sessionIdHostOrder);
-    sequenceNumberHostOrder = ntohl(sequenceNumberHostOrder);
+    ByteReader rdr{ .buffer = udpPacketWithoutMID };
+    auto sessionIdHostOrder = ntohl(rdr.read<SessionId>());
+    auto sequenceNumberHostOrder = ntohl(rdr.read<SequenceNumber>());
 
     CanvasDrawState cds;
     cds._sqNumberHostOrder = sequenceNumberHostOrder;
@@ -381,6 +340,8 @@ void Server::handle_CanvasDrawingCommand(CanvasDrawState cds, SessionId sessionI
 
 void Server::handle_reqRegister(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
 {
+    assert((udpPacketWithoutMID.size() == PacketSize::REQ_REGISTER - 1) &&
+        "Size of REQ_REGISTER packet received is wrong");
     char ipStr[INET_ADDRSTRLEN]{};
     inet_ntop(AF_INET, &sa->sin_addr, ipStr, INET_ADDRSTRLEN);
     auto port = ntohs(sa->sin_port);
@@ -407,9 +368,10 @@ void Server::handle_reqRegister(std::span<const char> udpPacketWithoutMID, socka
     auto sessionIdHostOrder = getNextSessionIdHostOrder();
     auto sessionIdNetworkOrder = htonl(sessionIdHostOrder);
     std::vector<char> sendPacket;
-    sendPacket.resize(5);
-    sendPacket[0] = static_cast<char>(MessageType::RSP_REGISTER);
-    std::memcpy(sendPacket.data() + 1, &sessionIdNetworkOrder, sizeof(sessionIdNetworkOrder));
+    sendPacket.resize(PacketSize::RSP_REGISTER);
+    ByteWriter wrt{ .buffer = sendPacket };
+    wrt.write(static_cast<char>(MessageType::RSP_REGISTER));
+    wrt.write(sessionIdNetworkOrder);
     bool success = false;
     for (int i = 0; i < _maxRetry; i++)
     {
@@ -449,22 +411,15 @@ void Server::handle_reqRegister(std::span<const char> udpPacketWithoutMID, socka
 
 void Server::handle_reqUnregister(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
 {
-    const std::size_t expectedBytes = 4;
+    assert((udpPacketWithoutMID.size() == PacketSize::REQ_UNREGISTER - 1) &&
+        "Size of REQ_UNREGISTER packet received is wrong");
     char ipStr[INET_ADDRSTRLEN]{};
     inet_ntop(AF_INET, &sa->sin_addr, ipStr, INET_ADDRSTRLEN);
     auto port = ntohs(sa->sin_port);
     std::string ipStrAndPort = std::format("{}:{}", ipStr, port);
-    if (udpPacketWithoutMID.size() != expectedBytes)
-    {
-        threadSafeOStream(std::cerr,
-            std::format("[Server] Client {}: REQ_UNREGISTER received {} bytes but expected {} bytes in its payload",
-                ipStrAndPort,udpPacketWithoutMID.size(), expectedBytes));
-        return;
-    }
-    SessionId sessionIdNetworkOrder;
-    std::memcpy(&sessionIdNetworkOrder, udpPacketWithoutMID.data(), sizeof(sessionIdNetworkOrder));
-    SessionId sessionIdHostOrder = ntohl(sessionIdNetworkOrder);
 
+    ByteReader rdr{ .buffer = udpPacketWithoutMID };
+    auto sessionIdHostOrder = ntohl(rdr.read<SessionId>());
     if (!destroySessionIdHostOrder(sessionIdHostOrder, ipStrAndPort))
     {
         threadSafeOStream(std::cerr,
@@ -478,20 +433,14 @@ void Server::handle_reqUnregister(std::span<const char> udpPacketWithoutMID, soc
 
 void Server::handle_pfInputState(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
 {
-    SessionId sessionIdHostOrder;
-    SequenceNumber sqNumberHostOrder;
-    InputBits inputBitsHostOrder;
-    MousePosition mousePositionHostOrder;
+    assert((udpPacketWithoutMID.size() == PacketSize::PF_INPUT_STATE - 1) &&
+        "Size of PF_INPUT_STATE packet received is wrong");
+    ByteReader rdr{ .buffer = udpPacketWithoutMID };
+    auto sessionIdHostOrder = ntohl(rdr.read<SessionId>());
+    auto sqNumberHostOrder = ntohl(rdr.read<SequenceNumber>());
+    auto inputBitsHostOrder = ntohl(rdr.read<InputBits>());
+    auto mousePositionHostOrder = rdr.read<MousePosition>();
 
-    std::memcpy(&sessionIdHostOrder, udpPacketWithoutMID.data(), sizeof(sessionIdHostOrder));
-    std::memcpy(&sqNumberHostOrder, udpPacketWithoutMID.data() + 4, sizeof(sqNumberHostOrder));
-    std::memcpy(&inputBitsHostOrder, udpPacketWithoutMID.data() + 8, sizeof(inputBitsHostOrder));
-    std::memcpy(mousePositionHostOrder.data(), udpPacketWithoutMID.data() + 12,
-        mousePositionHostOrder.size() * sizeof(mousePositionHostOrder[0]));
-
-    sessionIdHostOrder = ntohl(sessionIdHostOrder);
-    sqNumberHostOrder = ntohl(sqNumberHostOrder);
-    inputBitsHostOrder = ntohl(inputBitsHostOrder);
     mousePositionHostOrder[0] = ntohs(mousePositionHostOrder[0]);
     mousePositionHostOrder[1] = ntohs(mousePositionHostOrder[1]);
 }
