@@ -127,7 +127,6 @@ void CoreGameState::update(sf::Time)
         std::memcpy(msg.data(), &mxHostOrder, sizeof(mxHostOrder));
         std::memcpy(msg.data() + 2, &myHostOrder, sizeof(myHostOrder)); // was +4, off by 2!
         cds._msg = std::move(msg);
-        std::cerr << "Game Sending pos: " << mxHostOrder << ',' << myHostOrder << '\n';
         Client::sendCanvasCommand(cds);
     }
 
