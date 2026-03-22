@@ -389,7 +389,7 @@ void Server::handle_reqRegister(std::span<const char> udpPacketWithoutMID, socka
         {
             // we found a connection that already has the ip address and port
             threadSafeOStream(std::cout,
-                std::format("[Server] Client {} has already been registered, ignoring this REQ_REGISTER message"));
+                std::format("[Server] Client {} has already been registered, ignoring this REQ_REGISTER message", ipStrAndPort));
             return;
         }
     }
