@@ -143,6 +143,36 @@ void CoreGameState::update(sf::Time)
     m_wasLeftDown = leftDown;
     m_lastMousePos = pos;
 
+    // retrieve the stroke commands from the queue
+    if (m_strokesMutex.try_lock())
+    {
+        std::queue<StrokeCmdReceived> copyCmds;
+        copyCmds.swap(m_strokes);
+        m_strokesMutex.unlock();
+
+        while (!copyCmds.empty())
+        {
+            auto strokeCmd = copyCmds.front();
+            copyCmds.pop();
+            std::visit([this](auto&& value) {
+                using T = std::decay_t<decltype(value)>;
+                if constexpr (std::is_same_v<T, BeginStroke>)
+                {
+                    m_canvas.beginStroke(value.mouse, value.color, value.thickness);
+                }
+                else if constexpr (std::is_same_v<T, AddPoint>)
+                {
+                    m_canvas.extendStroke(value.mouse);
+                }
+                else if constexpr (std::is_same_v<T, EndStroke>)
+                {
+                    m_canvas.endStroke();
+                }
+                else assert(false && "Missing visit case in std::visit in coregame");
+                }, strokeCmd);
+        }
+    }
+
 
     if (m_shouldReturnToMenu)
     {
@@ -206,7 +236,6 @@ void CoreGameState::handleCanvasStateCommandEvent(const CanvasDrawState& cds)
         using enum MessageType;
     case PF_START_STROKE:
     {
-
         assert(cds._msg.size() == 13 && "Size of this msg is wrong");
         std::uint32_t idHostOrder; // dk what to do with this yet
         std::uint16_t mxHostOrder;
@@ -224,9 +253,9 @@ void CoreGameState::handleCanvasStateCommandEvent(const CanvasDrawState& cds)
         std::memcpy(&bHostOrder, cds._msg.data() + 10, sizeof(bHostOrder));
         std::memcpy(&aHostOrder, cds._msg.data() + 11, sizeof(aHostOrder));
         std::memcpy(&thicknessHostOrder, cds._msg.data() + 12, sizeof(thicknessHostOrder));
-        // im purposely not casting here to get @william's attention to fix his function to take in ints
-        m_canvas.beginStroke(sf::Vector2f(mxHostOrder, myHostOrder),
-            sf::Color(rHostOrder,gHostOrder,bHostOrder,aHostOrder),thicknessHostOrder);
+        std::lock_guard lock(m_strokesMutex);
+        m_strokes.push(BeginStroke{ sf::Vector2f(mxHostOrder, myHostOrder),
+            sf::Color(rHostOrder, gHostOrder, bHostOrder, aHostOrder), static_cast<float>(thicknessHostOrder) });
     }
         break;
     case PF_ADD_POINT:
@@ -236,13 +265,13 @@ void CoreGameState::handleCanvasStateCommandEvent(const CanvasDrawState& cds)
         std::uint16_t myHostOrder;
         std::memcpy(&mxHostOrder, cds._msg.data(), sizeof(mxHostOrder));
         std::memcpy(&myHostOrder, cds._msg.data() + 2, sizeof(myHostOrder));
-        m_canvas.extendStroke(sf::Vector2f(mxHostOrder, myHostOrder));
+        m_strokes.push(AddPoint{ sf::Vector2f(mxHostOrder,myHostOrder) });
         break;
     }
     case PF_END_STROKE:
     {
         assert(cds._msg.size() == 0 && "Size of this msg is wrong");
-        m_canvas.endStroke();
+        m_strokes.push(EndStroke{});
         break;
     }
     default: assert(false && "Logic error");

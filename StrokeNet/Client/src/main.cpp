@@ -26,7 +26,7 @@ int main()
 
 
     Client::initalize();
-    Client::connect("192.168.68.56", "54308");
+    Client::connect("192.168.68.56", "54157");
     std::jthread listeningThread{
         [st = ss.get_token()]()
         {

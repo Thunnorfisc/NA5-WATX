@@ -251,7 +251,7 @@ void Server::sendCanvasDrawState(const CanvasDrawState& cds)
         }
         else
         {
-            return; // success
+            break; // success
         }
     }
     threadSafeOStream(std::cerr,

@@ -100,8 +100,6 @@ void AppendPoint(RenderStroke& rs, const Point& pt, const Stroke& stroke)
     v.position = p2 + offset; rs.quads.append(v);
 }
 
-
-
 void DrawDrawing(sf::RenderWindow& window, const Drawing& drawing)
 {
     for (const auto& rs : drawing.strokes) {

@@ -455,35 +455,55 @@ void Client::sendCanvasCommand(const CanvasDrawState& drawState)
     MessageType type = drawState._type;
     if (type == MessageType::PF_START_STROKE)
     {
+        assert(drawState._msg.size() == 13 && "Size is wrong when sending start stroke");
         // 1 for the type
         // 8 for the header (session id (4) + seqNumber (4) )
         // 13 for the data
         msg.resize(1 + 8 + 13);
+        char* msgPtr = msg.data();
+        const char* drawMsgPtr = drawState._msg.data();
+
         msg[0] = static_cast<char>(drawState._type);
+        msgPtr += sizeof(msg[0]);
+
         auto sessionIdNetworkOrder = htonl(_sessionId);
         auto seqNumberNetworkOrder = htonl(drawState._sqNumberHostOrder);
-        std::memcpy(msg.data() + 1, &sessionIdNetworkOrder, sizeof(sessionIdNetworkOrder));
-        std::memcpy(msg.data() + 5, &seqNumberNetworkOrder, sizeof(seqNumberNetworkOrder));
+        
+        std::memcpy(msgPtr, &sessionIdNetworkOrder, sizeof(sessionIdNetworkOrder));
+        msgPtr += sizeof(sessionIdNetworkOrder);
+
+        std::memcpy(msgPtr, &seqNumberNetworkOrder, sizeof(seqNumberNetworkOrder));
+        msgPtr += sizeof(seqNumberNetworkOrder);
 
         std::uint32_t idNetworkOrder;
-        std::memcpy(&idNetworkOrder, drawState._msg.data(), sizeof(idNetworkOrder));
+        std::memcpy(&idNetworkOrder, drawMsgPtr, sizeof(idNetworkOrder));
+        drawMsgPtr += sizeof(idNetworkOrder);
         idNetworkOrder = htonl(idNetworkOrder);
-        std::memcpy(msg.data() + 9, &idNetworkOrder, sizeof(idNetworkOrder));
+
+        std::memcpy(msgPtr, &idNetworkOrder, sizeof(idNetworkOrder));
+        msgPtr += sizeof(idNetworkOrder);
 
         std::uint16_t mxNetworkOrder;
-        std::memcpy(&mxNetworkOrder, drawState._msg.data() + 4, sizeof(mxNetworkOrder));
+        std::memcpy(&mxNetworkOrder, drawMsgPtr, sizeof(mxNetworkOrder));
+        drawMsgPtr += sizeof(mxNetworkOrder);
         mxNetworkOrder = htons(mxNetworkOrder);
-        std::memcpy(msg.data() + 13, &mxNetworkOrder, sizeof(mxNetworkOrder));
+        std::memcpy(msgPtr, &mxNetworkOrder, sizeof(mxNetworkOrder));
+        msgPtr += sizeof(mxNetworkOrder);
 
         std::uint16_t myNetworkOrder;
-        std::memcpy(&myNetworkOrder, drawState._msg.data() + 6, sizeof(myNetworkOrder));
+        std::memcpy(&myNetworkOrder, drawMsgPtr, sizeof(myNetworkOrder));
+        drawMsgPtr += sizeof(myNetworkOrder);
         myNetworkOrder = htons(myNetworkOrder);
-        std::memcpy(msg.data() + 15, &myNetworkOrder, sizeof(myNetworkOrder));
+        std::memcpy(msgPtr, &myNetworkOrder, sizeof(myNetworkOrder));
+        msgPtr += sizeof(myNetworkOrder);
 
-        std::memcpy(msg.data() + 17, drawState._msg.data() + 8, 5);
+        std::memcpy(msgPtr, drawMsgPtr, 5);
+        drawMsgPtr += 5;
+        msgPtr += 5;
     }
     else if (type == MessageType::PF_ADD_POINT)
     {
+        assert(drawState._msg.size() == 4 && "Size is wrong when sending add point");
         msg.resize(1 + 8 + 4);
         msg[0] = static_cast<char>(drawState._type);
         auto sessionIdNetworkOrder = htonl(_sessionId);
@@ -506,6 +526,7 @@ void Client::sendCanvasCommand(const CanvasDrawState& drawState)
     }
     else if (type == MessageType::PF_END_STROKE)
     {
+        assert(drawState._msg.size() == 0 && "Size is wrong when sending end stroke");
         msg.resize(1 + 8);
         msg[0] = static_cast<char>(drawState._type);
         auto sessionIdNetworkOrder = htonl(_sessionId);
