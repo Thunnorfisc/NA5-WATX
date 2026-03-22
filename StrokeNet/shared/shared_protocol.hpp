@@ -1,10 +1,12 @@
 #pragma once
 #include <array>
 #include <string>
+#include <vector>
 #include <bitset>
 #include <cstdint>
 #include <cstddef>
 #include <cassert>
+#include <optional>
 // ========================================== PROTOCOL STUFF START
 using SessionId = std::uint32_t; // 2 ^ 32 sessions
 using SequenceNumber = std::uint32_t; // 2 ^ 32 sequences
@@ -18,18 +20,40 @@ enum class MessageType : std::uint8_t
     RSP_REGISTER,
     REQ_UNREGISTER,
 
-    // need to handle rsp_unregister...
+    // need to handle rsp_unregister maybe...
 
-    PF_INPUTSTATE
+    PF_INPUTSTATE,
+    
+    PF_START_STROKE,
+    PF_ADD_POINT,
+    PF_END_STROKE
 };
-struct GameState
+struct CanvasDrawState
 {
+    // type and msg size will be VALIDATED
+    MessageType _type;
+    std::vector<char> _msg;
+    SequenceNumber _sqNumberHostOrder;
 
+    void assertCanvasDrawState() const
+    {
+        assert((_type == MessageType::PF_START_STROKE ||
+            _type == MessageType::PF_ADD_POINT ||
+            _type == MessageType::PF_END_STROKE) && "Canvas draw command holds invalid values");
+        // sanity check for the size of the payload for the message type
+#if _DEBUG
+        if (_type == MessageType::PF_ADD_POINT && (_msg.size() != 4))
+            assert(false && "PF_ADD_POINT expects 4 bytes! [uint16_t x][uint16_t y], in host order");
+        else if (_type == MessageType::PF_START_STROKE && (_msg.size() != 13))
+            assert(false && "PF_START_STROKE expects 13 bytes! [uint32_t id][uint16_t x][uint16_t y][uint8_t r][uint8_t g][uint8_t b][uint8_t a][uint8_t thickness], in host order");
+        else if (_type == MessageType::PF_END_STROKE && (_msg.size() != 0))
+            assert(false && "PF_START_STROKE expects 0 bytes!");
+#endif
+    }
 };
-
 struct InputState
 {
-    enum class Input { LMOUSE = 0 };
+    enum class Input { /*Empty at the moment, no use for it*/ };
     SequenceNumber currentSequenceNumber;
     InputBits currentInput = static_cast<InputBits>(0);
     MousePosition currentMousePos;

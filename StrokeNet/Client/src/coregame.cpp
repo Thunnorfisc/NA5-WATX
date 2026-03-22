@@ -2,6 +2,7 @@
 #include "coregame.hpp"
 #include "state_machine.hpp"
 
+#include <iostream>
 #include <algorithm>
 
 #undef min // stupid microsoft
@@ -39,6 +40,14 @@ CoreGameState::CoreGameState(StateMachine& stateMachine, StateContext& context) 
     m_canvas = Canvas(sf::FloatRect({ 50.f, 50.f }, { 300.f, 300.f }));
 
     updateLayout();
+
+    _canvasStateFnId = Client::registerCanvasStateCommandEvent(
+        [this](const CanvasDrawState& cds) { handleCanvasStateCommandEvent(cds); });
+}
+
+CoreGameState::~CoreGameState()
+{
+    Client::deregisterCanvasStateCommandEvent(_canvasStateFnId);
 }
 
 void CoreGameState::handleEvent(const sf::Event& event)
@@ -51,54 +60,23 @@ void CoreGameState::handleEvent(const sf::Event& event)
         context().window.setView(sf::View(visibleArea));
     }
 
-    if (const auto* mousePressed = event.getIf<sf::Event::MouseButtonPressed>())
-    {
-        if (mousePressed->button == sf::Mouse::Button::Left && isMouseOverBackButton())
-        {
-            m_shouldReturnToMenu = true;
-        }
-
-        if (const auto* mousePressed = event.getIf<sf::Event::MouseButtonPressed>()) {
+    if (const auto* mousePressed = event.getIf<sf::Event::MouseButtonPressed>()) {
+        if (mousePressed->button == sf::Mouse::Button::Left) {
             sf::Vector2f pos(static_cast<float>(mousePressed->position.x),
                 static_cast<float>(mousePressed->position.y));
 
-            if (mousePressed->button == sf::Mouse::Button::Left) {
-                if (isMouseOverBackButton()) {
-                    m_shouldReturnToMenu = true;
-                    return;
-                }
-                if (m_cpicker.handleClick(pos)) {
-                    return;  // picked a colour, don't start drawing
-                }
-                if (m_canvas.contains(pos)) {
-                    m_canvas.beginStroke(pos, m_cpicker.getSelectedColour(), 6.f);
-                }
+            if (isMouseOverBackButton()) {
+                m_shouldReturnToMenu = true;
+                return;
             }
-        }
-    }
-
-    if (const auto* moved = event.getIf<sf::Event::MouseMoved>()) {
-        sf::Vector2f pos(static_cast<float>(moved->position.x),
-            static_cast<float>(moved->position.y));
-        m_canvas.extendStroke(pos);
-    }
-
-    if (const auto* released = event.getIf<sf::Event::MouseButtonReleased>()) {
-        if (released->button == sf::Mouse::Button::Left) {
-            m_canvas.endStroke();
         }
     }
 }
 
 void CoreGameState::update(sf::Time)
 {
-    //m_gameState = tryGetGameState();
-
     // create a new input state and send over to the server
     InputState is;
-    // handle key / mouse presses
-    if (sf::Mouse::isButtonPressed(sf::Mouse::Button::Left)) 
-        setBit(is.currentInput,static_cast<std::uint8_t>(InputState::Input::LMOUSE));
     // handle mouse position
     auto [mx, my] = sf::Mouse::getPosition(context().window);
     is.currentMousePos[0] = static_cast<MousePosition::value_type>(mx);
@@ -107,6 +85,93 @@ void CoreGameState::update(sf::Time)
     Client::sendInputState(is);
 
     updateLayout();
+
+    sf::Vector2i mousePos = sf::Mouse::getPosition(context().window);
+    sf::Vector2f pos(static_cast<float>(mousePos.x), static_cast<float>(mousePos.y));
+    bool leftDown = sf::Mouse::isButtonPressed(sf::Mouse::Button::Left);
+
+    if (leftDown && !m_wasLeftDown) {
+        if (!m_cpicker.handleClick(pos) && m_canvas.contains(pos)) {
+            auto mxHostOrder = static_cast<std::uint16_t>(mousePos.x);
+            auto myHostOrder = static_cast<std::uint16_t>(mousePos.y);
+            auto clr = m_cpicker.getSelectedColour();
+            std::uint8_t thicknessHostOrder = 6;
+            CanvasDrawState cds;
+            cds._sqNumberHostOrder = sequenceNumber;
+            cds._type = MessageType::PF_START_STROKE;
+            std::vector<char> msg;
+            msg.resize(13);
+            std::uint32_t idHostOrder = m_canvas.nextId - 1;
+            std::memcpy(msg.data(), &idHostOrder, sizeof(idHostOrder));
+            std::memcpy(msg.data() + 4, &mxHostOrder, sizeof(mxHostOrder));
+            std::memcpy(msg.data() + 6, &myHostOrder, sizeof(myHostOrder));
+            std::memcpy(msg.data() + 8, &clr.r, sizeof(clr.r));
+            std::memcpy(msg.data() + 9, &clr.g, sizeof(clr.g));
+            std::memcpy(msg.data() + 10, &clr.b, sizeof(clr.b));
+            std::memcpy(msg.data() + 11, &clr.a, sizeof(clr.a));
+            std::memcpy(msg.data() + 12, &thicknessHostOrder, sizeof(thicknessHostOrder));
+            cds._msg = std::move(msg);
+            Client::sendCanvasCommand(cds);
+            m_drawing = true;
+        }
+    }
+
+    if (leftDown && m_drawing && pos != m_lastMousePos) {
+        CanvasDrawState cds;
+        cds._sqNumberHostOrder = sequenceNumber;
+        cds._type = MessageType::PF_ADD_POINT;
+        std::vector<char> msg;
+        msg.resize(4);
+        auto mxHostOrder = static_cast<std::uint16_t>(mousePos.x);
+        auto myHostOrder = static_cast<std::uint16_t>(mousePos.y);
+        std::memcpy(msg.data(), &mxHostOrder, sizeof(mxHostOrder));
+        std::memcpy(msg.data() + 2, &myHostOrder, sizeof(myHostOrder)); // was +4, off by 2!
+        cds._msg = std::move(msg);
+        Client::sendCanvasCommand(cds);
+    }
+
+    if (!leftDown && m_wasLeftDown && m_drawing) {
+        m_drawing = false;
+        CanvasDrawState cds;
+        cds._sqNumberHostOrder = sequenceNumber;
+        cds._type = MessageType::PF_END_STROKE;
+        cds._msg = {};
+        Client::sendCanvasCommand(cds);
+    }
+
+    m_wasLeftDown = leftDown;
+    m_lastMousePos = pos;
+
+    // retrieve the stroke commands from the queue
+    if (m_strokesMutex.try_lock())
+    {
+        std::queue<StrokeCmdReceived> copyCmds;
+        copyCmds.swap(m_strokes);
+        m_strokesMutex.unlock();
+
+        while (!copyCmds.empty())
+        {
+            auto strokeCmd = copyCmds.front();
+            copyCmds.pop();
+            std::visit([this](auto&& value) {
+                using T = std::decay_t<decltype(value)>;
+                if constexpr (std::is_same_v<T, BeginStroke>)
+                {
+                    m_canvas.beginStroke(value.mouse, value.color, value.thickness);
+                }
+                else if constexpr (std::is_same_v<T, AddPoint>)
+                {
+                    m_canvas.extendStroke(value.mouse);
+                }
+                else if constexpr (std::is_same_v<T, EndStroke>)
+                {
+                    m_canvas.endStroke();
+                }
+                else assert(false && "Missing visit case in std::visit in coregame");
+                }, strokeCmd);
+        }
+    }
+
 
     if (m_shouldReturnToMenu)
     {
@@ -160,4 +225,54 @@ void CoreGameState::updateLayout()
         m_canvas.bounds.position.x + (m_canvas.bounds.size.x - pickerWidth) / 2.f,
         m_canvas.bounds.position.y + m_canvas.bounds.size.y + 10.f
         });
+}
+
+void CoreGameState::handleCanvasStateCommandEvent(const CanvasDrawState& cds)
+{
+    // NOTE: ALL DATA SENT BY THE CLIENT.HPP IS ALREADY IN HOST ORDER!!!!!!!!!!
+    switch (cds._type)
+    {
+        using enum MessageType;
+    case PF_START_STROKE:
+    {
+        assert(cds._msg.size() == 13 && "Size of this msg is wrong");
+        std::uint32_t idHostOrder; // dk what to do with this yet
+        std::uint16_t mxHostOrder;
+        std::uint16_t myHostOrder;
+        std::uint8_t rHostOrder;
+        std::uint8_t gHostOrder;
+        std::uint8_t bHostOrder;
+        std::uint8_t aHostOrder;
+        std::uint8_t thicknessHostOrder;
+        std::memcpy(&idHostOrder, cds._msg.data(), sizeof(idHostOrder));
+        std::memcpy(&mxHostOrder, cds._msg.data() + 4, sizeof(mxHostOrder));
+        std::memcpy(&myHostOrder, cds._msg.data() + 6, sizeof(myHostOrder));
+        std::memcpy(&rHostOrder, cds._msg.data() + 8, sizeof(rHostOrder));
+        std::memcpy(&gHostOrder, cds._msg.data() + 9, sizeof(gHostOrder));
+        std::memcpy(&bHostOrder, cds._msg.data() + 10, sizeof(bHostOrder));
+        std::memcpy(&aHostOrder, cds._msg.data() + 11, sizeof(aHostOrder));
+        std::memcpy(&thicknessHostOrder, cds._msg.data() + 12, sizeof(thicknessHostOrder));
+        std::lock_guard lock(m_strokesMutex);
+        m_strokes.push(BeginStroke{ sf::Vector2f(mxHostOrder, myHostOrder),
+            sf::Color(rHostOrder, gHostOrder, bHostOrder, aHostOrder), static_cast<float>(thicknessHostOrder) });
+    }
+        break;
+    case PF_ADD_POINT:
+    {
+        assert(cds._msg.size() == 4 && "Size of this msg is wrong");
+        std::uint16_t mxHostOrder;
+        std::uint16_t myHostOrder;
+        std::memcpy(&mxHostOrder, cds._msg.data(), sizeof(mxHostOrder));
+        std::memcpy(&myHostOrder, cds._msg.data() + 2, sizeof(myHostOrder));
+        m_strokes.push(AddPoint{ sf::Vector2f(mxHostOrder,myHostOrder) });
+        break;
+    }
+    case PF_END_STROKE:
+    {
+        assert(cds._msg.size() == 0 && "Size of this msg is wrong");
+        m_strokes.push(EndStroke{});
+        break;
+    }
+    default: assert(false && "Logic error");
+    }
 }
