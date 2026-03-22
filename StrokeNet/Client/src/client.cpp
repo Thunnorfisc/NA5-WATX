@@ -214,9 +214,6 @@ void Client::startListening(std::stop_token st)
                 std::memcpy(cds._msg.data(), &mxHostOrder, sizeof(mxHostOrder));
                 std::memcpy(cds._msg.data() + 2, &myHostOrder, sizeof(myHostOrder));
 
-                std::cerr << "Client received pos: " << mxHostOrder << ',' << myHostOrder << '\n';
-
-
                 std::lock_guard lock(_canvasDrawStateFunctionsMutex);
                 for (const auto& [_ignore, fn] : _canvasDrawStateFunctions) fn(cds);
             }
