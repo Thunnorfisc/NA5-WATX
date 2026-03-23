@@ -34,7 +34,8 @@ public:
     // separate listening thread
     static void startListening(std::stop_token st);
     // no separate thread, will do on the main thread (for now)
-    static bool connect();
+    static bool connectViaBroadcast();
+    static bool connectViaIpAndPort(const std::string& ip, const std::string& port);
     static void disconnect();
 
     // no separate thread, will do on the main thread (for now)

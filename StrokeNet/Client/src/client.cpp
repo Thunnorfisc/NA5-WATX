@@ -158,7 +158,7 @@ void Client::startListening(std::stop_token st)
     }
 }
 
-bool Client::connect()
+bool Client::connectViaBroadcast()
 {
     if (_sessionId != InvalidSessionId)
     {
@@ -281,6 +281,153 @@ bool Client::connect()
             threadSafeOStream(std::cout, std::format("[Client] Successfully connected to server: {}", _serverIpAndPort));
             return true;
         }
+    }
+    return false;
+}
+
+bool Client::connectViaIpAndPort(const std::string& serverIp, const std::string& serverPort)
+{
+    std::uint16_t portHostOrder;
+    try
+    {
+        portHostOrder = std::stoi(serverPort);
+        if (portHostOrder > 65535) throw std::runtime_error("Invalid port range");
+    }
+    catch (...)
+    {
+        threadSafeOStream(std::cerr, std::format("[Client] Tried to connect with an invalid port, port {} is not a valid number", serverPort));
+        return false;
+    }
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(portHostOrder);
+    if (inet_pton(AF_INET, serverIp.c_str(), &addr.sin_addr) != 1)
+    {
+        threadSafeOStream(std::cerr, std::format("[Client] Tried to connect with an invalid ip {}", serverIp));
+        return false;
+    }
+    _serverAddr = addr;
+    std::vector<char> udpPacket;
+    udpPacket.resize(MaxUdpPacketBytes);
+    for (int attempt = 0; attempt < _maxRetries; ++attempt)
+    {
+        const char mid = static_cast<char>(static_cast<std::uint8_t>(MessageType::REQ_REGISTER));
+
+        int sentBytes = sendto(
+            _socket,
+            &mid,
+            1,
+            0,
+            reinterpret_cast<sockaddr*>(&_serverAddr),
+            sizeof(_serverAddr)
+        );
+
+        if (sentBytes == SOCKET_ERROR)
+        {
+            const int err = WSAGetLastError();
+            if (isRecoverableWSAError(err))
+            {
+                continue;
+            }
+
+            threadSafeOStream(
+                std::cerr,
+                std::format("[Client] sendto() failed: {}", wsaErrorStr())
+            );
+            return false;
+        }
+
+        assert(sentBytes == 1 && "sendto() should send exactly 1 byte for REQ_REGISTER");
+
+        fd_set readSet;
+        FD_ZERO(&readSet);
+        FD_SET(_socket, &readSet);
+
+        timeval timeout{};
+        timeout.tv_sec = 0;
+        timeout.tv_usec = static_cast<int>(_recvTimeOut * 1000);
+
+        int ready = select(
+            0,
+            &readSet,
+            nullptr,
+            nullptr,
+            &timeout
+        );
+
+        if (ready == SOCKET_ERROR)
+        {
+            threadSafeOStream(
+                std::cerr,
+                std::format("[Client] select() failed: {}", wsaErrorStr())
+            );
+            return false;
+        }
+
+        if (ready == 0)
+        {
+            continue; // timeout, retry next attempt
+        }
+
+        if (!FD_ISSET(_socket, &readSet))
+        {
+            continue; // defensive: treat as failed attempt
+        }
+
+        sockaddr_in from{};
+        int fromLen = sizeof(from);
+
+        int bytesReceived = recvfrom(
+            _socket,
+            udpPacket.data(),
+            static_cast<int>(udpPacket.size()),
+            0,
+            reinterpret_cast<sockaddr*>(&from),
+            &fromLen
+        );
+
+        if (bytesReceived == SOCKET_ERROR)
+        {
+            threadSafeOStream(
+                std::cerr,
+                std::format("[Client] recvfrom() failed: {}", wsaErrorStr())
+            );
+            return false;
+        }
+
+        if (bytesReceived == 0)
+        {
+            continue; // empty datagram, treat as failed attempt
+        }
+
+        // Validate sender.
+        if (from.sin_family != AF_INET ||
+            from.sin_port != addr.sin_port ||
+            from.sin_addr.s_addr != addr.sin_addr.s_addr)
+        {
+            continue; // packet not from the server we are registering with
+        }
+
+        // Validate payload size
+        if (bytesReceived != PacketSize::RSP_REGISTER)
+        {
+            continue;
+        }
+
+        const auto receivedType =
+            static_cast<MessageType>(static_cast<std::uint8_t>(udpPacket[0]));
+
+        if (receivedType != MessageType::RSP_REGISTER)
+        {
+            continue; // not the response we were waiting for
+        }
+
+        // okay we successfully received rsp_register, now to get the session id
+        ByteReader rdr{ .buffer = std::span<const char>(udpPacket).subspan(1, bytesReceived) };
+        _sessionId = ntohl(rdr.read<SessionId>());
+        _serverIpAndPort = std::format("{}:{}", serverIp, serverPort);
+        threadSafeOStream(std::cout, std::format("[Client] Successfully connected to {} after {} attempts!", _serverIpAndPort, attempt + 1));
+        return true;
     }
     return false;
 }

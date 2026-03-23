@@ -24,7 +24,8 @@ int main()
     std::filesystem::current_path(buffer);
 
     Client::initalize();
-    Client::connect();
+    Client::connectViaBroadcast(); // auto check lan for connection via a fixed port
+    //Client::connectViaIpAndPort("192.168.68.54","49013"); // connect directly
     playGame();
     Client::disconnect();
     Client::terminate();
