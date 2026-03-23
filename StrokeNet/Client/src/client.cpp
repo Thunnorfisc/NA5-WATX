@@ -287,6 +287,18 @@ bool Client::connectViaBroadcast()
 
 bool Client::connectViaIpAndPort(const std::string& serverIp, const std::string& serverPort)
 {
+    if (_sessionId != InvalidSessionId)
+    {
+        threadSafeOStream(std::cerr, "[Client] Tried to connect while there is already an active connection");
+        return false;
+    }
+
+    if (_listeningThread.joinable())
+    {
+        threadSafeOStream(std::cerr, "[Client] Tried to connect while there is already an active connection");
+        return false;
+    }
+
     std::uint16_t portHostOrder;
     try
     {
@@ -426,6 +438,10 @@ bool Client::connectViaIpAndPort(const std::string& serverIp, const std::string&
         ByteReader rdr{ .buffer = std::span<const char>(udpPacket).subspan(1, bytesReceived) };
         _sessionId = ntohl(rdr.read<SessionId>());
         _serverIpAndPort = std::format("{}:{}", serverIp, serverPort);
+        _listeningThread = std::jthread([st = _stopSource.get_token()]()
+            {
+                startListening(st);
+            });
         threadSafeOStream(std::cout, std::format("[Client] Successfully connected to {} after {} attempts!", _serverIpAndPort, attempt + 1));
         return true;
     }
