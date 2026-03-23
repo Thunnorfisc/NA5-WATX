@@ -22,25 +22,11 @@ int main()
     }
     PathRemoveFileSpecA(buffer);
     std::filesystem::current_path(buffer);
-    std::stop_source ss;
-
 
     Client::initalize();
-    Client::connect("192.168.1.86", "49227");
-    std::jthread listeningThread{
-        [st = ss.get_token()]()
-        {
-            Client::startListening(st);
-        }
-    };
+    Client::connectViaBroadcast(); // auto check lan for connection via a fixed port
+    //Client::connectViaIpAndPort("192.168.68.54","49013"); // connect directly
     playGame();
     Client::disconnect();
-
-    if (listeningThread.joinable())
-    {
-        ss.request_stop();
-        listeningThread.join();
-    }
-
     Client::terminate();
 }

@@ -19,6 +19,7 @@ inline constexpr SessionId InvalidSessionId = 0;
 inline constexpr std::size_t MaxUdpPacketBytes = 65'536;
 inline constexpr std::size_t MAX_USERNAME_LEN = 32;
 inline constexpr std::size_t MAX_PASSWORD_LEN = 32;
+inline constexpr std::uint16_t ServerUdpPort = 32112;
 namespace PacketSize
 {
     // +1 because includes message type
@@ -59,8 +60,6 @@ enum class MessageType : std::uint8_t
     REQ_REGISTER = 1,
     RSP_REGISTER,
     REQ_UNREGISTER,
-
-    // need to handle rsp_unregister maybe...
 
     PF_INPUT_STATE,
     

@@ -4,6 +4,7 @@
 #include <mutex>
 #include <vector>
 #include <format>
+#include <chrono>
 #include <cassert>
 #include <ostream>
 #include <iostream>
@@ -84,6 +85,12 @@ void Client::initalize()
     inet_ntop(AF_INET, &(ipv4->sin_addr), ipStr, sizeof(ipStr));
     _ip = ipStr;
     freeaddrinfo(result);
+
+    // allow sending to all LAN devices
+    int broadcast = 1;
+    setsockopt(_socket, SOL_SOCKET, SO_BROADCAST,
+        reinterpret_cast<const char*>(&broadcast), sizeof(broadcast));
+
     threadSafeOStream(std::cout, std::format("[Client]: {}:{}", _ip, _portHostOrder));
 }
 
@@ -105,7 +112,7 @@ void Client::startListening(std::stop_token st)
 
         timeval timeout{};
         timeout.tv_sec = 0;
-        timeout.tv_usec = static_cast<int>(_recvTimeOut * 1000); // 100 ms
+        timeout.tv_usec = static_cast<long>(_recvTimeOut * 1'000'000.0);
         int ready = select(
             0,
             &readSet,
@@ -151,8 +158,147 @@ void Client::startListening(std::stop_token st)
     }
 }
 
-bool Client::connect(std::string serverIp, std::string serverPort)
+bool Client::connectViaBroadcast()
 {
+    if (_sessionId != InvalidSessionId)
+    {
+        threadSafeOStream(std::cerr, "[Client] Tried to connect while there is already an active connection");
+        return false;
+    }
+
+    if (_listeningThread.joinable())
+    {
+        threadSafeOStream(std::cerr, "[Client] Tried to connect while there is already an active connection");
+        return false;
+    }
+
+    sockaddr_in broadcastAddr{};
+    broadcastAddr.sin_family = AF_INET;
+    broadcastAddr.sin_port = htons(ServerUdpPort);
+    broadcastAddr.sin_addr.S_un.S_addr = INADDR_BROADCAST;
+
+    std::vector<char> udpPacket;
+    udpPacket.resize(MaxUdpPacketBytes);
+
+    for (int attempt = 0; attempt < _maxRetries; attempt++)
+    {
+        const char mid = static_cast<char>(static_cast<std::uint8_t>(MessageType::REQ_REGISTER));
+        int sentBytes = sendto
+        (
+            _socket,
+            &mid,
+            1,
+            0,
+            reinterpret_cast<sockaddr*>(&broadcastAddr),
+            sizeof(broadcastAddr)
+        );
+
+        if (sentBytes == SOCKET_ERROR)
+        {
+            const int err = WSAGetLastError();
+            if (isRecoverableWSAError(err)) continue; // retry
+            else
+            {
+                threadSafeOStream(std::cerr,
+                    std::format("[Client] sendto() failed, unable to connect to server: {}", err));
+                return false;
+            }
+        }
+
+        auto deadline = std::chrono::steady_clock::now() +
+            std::chrono::milliseconds(static_cast<int>(_recvTimeOut * 1000.0));
+        while (true)
+        {
+            auto remaining = deadline - std::chrono::steady_clock::now();
+            if (remaining.count() <= 0) break;
+
+            fd_set readset;
+            FD_ZERO(&readset);
+            FD_SET(_socket, &readset);
+
+            auto us = std::chrono::duration_cast<std::chrono::microseconds>(remaining);
+            timeval timeout{};
+            timeout.tv_sec = static_cast<long>(us.count() / 1'000'000);
+            timeout.tv_usec = static_cast<long>(us.count() % 1'000'000);
+
+            int ready = select(0, &readset, nullptr, nullptr, &timeout);
+            if (ready == SOCKET_ERROR)
+            {
+                const int err = WSAGetLastError();
+                if (isRecoverableWSAError(err)) continue; // retry
+                else
+                {
+                    threadSafeOStream(std::cerr,
+                        std::format("[Client] select() failed: {}", err));
+                    return false;
+                }
+            }
+
+            if (ready == 0) break; // timeout
+
+            sockaddr_in from{};
+            int fromLen = sizeof(from);
+            int bytesReceived = recvfrom(
+                _socket,
+                udpPacket.data(),
+                static_cast<int>(udpPacket.size()),
+                0,
+                reinterpret_cast<sockaddr*>(&from),
+                &fromLen
+            );
+
+            if (bytesReceived == SOCKET_ERROR)
+            {
+                const int err = WSAGetLastError();
+                if (isRecoverableWSAError(err)) continue; // retry
+                else
+                {
+
+                    threadSafeOStream(std::cerr,
+                        std::format("[Client] recvfrom() failed: {}", err));
+                    return false;
+                }
+            }
+
+            else if (bytesReceived == 0) continue;
+
+            if (bytesReceived != PacketSize::RSP_REGISTER) continue;
+            if (static_cast<MessageType>(udpPacket[0]) != MessageType::RSP_REGISTER) continue;
+
+            ByteReader rdr{ .buffer = std::span<const char>(udpPacket).subspan(1, bytesReceived - 1) };
+            _sessionId = ntohl(rdr.read<SessionId>());
+
+            _serverAddr = from;
+            char ipStr[INET_ADDRSTRLEN]{};
+            inet_ntop(AF_INET, &from.sin_addr, ipStr, sizeof(ipStr));
+            _serverIpAndPort = std::format("{}:{}", ipStr, ntohs(from.sin_port));
+
+            _listeningThread = std::jthread([st = _stopSource.get_token()]()
+                {
+                    startListening(st);
+                });
+
+            threadSafeOStream(std::cout, std::format("[Client] Successfully connected to server: {}", _serverIpAndPort));
+            return true;
+        }
+    }
+    return false;
+}
+
+bool Client::connectViaIpAndPort(const std::string& serverIp, const std::string& serverPort)
+{
+    if (_sessionId != InvalidSessionId)
+    {
+        threadSafeOStream(std::cerr, "[Client] Tried to connect while there is already an active connection");
+        return false;
+    }
+
+    if (_listeningThread.joinable())
+    {
+        threadSafeOStream(std::cerr, "[Client] Tried to connect while there is already an active connection");
+        return false;
+    }
+
     std::uint16_t portHostOrder;
     try
     {
@@ -161,7 +307,7 @@ bool Client::connect(std::string serverIp, std::string serverPort)
     }
     catch (...)
     {
-        threadSafeOStream(std::cerr, std::format("[Client] Tried to connect with an invalid port, port {} is not a valid number",serverPort));
+        threadSafeOStream(std::cerr, std::format("[Client] Tried to connect with an invalid port, port {} is not a valid number", serverPort));
         return false;
     }
     sockaddr_in addr{};
@@ -169,7 +315,7 @@ bool Client::connect(std::string serverIp, std::string serverPort)
     addr.sin_port = htons(portHostOrder);
     if (inet_pton(AF_INET, serverIp.c_str(), &addr.sin_addr) != 1)
     {
-        threadSafeOStream(std::cerr, std::format("[Client] Tried to connect with an invalid ip {}",serverIp));
+        threadSafeOStream(std::cerr, std::format("[Client] Tried to connect with an invalid ip {}", serverIp));
         return false;
     }
     _serverAddr = addr;
@@ -292,6 +438,10 @@ bool Client::connect(std::string serverIp, std::string serverPort)
         ByteReader rdr{ .buffer = std::span<const char>(udpPacket).subspan(1, bytesReceived) };
         _sessionId = ntohl(rdr.read<SessionId>());
         _serverIpAndPort = std::format("{}:{}", serverIp, serverPort);
+        _listeningThread = std::jthread([st = _stopSource.get_token()]()
+            {
+                startListening(st);
+            });
         threadSafeOStream(std::cout, std::format("[Client] Successfully connected to {} after {} attempts!", _serverIpAndPort, attempt + 1));
         return true;
     }
@@ -300,10 +450,20 @@ bool Client::connect(std::string serverIp, std::string serverPort)
 
 void Client::disconnect()
 {
+    auto cleanUpThread = []()
+        {
+            if (_listeningThread.joinable())
+            {
+                _stopSource.request_stop();
+                _listeningThread.join();
+            }
+        };
+
     if (_sessionId == InvalidSessionId)
     {
         threadSafeOStream(std::cerr,
             "[Client] Disconnect called when there is not a valid session id");
+        cleanUpThread();
         return;
     }
     std::vector<char> msg;
@@ -335,6 +495,7 @@ void Client::disconnect()
                 std::cerr,
                 std::format("[Client] sendto() failed, disconnecting from the server had issues: {}", wsaErrorStr())
             );
+            cleanUpThread();
             return;
         }
         else
@@ -346,12 +507,16 @@ void Client::disconnect()
             _serverIpAndPort.clear();
             std::memset(&_serverAddr, 0, sizeof(_serverAddr));
             _sessionId = InvalidSessionId;
+
+            cleanUpThread();
+
             return;
         }
     }
     threadSafeOStream(
         std::cerr,
         std::format("[Client] Disconnecting from the server had issues"));
+    cleanUpThread();
 }
 
 void Client::sendInputState(const InputState& inputState)
