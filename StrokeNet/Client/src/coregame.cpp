@@ -235,41 +235,32 @@ void CoreGameState::handleCanvasStateCommandEvent(const CanvasDrawState& cds)
         using enum MessageType;
     case PF_START_STROKE:
     {
-        assert(cds._msg.size() == 13 && "Size of this msg is wrong");
-        std::uint32_t idHostOrder; // dk what to do with this yet
-        std::uint16_t mxHostOrder;
-        std::uint16_t myHostOrder;
-        std::uint8_t rHostOrder;
-        std::uint8_t gHostOrder;
-        std::uint8_t bHostOrder;
-        std::uint8_t aHostOrder;
-        std::uint8_t thicknessHostOrder;
-        std::memcpy(&idHostOrder, cds._msg.data(), sizeof(idHostOrder));
-        std::memcpy(&mxHostOrder, cds._msg.data() + 4, sizeof(mxHostOrder));
-        std::memcpy(&myHostOrder, cds._msg.data() + 6, sizeof(myHostOrder));
-        std::memcpy(&rHostOrder, cds._msg.data() + 8, sizeof(rHostOrder));
-        std::memcpy(&gHostOrder, cds._msg.data() + 9, sizeof(gHostOrder));
-        std::memcpy(&bHostOrder, cds._msg.data() + 10, sizeof(bHostOrder));
-        std::memcpy(&aHostOrder, cds._msg.data() + 11, sizeof(aHostOrder));
-        std::memcpy(&thicknessHostOrder, cds._msg.data() + 12, sizeof(thicknessHostOrder));
+        assert((cds._msg.size() == PacketSize::PF_START_STROKE - PacketSize::HEADER_SIZE) &&
+            "Size of msg for PF_START_STROKE is wrong");
+
+        ByteReader rdr{ .buffer = cds._msg };
+        auto idHostOrder = rdr.read<std::uint32_t>(); // do nothing with this yet i guess
+        auto mousePositionHostOrder = rdr.read<MousePosition>();
+        auto RGBAT = rdr.read<std::array<char, 5>>();
         std::lock_guard lock(m_strokesMutex);
-        m_strokes.push(BeginStroke{ sf::Vector2f(mxHostOrder, myHostOrder),
-            sf::Color(rHostOrder, gHostOrder, bHostOrder, aHostOrder), static_cast<float>(thicknessHostOrder) });
-    }
+        m_strokes.push(BeginStroke{ sf::Vector2f(mousePositionHostOrder[0], mousePositionHostOrder[1]),
+            sf::Color(RGBAT[0], RGBAT[1], RGBAT[2], RGBAT[3]), static_cast<float>(RGBAT[4])});
         break;
+    }
     case PF_ADD_POINT:
     {
-        assert(cds._msg.size() == 4 && "Size of this msg is wrong");
-        std::uint16_t mxHostOrder;
-        std::uint16_t myHostOrder;
-        std::memcpy(&mxHostOrder, cds._msg.data(), sizeof(mxHostOrder));
-        std::memcpy(&myHostOrder, cds._msg.data() + 2, sizeof(myHostOrder));
-        m_strokes.push(AddPoint{ sf::Vector2f(mxHostOrder,myHostOrder) });
+        assert((cds._msg.size() == PacketSize::PF_ADD_POINT - PacketSize::HEADER_SIZE) &&
+            "Size of msg for PF_ADD_POINT is wrong");
+
+        ByteReader rdr{ .buffer = cds._msg };
+        auto mousePositionHostOrder = rdr.read<MousePosition>();
+        m_strokes.push(AddPoint{ sf::Vector2f(mousePositionHostOrder[0],mousePositionHostOrder[1])});
         break;
     }
     case PF_END_STROKE:
     {
-        assert(cds._msg.size() == 0 && "Size of this msg is wrong");
+        assert((cds._msg.size() == PacketSize::PF_END_STROKE - PacketSize::HEADER_SIZE) &&
+            "Size of msg for PF_END_STROKE is wrong");
         m_strokes.push(EndStroke{});
         break;
     }
