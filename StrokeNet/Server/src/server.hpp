@@ -30,6 +30,7 @@
 #include <stop_token>
 #include <functional>
 #include <unordered_map>
+#include <vector>
 #include "login.hpp"
 class Server
 {
@@ -45,6 +46,15 @@ public:
     RegCdsFnId registerCdsFn(
         std::function<void(SessionId sessionIdHostOrder,const CanvasDrawState&)> fn);
     void deregisterCdsFn(RegCdsFnId id);
+public: //GMAE
+    std::vector<std::string> word_list{};
+    std::pair<bool, std::string> word{ 1,{} };
+    uint32_t max_len{};
+
+
+    void load_wordlist();
+    void pick_word();
+    int word_heuristic();
 private:
     struct Client
     {

@@ -34,6 +34,10 @@
 #include <algorithm>
 #include <filesystem>
 #include <string_view>
+#include <fstream>
+#include <algorithm>
+#include <execution>
+#include <filesystem>
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -711,4 +715,57 @@ bool Server::destroySessionIdHostOrder(SessionId id, std::string ipPort)
     }
     _sessionIdToClient.erase(it3);
     return true;
+}
+
+
+/*--------------------------------------
+GAME LOGIC FNS
+---------------------------------------*/
+void Server::load_wordlist() {
+    //std::filesystem::path currentPath = std::filesystem::current_path();
+
+    //// Print the path to standard output
+    //std::cout << "Current path is: " << currentPath << std::endl;
+
+    std::ifstream file{};
+    file.open("resources/words.txt");
+    if (!file.is_open())
+        throw std::runtime_error("Failed to open words.txt");
+
+    std::string word;
+    while (std::getline(file, word)) {
+        if (!word.empty() && word.back() == '\r')
+            word.pop_back();
+        if (!word.empty())
+            word_list.push_back(word);
+    }
+
+    auto it = std::max_element(
+        std::execution::par,
+        word_list.begin(), word_list.end(),
+        [](const std::string& a, const std::string& b) {
+            return a.size() < b.size();
+        }
+    );
+
+    if (it != word_list.end())
+        max_len = static_cast<uint32_t>(it->size());
+}
+
+void Server::pick_word() {
+    std::srand(static_cast<unsigned int>(std::time(nullptr)));
+    if (word_list.empty()) return;
+    word.second = word_list[std::rand() % word_list.size()];
+    word.first = false;
+    
+    std::vector<char> vWord{ word.second.begin(), word.second.end() };
+    ByteWriter SND{ .buffer = vWord};
+    
+    std::copy(SND.buffer.begin(), SND.buffer.end(), std::ostream_iterator<char>(std::cout));
+    std::cout << std::endl;
+
+}
+
+int Server::word_heuristic() {
+    return 0;
 }
