@@ -448,6 +448,255 @@ bool Client::connectViaIpAndPort(const std::string& serverIp, const std::string&
     return false;
 }
 
+LoginStatus Client::loginViaBroadcast(const std::string& username, const std::string& password)
+{
+    if (_sessionId != InvalidSessionId)
+    {
+        threadSafeOStream(std::cerr, "[Client] loginViaBroadcast() called while already connected");
+        return LoginStatus::INVALID_CREDENTIALS;
+    }
+
+    if (_listeningThread.joinable())
+    {
+        threadSafeOStream(std::cerr, "[Client] loginViaBroadcast() called while listening thread active");
+        return LoginStatus::INVALID_CREDENTIALS;
+    }
+
+    sockaddr_in broadcastAddr{};
+    broadcastAddr.sin_family = AF_INET;
+    broadcastAddr.sin_port = htons(ServerUdpPort);
+    broadcastAddr.sin_addr.S_un.S_addr = INADDR_BROADCAST;
+
+    // build REQ_LOGIN packet
+    std::vector<char> sendPacket(PacketSize::REQ_LOGIN, '\0');
+    ByteWriter wrt{ .buffer = sendPacket };
+    wrt.write(static_cast<char>(MessageType::REQ_LOGIN));
+
+    std::array<char, MAX_USERNAME_LEN> userBuf{};
+    std::memcpy(userBuf.data(), username.c_str(), username.size());
+    wrt.write(userBuf);
+
+    std::array<char, MAX_PASSWORD_LEN> passBuf{};
+    std::memcpy(passBuf.data(), password.c_str(), password.size());
+    wrt.write(passBuf);
+
+    std::vector<char> udpPacket;
+    udpPacket.resize(MaxUdpPacketBytes);
+
+    for (int attempt = 0; attempt < _maxRetries; attempt++)
+    {
+        int sentBytes = sendto(
+            _socket,
+            sendPacket.data(),
+            static_cast<int>(sendPacket.size()),
+            0,
+            reinterpret_cast<sockaddr*>(&broadcastAddr),
+            sizeof(broadcastAddr)
+        );
+
+        if (sentBytes == SOCKET_ERROR)
+        {
+            const int err = WSAGetLastError();
+            if (isRecoverableWSAError(err)) continue;
+            threadSafeOStream(std::cerr,
+                std::format("[Client] loginViaBroadcast sendto() failed: {}", wsaErrorStr()));
+            return LoginStatus::INVALID_CREDENTIALS;
+        }
+
+        auto deadline = std::chrono::steady_clock::now() +
+            std::chrono::milliseconds(static_cast<int>(_recvTimeOut * 1000.0));
+
+        while (true)
+        {
+            auto remaining = deadline - std::chrono::steady_clock::now();
+            if (remaining.count() <= 0) break;
+
+            fd_set readset;
+            FD_ZERO(&readset);
+            FD_SET(_socket, &readset);
+
+            auto us = std::chrono::duration_cast<std::chrono::microseconds>(remaining);
+            timeval timeout{};
+            timeout.tv_sec = static_cast<long>(us.count() / 1'000'000);
+            timeout.tv_usec = static_cast<long>(us.count() % 1'000'000);
+
+            int ready = select(0, &readset, nullptr, nullptr, &timeout);
+            if (ready == SOCKET_ERROR)
+            {
+                const int err = WSAGetLastError();
+                if (isRecoverableWSAError(err)) continue;
+                threadSafeOStream(std::cerr,
+                    std::format("[Client] loginViaBroadcast select() failed: {}", wsaErrorStr()));
+                return LoginStatus::INVALID_CREDENTIALS;
+            }
+
+            if (ready == 0) break; // timeout
+
+            sockaddr_in from{};
+            int fromLen = sizeof(from);
+            int bytesReceived = recvfrom(
+                _socket,
+                udpPacket.data(),
+                static_cast<int>(udpPacket.size()),
+                0,
+                reinterpret_cast<sockaddr*>(&from),
+                &fromLen
+            );
+
+            if (bytesReceived == SOCKET_ERROR)
+            {
+                const int err = WSAGetLastError();
+                if (isRecoverableWSAError(err)) continue;
+                threadSafeOStream(std::cerr,
+                    std::format("[Client] loginViaBroadcast recvfrom() failed: {}", wsaErrorStr()));
+                return LoginStatus::INVALID_CREDENTIALS;
+            }
+
+            if (bytesReceived == 0) continue;
+            if (bytesReceived != PacketSize::RSP_LOGIN) continue;
+            if (static_cast<MessageType>(udpPacket[0]) != MessageType::RSP_LOGIN) continue;
+
+            ByteReader rdr{ .buffer = std::span<const char>(udpPacket).subspan(1, bytesReceived - 1) };
+            SessionId sessionIdHostOrder = ntohl(rdr.read<SessionId>());
+            LoginStatus status = static_cast<LoginStatus>(rdr.read<std::uint8_t>());
+
+            if (status == LoginStatus::SUCCESS)
+            {
+                _sessionId = sessionIdHostOrder;
+                _serverAddr = from;
+
+                char ipStr[INET_ADDRSTRLEN]{};
+                inet_ntop(AF_INET, &from.sin_addr, ipStr, sizeof(ipStr));
+                _serverIpAndPort = std::format("{}:{}", ipStr, ntohs(from.sin_port));
+
+                _listeningThread = std::jthread([st = _stopSource.get_token()]()
+                    {
+                        startListening(st);
+                    });
+
+                threadSafeOStream(std::cout,
+                    std::format("[Client] Login successful for '{}', session {}, server: {}",
+                        username, _sessionId, _serverIpAndPort));
+            }
+            return status;
+        }
+    }
+
+    threadSafeOStream(std::cerr, "[Client] loginViaBroadcast: no server responded");
+    return LoginStatus::INVALID_CREDENTIALS;
+}
+
+LoginStatus Client::createAccountViaBroadcast(const std::string& username, const std::string& password)
+{
+    sockaddr_in broadcastAddr{};
+    broadcastAddr.sin_family = AF_INET;
+    broadcastAddr.sin_port = htons(ServerUdpPort);
+    broadcastAddr.sin_addr.S_un.S_addr = INADDR_BROADCAST;
+
+    // build REQ_CREATE_ACCOUNT packet
+    std::vector<char> sendPacket(PacketSize::REQ_CREATE_ACCOUNT, '\0');
+    ByteWriter wrt{ .buffer = sendPacket };
+    wrt.write(static_cast<char>(MessageType::REQ_CREATE_ACCOUNT));
+
+    std::array<char, MAX_USERNAME_LEN> userBuf{};
+    std::memcpy(userBuf.data(), username.c_str(), username.size());
+    wrt.write(userBuf);
+
+    std::array<char, MAX_PASSWORD_LEN> passBuf{};
+    std::memcpy(passBuf.data(), password.c_str(), password.size());
+    wrt.write(passBuf);
+
+    std::vector<char> udpPacket;
+    udpPacket.resize(MaxUdpPacketBytes);
+
+    for (int attempt = 0; attempt < _maxRetries; attempt++)
+    {
+        int sentBytes = sendto(
+            _socket,
+            sendPacket.data(),
+            static_cast<int>(sendPacket.size()),
+            0,
+            reinterpret_cast<sockaddr*>(&broadcastAddr),
+            sizeof(broadcastAddr)
+        );
+
+        if (sentBytes == SOCKET_ERROR)
+        {
+            const int err = WSAGetLastError();
+            if (isRecoverableWSAError(err)) continue;
+            threadSafeOStream(std::cerr,
+                std::format("[Client] createAccountViaBroadcast sendto() failed: {}", wsaErrorStr()));
+            return LoginStatus::INVALID_CREDENTIALS;
+        }
+
+        auto deadline = std::chrono::steady_clock::now() +
+            std::chrono::milliseconds(static_cast<int>(_recvTimeOut * 1000.0));
+
+        while (true)
+        {
+            auto remaining = deadline - std::chrono::steady_clock::now();
+            if (remaining.count() <= 0) break;
+
+            fd_set readset;
+            FD_ZERO(&readset);
+            FD_SET(_socket, &readset);
+
+            auto us = std::chrono::duration_cast<std::chrono::microseconds>(remaining);
+            timeval timeout{};
+            timeout.tv_sec = static_cast<long>(us.count() / 1'000'000);
+            timeout.tv_usec = static_cast<long>(us.count() % 1'000'000);
+
+            int ready = select(0, &readset, nullptr, nullptr, &timeout);
+            if (ready == SOCKET_ERROR)
+            {
+                const int err = WSAGetLastError();
+                if (isRecoverableWSAError(err)) continue;
+                threadSafeOStream(std::cerr,
+                    std::format("[Client] createAccountViaBroadcast select() failed: {}", wsaErrorStr()));
+                return LoginStatus::INVALID_CREDENTIALS;
+            }
+
+            if (ready == 0) break;
+
+            sockaddr_in from{};
+            int fromLen = sizeof(from);
+            int bytesReceived = recvfrom(
+                _socket,
+                udpPacket.data(),
+                static_cast<int>(udpPacket.size()),
+                0,
+                reinterpret_cast<sockaddr*>(&from),
+                &fromLen
+            );
+
+            if (bytesReceived == SOCKET_ERROR)
+            {
+                const int err = WSAGetLastError();
+                if (isRecoverableWSAError(err)) continue;
+                threadSafeOStream(std::cerr,
+                    std::format("[Client] createAccountViaBroadcast recvfrom() failed: {}", wsaErrorStr()));
+                return LoginStatus::INVALID_CREDENTIALS;
+            }
+
+            if (bytesReceived == 0) continue;
+            if (bytesReceived != PacketSize::RSP_LOGIN) continue;
+            if (static_cast<MessageType>(udpPacket[0]) != MessageType::RSP_LOGIN) continue;
+
+            ByteReader rdr{ .buffer = std::span<const char>(udpPacket).subspan(1, bytesReceived - 1) };
+            [[maybe_unused]] SessionId sessionId = ntohl(rdr.read<SessionId>());
+            LoginStatus status = static_cast<LoginStatus>(rdr.read<std::uint8_t>());
+
+            threadSafeOStream(std::cout,
+                std::format("[Client] createAccountViaBroadcast for '{}': status {}",
+                    username, static_cast<int>(status)));
+            return status;
+        }
+    }
+
+    threadSafeOStream(std::cerr, "[Client] createAccountViaBroadcast: no server responded");
+    return LoginStatus::INVALID_CREDENTIALS;
+}
+
 void Client::disconnect()
 {
     auto cleanUpThread = []()

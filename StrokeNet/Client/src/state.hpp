@@ -6,6 +6,7 @@
 
 enum class StateId
 {
+    Login,
     MainMenu,
     CoreGame
 };

@@ -21,12 +21,18 @@
     <ClCompile Include="src\server.cpp">
       <Filter>Header Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\login.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\server.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\shared\shared_protocol.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\login.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

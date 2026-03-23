@@ -36,6 +36,8 @@ public:
     // no separate thread, will do on the main thread (for now)
     static bool connectViaBroadcast();
     static bool connectViaIpAndPort(const std::string& ip, const std::string& port);
+    static LoginStatus loginViaBroadcast(const std::string& username, const std::string& password);
+    static LoginStatus createAccountViaBroadcast(const std::string& username, const std::string& password);
     static void disconnect();
 
     // no separate thread, will do on the main thread (for now)

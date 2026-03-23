@@ -2,6 +2,7 @@
 
 #include "coregame.hpp"
 #include "mainmenu.hpp"
+#include "loginstate.hpp"
 
 StateMachine::StateMachine(StateContext& context) :
     m_context(context)
@@ -61,6 +62,8 @@ std::unique_ptr<State> StateMachine::createState(StateId stateId)
 {
     switch (stateId)
     {
+    case StateId::Login:
+        return std::make_unique<LoginState>(*this, m_context);
     case StateId::MainMenu:
         return std::make_unique<MainMenuState>(*this, m_context);
     case StateId::CoreGame:

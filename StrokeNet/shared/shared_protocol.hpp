@@ -17,6 +17,8 @@ using InputBits = std::uint32_t;
 using MousePosition = std::array<std::uint16_t, 2>;
 inline constexpr SessionId InvalidSessionId = 0;
 inline constexpr std::size_t MaxUdpPacketBytes = 65'536;
+inline constexpr std::size_t MAX_USERNAME_LEN = 32;
+inline constexpr std::size_t MAX_PASSWORD_LEN = 32;
 inline constexpr std::uint16_t ServerUdpPort = 32112;
 namespace PacketSize
 {
@@ -43,6 +45,15 @@ namespace PacketSize
     //  1              4           4
     // [PF_END_STROKE][SESSION_ID][SEQUENCE_NUMBER]
     constexpr inline std::size_t PF_END_STROKE = 9;
+    //  1          32       32
+    // [REQ_LOGIN][USERNAME][PASSWORD]
+    constexpr inline std::size_t REQ_LOGIN = 1 + MAX_USERNAME_LEN + MAX_PASSWORD_LEN;
+    //  1                  32        32
+    // [REQ_CREATE_ACCOUNT][USERNAME][PASSWORD]
+    constexpr inline std::size_t REQ_CREATE_ACCOUNT = 1 + MAX_USERNAME_LEN + MAX_PASSWORD_LEN;
+    //  1         4           1
+    // [RSP_LOGIN][SESSION_ID][STATUS]
+    constexpr inline std::size_t RSP_LOGIN = 6;
 }
 enum class MessageType : std::uint8_t
 {
@@ -54,7 +65,18 @@ enum class MessageType : std::uint8_t
     
     PF_START_STROKE,
     PF_ADD_POINT,
-    PF_END_STROKE
+    PF_END_STROKE,
+
+    REQ_LOGIN,
+    REQ_CREATE_ACCOUNT,
+    RSP_LOGIN
+};
+enum class LoginStatus : std::uint8_t
+{
+    SUCCESS = 0,
+    INVALID_CREDENTIALS,
+    USERNAME_TAKEN,
+    USERNAME_TOO_LONG,
 };
 struct CanvasDrawState
 {
