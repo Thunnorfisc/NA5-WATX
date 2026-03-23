@@ -22,25 +22,10 @@ int main()
     }
     PathRemoveFileSpecA(buffer);
     std::filesystem::current_path(buffer);
-    std::stop_source ss;
-
 
     Client::initalize();
-    Client::connect("192.168.68.56", "61390");
-    std::jthread listeningThread{
-        [st = ss.get_token()]()
-        {
-            Client::startListening(st);
-        }
-    };
+    Client::connect();
     playGame();
     Client::disconnect();
-
-    if (listeningThread.joinable())
-    {
-        ss.request_stop();
-        listeningThread.join();
-    }
-
     Client::terminate();
 }

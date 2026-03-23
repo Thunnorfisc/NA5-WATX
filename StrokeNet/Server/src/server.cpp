@@ -79,7 +79,7 @@ Server::Server()
     sockaddr_in addr{};
     addr.sin_family = AF_INET; // ipv4
     addr.sin_addr.s_addr = INADDR_ANY;
-    addr.sin_port = htons(0);
+    addr.sin_port = htons(ServerUdpPort);
 
     if (bind(_socket, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == SOCKET_ERROR) 
         throw std::runtime_error(std::format("[Server] bind() failed, unable to set up udp socket: {}", wsaErrorStr()));
@@ -468,7 +468,7 @@ void Server::actualStartListening(std::stop_token st) noexcept
 
         timeval timeout{};
         timeout.tv_sec = 0;
-        timeout.tv_usec = static_cast<int>(_recvTimeOut * 1000); // 100 ms
+        timeout.tv_usec = static_cast<int>(_recvTimeOut * 1'000'000.0);
         int ready = select(
             0,
             &readSet,
