@@ -92,6 +92,7 @@
     <ClCompile Include="src\coregame.cpp" />
     <ClCompile Include="src\Drawing.cpp" />
     <ClCompile Include="src\game.cpp" />
+    <ClCompile Include="src\loginstate.cpp" />
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\mainmenu.cpp" />
     <ClCompile Include="src\state.cpp" />
@@ -105,6 +106,7 @@
     <ClInclude Include="src\coregame.hpp" />
     <ClInclude Include="src\Drawing.hpp" />
     <ClInclude Include="src\game.hpp" />
+    <ClInclude Include="src\loginstate.hpp" />
     <ClInclude Include="src\mainmenu.hpp" />
     <ClInclude Include="src\state.hpp" />
     <ClInclude Include="src\state_machine.hpp" />

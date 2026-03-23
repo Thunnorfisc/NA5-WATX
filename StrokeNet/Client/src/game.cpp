@@ -1,4 +1,5 @@
 #include "game.hpp"
+#include "loginstate.hpp"
 #include <optional>
 Game::Game() :
     m_window(sf::VideoMode({ 1600, 900 }), "Testing window"),
@@ -6,7 +7,7 @@ Game::Game() :
     m_stateMachine(m_stateContext)
 {
     m_window.setFramerateLimit(60);
-    m_stateMachine.changeState(StateId::MainMenu);
+    m_stateMachine.changeState(StateId::Login);
 }
 
 void Game::run()
