@@ -111,6 +111,7 @@ Server::Server()
     inet_ntop(AF_INET, &(ipv4->sin_addr), ipStr, sizeof(ipStr));
     _ip = ipStr;
     freeaddrinfo(result);
+    _userStore.load();
     threadSafeOStream(std::cout, std::format("[Server]: {}:{}", _ip, _portHostOrder));
 }
 Server::~Server() 
@@ -341,6 +342,178 @@ void Server::handle_CanvasDrawingCommand(CanvasDrawState cds, SessionId sessionI
 {
     std::lock_guard lock(_cdsFnsMutex);
     for (const auto& [_ignore, fns] : _cdsFns) fns(sessionIdHostOrder, cds);
+}
+
+void Server::handle_reqLogin(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
+{
+    assert((udpPacketWithoutMID.size() == PacketSize::REQ_LOGIN - 1) &&
+        "Size of REQ_LOGIN packet received is wrong");
+
+    char ipStr[INET_ADDRSTRLEN]{};
+    inet_ntop(AF_INET, &sa->sin_addr, ipStr, INET_ADDRSTRLEN);
+    auto port = ntohs(sa->sin_port);
+    std::string ipStrAndPort = std::format("{}:{}", ipStr, port);
+
+    // check if this ip:port is already registered
+    {
+        std::lock_guard lock(_clientStorageMutex);
+        for (const auto& [_ignore, client] : _sessionIdToClient)
+        {
+            if (client.ipPort == ipStrAndPort)
+            {
+                threadSafeOStream(std::cout,
+                    std::format("[Server] Client {} is already logged in, ignoring REQ_LOGIN", ipStrAndPort));
+                return;
+            }
+        }
+    }
+
+    ByteReader rdr{ .buffer = udpPacketWithoutMID };
+    auto userBuf = rdr.read<std::array<char, MAX_USERNAME_LEN>>();
+    auto passBuf = rdr.read<std::array<char, MAX_PASSWORD_LEN>>();
+
+    std::string username(userBuf.data(), strnlen(userBuf.data(), MAX_USERNAME_LEN));
+    std::string password(passBuf.data(), strnlen(passBuf.data(), MAX_PASSWORD_LEN));
+
+    LoginStatus status;
+    SessionId sessionIdHostOrder = InvalidSessionId;
+
+    if (_userStore.authenticate(username, password))
+    {
+        sessionIdHostOrder = getNextSessionIdHostOrder();
+        status = LoginStatus::SUCCESS;
+    }
+    else
+    {
+        status = LoginStatus::INVALID_CREDENTIALS;
+        threadSafeOStream(std::cout,
+            std::format("[Server] Client {}: Login failed for username '{}'", ipStrAndPort, username));
+    }
+
+    // build RSP_LOGIN
+    auto sessionIdNetworkOrder = htonl(sessionIdHostOrder);
+    std::vector<char> sendPacket;
+    sendPacket.resize(PacketSize::RSP_LOGIN);
+    ByteWriter wrt{ .buffer = sendPacket };
+    wrt.write(static_cast<char>(MessageType::RSP_LOGIN));
+    wrt.write(sessionIdNetworkOrder);
+    wrt.write(static_cast<char>(status));
+
+    bool success = false;
+    for (int i = 0; i < _maxRetry; i++)
+    {
+        int sentBytes = sendto(_socket, sendPacket.data(), static_cast<int>(sendPacket.size()), 0,
+            reinterpret_cast<sockaddr*>(sa), sizeof(*sa));
+        if (sentBytes == SOCKET_ERROR)
+        {
+            if (isRecoverableWSAError(WSAGetLastError())) continue;
+            else
+            {
+                success = false;
+                break;
+            }
+        }
+        else
+        {
+            success = true;
+            break;
+        }
+    }
+
+    if (success && status == LoginStatus::SUCCESS)
+    {
+        {
+            std::lock_guard lock(_clientStorageMutex);
+            auto [_ignore, succeed] = _sessionIdToClient.emplace(
+                std::make_pair(
+                    sessionIdHostOrder,
+                    Client{ .ipPort = ipStrAndPort, .sa = *sa }
+                ));
+            assert(succeed && "Session id registration has logic error");
+        }
+        threadSafeOStream(std::cout,
+            std::format("[Server] Client {}: '{}' logged in successfully", ipStrAndPort, username));
+    }
+    else if (!success)
+    {
+        threadSafeOStream(std::cerr,
+            std::format("[Server] Client {}: Unable to send RSP_LOGIN", ipStrAndPort));
+    }
+}
+
+void Server::handle_reqCreateAccount(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
+{
+    assert((udpPacketWithoutMID.size() == PacketSize::REQ_CREATE_ACCOUNT - 1) &&
+        "Size of REQ_CREATE_ACCOUNT packet received is wrong");
+
+    char ipStr[INET_ADDRSTRLEN]{};
+    inet_ntop(AF_INET, &sa->sin_addr, ipStr, INET_ADDRSTRLEN);
+    auto port = ntohs(sa->sin_port);
+    std::string ipStrAndPort = std::format("{}:{}", ipStr, port);
+
+    ByteReader rdr{ .buffer = udpPacketWithoutMID };
+    auto userBuf = rdr.read<std::array<char, MAX_USERNAME_LEN>>();
+    auto passBuf = rdr.read<std::array<char, MAX_PASSWORD_LEN>>();
+
+    std::string username(userBuf.data(), strnlen(userBuf.data(), MAX_USERNAME_LEN));
+    std::string password(passBuf.data(), strnlen(passBuf.data(), MAX_PASSWORD_LEN));
+
+    LoginStatus status;
+
+    if (username.empty())
+    {
+        status = LoginStatus::USERNAME_TOO_LONG;
+        threadSafeOStream(std::cout,
+            std::format("[Server] Client {}: Account creation failed, empty username", ipStrAndPort));
+    }
+    else if (_userStore.createAccount(username, password))
+    {
+        status = LoginStatus::SUCCESS;
+        threadSafeOStream(std::cout,
+            std::format("[Server] Client {}: Account '{}' created successfully", ipStrAndPort, username));
+    }
+    else
+    {
+        status = LoginStatus::USERNAME_TAKEN;
+        threadSafeOStream(std::cout,
+            std::format("[Server] Client {}: Account creation failed, '{}' already exists", ipStrAndPort, username));
+    }
+
+    // respond with RSP_LOGIN (session id is invalid — they still need to login after creating)
+    auto sessionIdNetworkOrder = htonl(InvalidSessionId);
+    std::vector<char> sendPacket;
+    sendPacket.resize(PacketSize::RSP_LOGIN);
+    ByteWriter wrt{ .buffer = sendPacket };
+    wrt.write(static_cast<char>(MessageType::RSP_LOGIN));
+    wrt.write(sessionIdNetworkOrder);
+    wrt.write(static_cast<char>(status));
+
+    bool success = false;
+    for (int i = 0; i < _maxRetry; i++)
+    {
+        int sentBytes = sendto(_socket, sendPacket.data(), static_cast<int>(sendPacket.size()), 0,
+            reinterpret_cast<sockaddr*>(sa), sizeof(*sa));
+        if (sentBytes == SOCKET_ERROR)
+        {
+            if (isRecoverableWSAError(WSAGetLastError())) continue;
+            else
+            {
+                success = false;
+                break;
+            }
+        }
+        else
+        {
+            success = true;
+            break;
+        }
+    }
+
+    if (!success)
+    {
+        threadSafeOStream(std::cerr,
+            std::format("[Server] Client {}: Unable to send RSP_LOGIN for account creation", ipStrAndPort));
+    }
 }
 
 void Server::handle_reqRegister(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)

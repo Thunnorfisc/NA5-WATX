@@ -30,6 +30,7 @@
 #include <stop_token>
 #include <functional>
 #include <unordered_map>
+#include "login.hpp"
 class Server
 {
 public:
@@ -50,6 +51,8 @@ private:
         std::string ipPort;
         sockaddr_in sa;
     };
+
+    UserStore _userStore;
 
     SOCKET _socket = INVALID_SOCKET;
     unsigned _portHostOrder = 0;
@@ -78,6 +81,8 @@ private:
     void handle_pfEndStroke(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
     void handle_CanvasDrawingCommand(CanvasDrawState cds,
         SessionId sessionIdHostOrder);
+    void handle_reqLogin(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
+    void handle_reqCreateAccount(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
 
     using MessageFn = void(Server::*)(std::span<const char>, sockaddr_in*);
     const std::unordered_map<MessageType, MessageFn> _messageTypeFns
@@ -89,6 +94,9 @@ private:
         std::make_pair(MessageType::PF_START_STROKE,&Server::handle_pfStartStroke),
         std::make_pair(MessageType::PF_ADD_POINT,&Server::handle_pfAddPoint),
         std::make_pair(MessageType::PF_END_STROKE,&Server::handle_pfEndStroke),
+
+        std::make_pair(MessageType::REQ_LOGIN, &Server::handle_reqLogin),
+        std::make_pair(MessageType::REQ_CREATE_ACCOUNT, &Server::handle_reqCreateAccount),
     };
 
     // right now, if client misbehaves and keeps sending
