@@ -2,7 +2,7 @@
 #include "loginstate.hpp"
 #include <optional>
 Game::Game() :
-    m_window(sf::VideoMode({ 1600, 900 }), "Testing window"),
+    m_window(sf::VideoMode({ 1600, 900 }), "Stroking Game", sf::Style::Close),
     m_stateContext{ m_window },
     m_stateMachine(m_stateContext)
 {

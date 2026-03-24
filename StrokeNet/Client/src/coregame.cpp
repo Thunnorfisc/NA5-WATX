@@ -23,7 +23,8 @@ CoreGameState::CoreGameState(StateMachine& stateMachine, StateContext& context) 
     State(stateMachine, context),
     m_font("resources/Cinzel-Regular.ttf"),
     m_titleText(m_font, "Core Game", 32),
-    m_backText(m_font, "Main Menu", 34)
+    m_backText(m_font, "Main Menu", 34),
+    m_chatBox("resources/Cinzel-Regular.ttf")
 {
     m_backButton.setRadius(110.0f);
     m_backButton.setOrigin({ 110.0f, 110.0f });
@@ -71,6 +72,18 @@ void CoreGameState::handleEvent(const sf::Event& event)
             }
         }
     }
+
+    for (int i = 0; i < 26; ++i) {
+        if (const auto* keyboardPressed = event.getIf<sf::Event::KeyPressed>()) {
+            if (keyboardPressed->code == sf::Keyboard::Key(i)) {
+                std::cout << "Key " << char(i + 65) << " pressed" << std::endl;
+
+                return;
+			}
+        }
+	}
+
+
 }
 
 void CoreGameState::update(sf::Time)
@@ -189,6 +202,7 @@ void CoreGameState::render()
     window.draw(m_backText);
     m_canvas.draw(window);
     m_cpicker.draw(window);
+	m_chatBox.draw(window);
 }
 
 bool CoreGameState::isMouseOverBackButton() const
