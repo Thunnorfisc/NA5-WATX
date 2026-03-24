@@ -4,12 +4,18 @@
 
 struct ChatBox
 {
-	sf::RectangleShape background;
+	sf::Font font;
+	sf::FloatRect textClickBounds;
+	sf::RectangleShape textBackground;
+	sf::RectangleShape textTypingArea;
+
 	sf::Text text;
 	std::string currentInput;
-	ChatBox() = default;
+	
+	ChatBox(const std::string& fontPath);
 
-	void sendMessageToServer(const std::string& message);
-
+	void draw(sf::RenderWindow& window);
+	void sendMessageToServer(const std::string& id, const std::string& message);
+	void receiveMessageFromServer(const std::string& name, const std::string& message);
 };
 

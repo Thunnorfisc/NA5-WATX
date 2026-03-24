@@ -12,6 +12,7 @@
     <ClCompile Include="src\Canvas.cpp" />
     <ClCompile Include="src\ColourPicker.cpp" />
     <ClCompile Include="src\loginstate.cpp" />
+    <ClCompile Include="src\chatBox.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\shared_protocol.hpp" />
@@ -25,5 +26,6 @@
     <ClInclude Include="src\Canvas.hpp" />
     <ClInclude Include="src\ColourPicker.hpp" />
     <ClInclude Include="src\loginstate.hpp" />
+    <ClInclude Include="src\chatBox.hpp" />
   </ItemGroup>
 </Project>
