@@ -71,6 +71,18 @@ void CoreGameState::handleEvent(const sf::Event& event)
             }
         }
     }
+
+    for (int i = 0; i < 26; ++i) {
+        if (const auto* keyboardPressed = event.getIf<sf::Event::KeyPressed>()) {
+            if (keyboardPressed->code == sf::Keyboard::Key(i)) {
+                std::cout << "Key " << char(i + 65) << " pressed" << std::endl;
+
+                return;
+			}
+        }
+	}
+
+
 }
 
 void CoreGameState::update(sf::Time)
