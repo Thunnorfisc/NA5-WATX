@@ -87,6 +87,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="src\Canvas.cpp" />
+    <ClCompile Include="src\chatBox.cpp" />
     <ClCompile Include="src\client.cpp" />
     <ClCompile Include="src\ColourPicker.cpp" />
     <ClCompile Include="src\coregame.cpp" />
@@ -101,6 +102,7 @@
   <ItemGroup>
     <ClInclude Include="..\shared\shared_protocol.hpp" />
     <ClInclude Include="src\Canvas.hpp" />
+    <ClInclude Include="src\chatBox.hpp" />
     <ClInclude Include="src\client.hpp" />
     <ClInclude Include="src\ColourPicker.hpp" />
     <ClInclude Include="src\coregame.hpp" />

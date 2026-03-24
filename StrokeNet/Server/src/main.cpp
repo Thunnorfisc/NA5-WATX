@@ -56,9 +56,15 @@ int main()
             };
         auto handleCanvasFnId = server.registerCdsFn(handleCanvasDrawCommandFn);
         server.startListening();
+        server.load_wordlist();
         while (!server.isListeningThreadFinished())
         {
-            
+            if (server.word.first) {
+                server.pick_word();
+                //server.word.first = false;
+            }
+
+
         }
         server.deregisterCdsFn(handleCanvasFnId);
     }

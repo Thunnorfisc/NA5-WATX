@@ -5,6 +5,7 @@
 #include "Canvas.hpp"
 #include "ColourPicker.hpp"
 #include "client.hpp"
+#include "chatBox.hpp"
 #include <mutex>
 #include <queue>
 #include <variant>
@@ -53,6 +54,8 @@ private:
     std::mutex m_commandsMutex;
 
     Canvas m_canvas;
+    ChatBox m_chatBox;
+
     ColourPicker m_cpicker;
     // For networking
     SequenceNumber sequenceNumber = 1;
