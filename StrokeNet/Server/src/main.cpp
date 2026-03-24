@@ -45,16 +45,6 @@ int main()
         std::filesystem::current_path(buffer);
 
         Server server;
-
-        auto handleCanvasDrawCommandFn = [&server](SessionId sessionIdHostOrder,
-            const CanvasDrawCommand& cds)
-            {
-                // should determine if the client can draw using session id
-                // to determine turn
-                server.sendCanvasDrawCommand(cds); 
-                // will need to refactor later
-            };
-        auto handleCanvasFnId = server.registerCdsFn(handleCanvasDrawCommandFn);
         server.startListening();
         server.load_wordlist();
         while (!server.isListeningThreadFinished())
@@ -63,10 +53,7 @@ int main()
                 server.pick_word();
                 //server.word.first = false;
             }
-
-
         }
-        server.deregisterCdsFn(handleCanvasFnId);
     }
     catch (const std::exception& e)
     {

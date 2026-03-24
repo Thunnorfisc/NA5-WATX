@@ -24,13 +24,6 @@ inline constexpr std::uint16_t ServerUdpPort = 32112;
 
 namespace PacketSize
 {
-    // +1 because includes message type byte
-    constexpr inline std::size_t HEADER_SIZE = 1 + sizeof(SessionId) + sizeof(SequenceNumber); // 9
-
-    //  1        5
-    // [ACK][SEQ_NUMBER]
-    constexpr inline std::size_t ACK = 5;
-
     //  1          32       32
     // [REQ_LOGIN][USERNAME][PASSWORD]
     constexpr inline std::size_t REQ_LOGIN = 1 + MAX_USERNAME_LEN + MAX_PASSWORD_LEN;
@@ -47,32 +40,61 @@ namespace PacketSize
     // [REQ_UNREGISTER][SESSION_ID]
     constexpr inline std::size_t REQ_UNREGISTER = 5;
 
-    //  1                4           4                4          4               5
-    // [PF_START_STROKE][SESSION_ID][SEQUENCE_NUMBER][STROKE_ID][MOUSE_POSITION][RGBAT]
-    constexpr inline std::size_t PF_START_STROKE = 22;
+    //  1                 4           4          4          5
+    // [REQ_START_STROKE][SESSION_ID][STROKE_ID][MOUSE_POS][RGBAT]
+    constexpr inline std::size_t REQ_START_STROKE = 18;
+    
+    //  1                 4           4          4          5
+    // [RSP_START_STROKE][SESSION_ID][STROKE_ID][MOUSE_POS][RGBAT]
+    constexpr inline std::size_t RSP_START_STROKE = 18;
 
-    //  1             4           4                4          4
-    // [PF_ADD_POINT][SESSION_ID][SEQUENCE_NUMBER][STROKE_ID][MOUSE_POSITION]
-    constexpr inline std::size_t PF_ADD_POINT = 17;
+    //  1               4           4
+    // [REQ_END_STROKE][SESSION_ID][STROKE_ID]
+    constexpr inline std::size_t REQ_END_STROKE = 9;
 
-    //  1              4           4                4
-    // [PF_END_STROKE][SESSION_ID][SEQUENCE_NUMBER][STROKE_ID]
-    constexpr inline std::size_t PF_END_STROKE = 13;
+    //  1                 4           4         
+    // [RSP_START_STROKE][SESSION_ID][STROKE_ID]
+    constexpr inline std::size_t RSP_END_STROKE = 9;
+
+    //  1                  4           4          4
+    // [FAF_EXTEND_STROKE][SESSION_ID][STROKE_ID][MOUSE_POS]
+    constexpr inline std::size_t FAF_EXTEND_STROKE = 13;
+
+    //  1                 4           4          5
+    // [SVR_START_STROKE][SESSION_ID][MOUSE_POS][RGBAT]
+    constexpr inline std::size_t SVR_START_STROKE = 14;
+
+    //  1               4
+    // [SVR_END_STROKE][SESSION_ID]
+    constexpr inline std::size_t SVR_END_STROKE = 5;
+
+    //  1                  4           4
+    // [SVR_EXTEND_STROKE][SESSION_ID][MOUSE_POS]
+    constexpr inline std::size_t SVR_EXTEND_STROKE = 9;
 }
-
+// ============================================================
+// REQ_ / RSP_ pairs means that an ack must be received
+// FAF_ means "Fire and Forget" < its ok to be unreliable
+// SVR_ means server telling client to do something with the data
+// ============================================================
 enum class MessageType: std::uint8_t
 {
-    REQ_REGISTER = 1,
-    RSP_REGISTER = 2,
-    REQ_UNREGISTER = 3,
-    // 4 was PF_INPUT_STATE — removed
-    PF_START_STROKE = 5,
-    PF_ADD_POINT = 6,
-    PF_END_STROKE = 7,
-    REQ_LOGIN = 8,
-    REQ_CREATE_ACCOUNT = 9,
-    RSP_LOGIN = 10,
-    ACK = 11,
+    REQ_LOGIN = 1,
+    RSP_LOGIN = 2,
+    REQ_CREATE_ACCOUNT = 3,
+    REQ_UNREGISTER = 4,
+
+    REQ_START_STROKE = 5,
+    RSP_START_STROKE = 6,
+
+    REQ_END_STROKE = 7,
+    RSP_END_STROKE = 8,
+
+    FAF_EXTEND_STROKE = 9,
+
+    SVR_START_STROKE = 10,
+    SVR_END_STROKE = 11,
+    SVR_EXTEND_STROKE = 12
 };
 
 enum class LoginStatus: std::uint8_t
@@ -81,27 +103,6 @@ enum class LoginStatus: std::uint8_t
     INVALID_CREDENTIALS,
     USERNAME_TAKEN,
     USERNAME_TOO_LONG,
-};
-
-// Canvas draw command — passed between network layer and game logic.
-// _msg holds the type-specific payload in HOST byte order (no session/seq header).
-//
-//   PF_START_STROKE  _msg: [strokeId u32][mousePos u16x2][RGBAT 5 bytes]  = 13 bytes
-//   PF_ADD_POINT     _msg: [strokeId u32][mousePos u16x2]                 =  8 bytes
-//   PF_END_STROKE    _msg: [strokeId u32]                                  =  4 bytes
-struct CanvasDrawCommand
-{
-    MessageType    _type{};
-    SequenceNumber _sqNumberHostOrder{};
-    std::uint32_t  _strokeId{};        // stroke this command belongs to
-    std::vector<char> _msg;            // type-specific payload (host byte order)
-};
-
-struct ReceivedChatMessage
-{
-    std::string    chatMessage;
-    std::string    playerName;
-    SequenceNumber serverSequenceHostOrder;
 };
 
 // ========================================== helpers for input bits
@@ -183,6 +184,37 @@ struct ByteWriter
 struct ByteReader
 {
     std::span<const char> buffer;
+    std::size_t offset = 0;
+
+    template <typename T>
+    T read()
+    {
+        assert(offset + sizeof(T) <= buffer.size() && "ByteReader Overflow");
+        T val{};
+        std::memcpy(&val, buffer.data() + offset, sizeof(T));
+        offset += sizeof(T);
+        return val;
+    }
+};
+template <std::size_t N>
+struct ByteWriterN
+{
+    std::array<char,N>& buffer;
+    std::size_t offset = 0;
+
+    template <typename T>
+    void write(T val)
+    {
+        assert(offset + sizeof(T) <= buffer.size() && "ByteWriter Overflow");
+        std::memcpy(buffer.data() + offset, &val, sizeof(T));
+        offset += sizeof(T);
+    }
+};
+
+template <std::size_t N>
+struct ByteReaderN
+{
+    std::array<const char,N> buffer;
     std::size_t offset = 0;
 
     template <typename T>

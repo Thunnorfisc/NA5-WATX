@@ -68,6 +68,10 @@ void Client::initalize()
     setsockopt(_socket, SOL_SOCKET, SO_BROADCAST,
         reinterpret_cast<const char*>(&broadcast), sizeof(broadcast));
 
+    // make it non-blocking
+    u_long mode = 1;
+    ioctlsocket(_socket, FIONBIO, &mode);
+
     log(std::cout, std::format("[Client] Ready at {}:{}", _ip, _portHostOrder));
 }
 
@@ -75,6 +79,120 @@ void Client::terminate()
 {
     if(_socket != INVALID_SOCKET) closesocket(_socket);
     WSACleanup();
+}
+
+// ============================================================
+// RSP_START_STROKE
+// ============================================================
+
+void Client::handle_RSP_StartStroke(std::span<const char> msg)
+{
+    assert(msg.size() == (PacketSize::RSP_START_STROKE - 1) && "Size of rsp_start_stroke is wrong");
+    ByteReader rdr{ .buffer = msg };
+    auto sessionIdHost = ntohl(rdr.read<SessionId>());
+    if (sessionIdHost != _sessionId)
+    {
+        log(std::cerr,
+            std::format("[Client] Received an invalid session id [{}] from the server, ignoring packet", sessionIdHost));
+        return;
+    }
+    auto strokeIdHost = ntohl(rdr.read<std::uint32_t>());
+    // simply erase, might or might not succeed its ok.
+    _pendingStartStrokes.erase(strokeIdHost);
+}
+
+// ============================================================
+// RSP_END_STROKE
+// ============================================================
+
+void Client::handle_RSP_EndStroke(std::span<const char> msg)
+{
+    assert(msg.size() == (PacketSize::RSP_END_STROKE - 1) && "Size of rsp_end_stroke is wrong");
+    ByteReader rdr{ .buffer = msg };
+    auto sessionIdHost = ntohl(rdr.read<SessionId>());
+    if (sessionIdHost != _sessionId)
+    {
+        log(std::cerr,
+            std::format("[Client] Received an invalid session id [{}] from the server, ignoring packet", sessionIdHost));
+        return;
+    }
+    auto strokeIdHost = ntohl(rdr.read<std::uint32_t>());
+    // simply erase, might or might not succeed its ok.
+    _pendingEndStrokes.erase(strokeIdHost);
+}
+
+void Client::handle_SVR_StartStroke(std::span<const char> msg)
+{
+    assert(msg.size() == (PacketSize::SVR_START_STROKE - 1) && "Size of svr_start_stroke is wrong");
+    ByteReader rdr{ .buffer = msg };
+    auto sessionIdHost = ntohl(rdr.read<SessionId>());
+    if (sessionIdHost != _sessionId)
+    {
+        log(std::cerr,
+            std::format("[Client] Received an invalid session id [{}] from the server, ignoring packet", sessionIdHost));
+        return;
+    }
+    std::vector<char> towrt;
+    towrt.resize(PacketSize::SVR_START_STROKE - sizeof(SessionId) - sizeof(MessageType::SVR_START_STROKE));
+    ByteWriter wrt{ .buffer = towrt };
+    
+    auto mousePositionHostOrder = rdr.read<MousePosition>();
+    mousePositionHostOrder[0] = ntohs(mousePositionHostOrder[0]);
+    mousePositionHostOrder[1] = ntohs(mousePositionHostOrder[1]);
+    wrt.write(mousePositionHostOrder);
+
+    auto rgbat = rdr.read<std::array<char, 5>>();
+    wrt.write(rgbat);
+
+    ReceivedStrokeCommand rcs;
+    rcs._type = ReceivedStrokeCommand::Type::START_STROKE;
+    rcs._data = towrt;
+    std::lock_guard lock(_strokeCommandsReceivedMut);
+    _strokeCommandsReceived.push(std::move(rcs));
+}
+
+void Client::handle_SVR_EndStroke(std::span<const char> msg)
+{
+    assert(msg.size() == (PacketSize::SVR_END_STROKE - 1) && "Size of svr_end_stroke is wrong");
+    ByteReader rdr{ .buffer = msg };
+    auto sessionIdHost = ntohl(rdr.read<SessionId>());
+    if (sessionIdHost != _sessionId)
+    {
+        log(std::cerr,
+            std::format("[Client] Received an invalid session id [{}] from the server, ignoring packet", sessionIdHost));
+        return;
+    }
+    ReceivedStrokeCommand rcs;
+    rcs._type = ReceivedStrokeCommand::Type::END_STROKE;
+    std::lock_guard lock(_strokeCommandsReceivedMut);
+    _strokeCommandsReceived.push(std::move(rcs));
+}
+
+void Client::handle_SVR_ExtendStroke(std::span<const char> msg)
+{
+    assert(msg.size() == (PacketSize::SVR_EXTEND_STROKE - 1) && "Size of svr_extend_stroke is wrong");
+    ByteReader rdr{ .buffer = msg };
+    auto sessionIdHost = ntohl(rdr.read<SessionId>());
+    if (sessionIdHost != _sessionId)
+    {
+        log(std::cerr,
+            std::format("[Client] Received an invalid session id [{}] from the server, ignoring packet", sessionIdHost));
+        return;
+    }
+    std::vector<char> towrt;
+    towrt.resize(PacketSize::SVR_EXTEND_STROKE - sizeof(SessionId) - sizeof(MessageType::SVR_EXTEND_STROKE));
+    ByteWriter wrt{ .buffer = towrt };
+
+    auto mousePositionHostOrder = rdr.read<MousePosition>();
+    mousePositionHostOrder[0] = ntohs(mousePositionHostOrder[0]);
+    mousePositionHostOrder[1] = ntohs(mousePositionHostOrder[1]);
+    wrt.write(mousePositionHostOrder);
+
+    ReceivedStrokeCommand rcs;
+    rcs._type = ReceivedStrokeCommand::Type::EXTEND_STROKE;
+    rcs._data = towrt;
+    std::lock_guard lock(_strokeCommandsReceivedMut);
+    _strokeCommandsReceived.push(std::move(rcs));
 }
 
 // ============================================================
@@ -87,6 +205,77 @@ void Client::startListening(std::stop_token st)
 
     while(!st.stop_requested())
     {
+        // send any commands
+        auto now = std::chrono::steady_clock::now();
+        if (auto lk = std::unique_lock(_bsestsMutex, std::try_to_lock); lk.owns_lock() && !_bsestsQueue.empty())
+        {
+            std::queue<BufferedStartEndStrokeToSend> cpyBsestsQueue;
+            cpyBsestsQueue.swap(_bsestsQueue);
+            lk.unlock();
+            while (!cpyBsestsQueue.empty())
+            {
+                auto bsests = cpyBsestsQueue.front();
+                cpyBsestsQueue.pop();
+                sendto(_socket, bsests._data.data(), static_cast<int>(bsests._data.size()),
+                    0, reinterpret_cast<sockaddr*>(&_serverAddr), sizeof(_serverAddr));
+
+                // Add to pending with deadlines
+                PendingBSESTS pending{
+                    ._data = bsests._data,
+                    ._nextSendTime = now + std::chrono::milliseconds(100),  // retry interval
+                    ._giveUpTime = now + std::chrono::seconds(1),           // total wait
+                };
+                if (bsests._type == BufferedStartEndStrokeToSend::Type::START_STROKE)
+                    _pendingStartStrokes[bsests._hostStrokeId] = std::move(pending);
+                else if (bsests._type == BufferedStartEndStrokeToSend::Type::END_STROKE)
+                    _pendingEndStrokes[bsests._hostStrokeId] = std::move(pending);
+                else assert(false && "Unhandled BufferedStartEndStrokeToSend::Type in Client::startListening()");
+            }
+        }
+
+        for (auto it = _pendingStartStrokes.begin(); it != _pendingStartStrokes.end();)
+        {
+            if (now >= it->second._giveUpTime) // no more retries, just give up
+            {
+                log(std::cerr, std::format("[Client] Start Stroke {} timed out", it->first));
+                it = _pendingStartStrokes.erase(it);
+                continue;
+            }
+
+            // didnt get back an ack, but exceed attempt time
+            // so, send data again, and reset the attempt timer
+            if (now >= it->second._nextSendTime)
+            {
+                sendto(_socket, it->second._data.data(), static_cast<int>(it->second._data.size()),
+                    0, reinterpret_cast<sockaddr*>(&_serverAddr), sizeof(_serverAddr));
+                it->second._nextSendTime = now + std::chrono::milliseconds(100);
+            }
+            // move on to the next pending
+            ++it;
+        }
+
+        for (auto it = _pendingEndStrokes.begin(); it != _pendingEndStrokes.end();)
+        {
+            if (now >= it->second._giveUpTime) // no more retries, just give up
+            {
+                log(std::cerr, std::format("[Client] End Stroke {} timed out", it->first));
+                it = _pendingEndStrokes.erase(it);
+                continue;
+            }
+
+            // didnt get back an ack, but exceed attempt time
+            // so, send data again, and reset the attempt timer
+            if (now >= it->second._nextSendTime)
+            {
+                sendto(_socket, it->second._data.data(), static_cast<int>(it->second._data.size()),
+                    0, reinterpret_cast<sockaddr*>(&_serverAddr), sizeof(_serverAddr));
+                it->second._nextSendTime = now + std::chrono::milliseconds(100);
+            }
+            // move on to the next pending
+            ++it;
+        }
+
+        // listen for commands
         fd_set rs;
         FD_ZERO(&rs);
         FD_SET(_socket, &rs);
@@ -98,371 +287,23 @@ void Client::startListening(std::stop_token st)
 
         sockaddr_in from{};
         int fromLen = sizeof(from);
-        int n = recvfrom(_socket, buf.data(), static_cast<int>(buf.size()),
-            0, reinterpret_cast<sockaddr*>(&from), &fromLen);
-        if(n <= 0) continue;
-
-        auto mid = static_cast<MessageType>(buf[0]);
-        auto it = _listenMsgFns.find(mid);
-        if(it != _listenMsgFns.end())
-            (it->second)(std::span<const char>(buf).subspan(1, n - 1));
-    }
-}
-
-// ============================================================
-// startSending
-// ============================================================
-
-void Client::startSending(std::stop_token st)
-{
-    while(!st.stop_requested())
-    {
-        // Drain outbound queue
+        // drain all the recvfrom
+        while (true)
         {
-            std::lock_guard lock(_sendQueueMutex);
-            while(!_sendQueue.empty())
+            int n = recvfrom(_socket, buf.data(), static_cast<int>(buf.size()),
+                0, reinterpret_cast<sockaddr*>(&from), &fromLen);
+            if (n == SOCKET_ERROR)
             {
-                auto& [pkt, dest] = _sendQueue.front();
-                doSend(pkt, dest);
-                _sendQueue.pop();
+                if (WSAGetLastError() == WSAEWOULDBLOCK) break; // fully drained
+                log(std::cerr, "[Client] recvfrom error");
+                break;
             }
+
+            auto mid = static_cast<MessageType>(buf[0]);
+            auto it = _listenMsgFns.find(mid);
+            if(it != _listenMsgFns.end())
+                (it->second)(std::span<const char>(buf).subspan(1, n - 1));
         }
-
-        // Retransmit timed-out reliable packets
-        {
-            auto now = std::chrono::steady_clock::now();
-            std::lock_guard lock(_pendingAcksMutex);
-
-            for(auto it = _pendingAcks.begin(); it != _pendingAcks.end(); )
-            {
-                PendingReliable& pr = it->second;
-                double elapsed = std::chrono::duration<double>(now - pr.lastSentAt).count();
-
-                if(elapsed >= RetransmitIntervalSec)
-                {
-                    if(pr.attempts >= MaxReliableAttempts)
-                    {
-                        log(std::cerr, std::format(
-                            "[Client] Reliable packet seq={} dropped after {} attempts",
-                            it->first, pr.attempts));
-                        it = _pendingAcks.erase(it);
-                        continue;
-                    }
-
-                    log(std::cout, std::format(
-                        "[Client] Retransmitting seq={} (attempt {})", it->first, pr.attempts + 1));
-
-                    doSend(pr.packet, pr.dest);
-                    pr.lastSentAt = now;
-                    pr.attempts++;
-                }
-                ++it;
-            }
-        }
-
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-}
-
-// ============================================================
-// sendCanvasCommand  — called from the game/UI thread
-//
-// Packet wire layouts (network byte order):
-//   START_STROKE : [type1][session4][seq4][strokeId4][mousePos4][RGBAT5]  = 22
-//   ADD_POINT    : [type1][session4][seq4][strokeId4][mousePos4]          = 17
-//   END_STROKE   : [type1][session4][seq4][strokeId4]                     = 13
-// ============================================================
-
-void Client::sendCanvasCommand(const CanvasCommandSend& cmd)
-{
-    if(cmd._type == CanvasCommandSend::Type::START_STROKE)
-    {
-        // _data: [strokeId u32][mousePos u16x2][RGBAT 5] = 13 bytes
-        assert(cmd._data.size() == PacketSize::PF_START_STROKE - PacketSize::HEADER_SIZE);
-
-        SequenceNumber seq = allocSeq();
-        std::vector<char> pkt(PacketSize::PF_START_STROKE);
-        ByteWriter wrt{.buffer = pkt};
-
-        wrt.write(static_cast<char>(MessageType::PF_START_STROKE));
-        wrt.write(htonl(_sessionId));
-        wrt.write(htonl(seq));
-
-        ByteReader rdr{.buffer = cmd._data};
-        wrt.write(htonl(rdr.read<std::uint32_t>())); // strokeId
-        auto mp = rdr.read<MousePosition>();
-        mp[0] = htons(mp[0]);
-        mp[1] = htons(mp[1]);
-        wrt.write(mp);
-        wrt.write(rdr.read<std::array<char, 5>>()); // RGBAT
-
-        sendReliable(seq, std::move(pkt));
-    }
-    else if(cmd._type == CanvasCommandSend::Type::ADD_POINT)
-    {
-        // _data: [strokeId u32][mousePos u16x2] = 8 bytes
-        assert(cmd._data.size() == PacketSize::PF_ADD_POINT - PacketSize::HEADER_SIZE);
-
-        std::vector<char> pkt(PacketSize::PF_ADD_POINT);
-        ByteWriter wrt{.buffer = pkt};
-
-        wrt.write(static_cast<char>(MessageType::PF_ADD_POINT));
-        wrt.write(htonl(_sessionId));
-        wrt.write(htonl(allocSeq()));
-
-        ByteReader rdr{.buffer = cmd._data};
-        wrt.write(htonl(rdr.read<std::uint32_t>())); // strokeId
-        auto mp = rdr.read<MousePosition>();
-        mp[0] = htons(mp[0]);
-        mp[1] = htons(mp[1]);
-        wrt.write(mp);
-
-        sendUnreliable(std::move(pkt));
-    }
-    else if(cmd._type == CanvasCommandSend::Type::END_STROKE)
-    {
-        // _data: [strokeId u32] = 4 bytes
-        assert(cmd._data.size() == PacketSize::PF_END_STROKE - PacketSize::HEADER_SIZE);
-
-        SequenceNumber seq = allocSeq();
-        std::vector<char> pkt(PacketSize::PF_END_STROKE);
-        ByteWriter wrt{.buffer = pkt};
-
-        wrt.write(static_cast<char>(MessageType::PF_END_STROKE));
-        wrt.write(htonl(_sessionId));
-        wrt.write(htonl(seq));
-
-        ByteReader rdr{.buffer = cmd._data};
-        wrt.write(htonl(rdr.read<std::uint32_t>())); // strokeId
-
-        sendReliable(seq, std::move(pkt));
-    }
-}
-
-// ============================================================
-// sendReliable / sendUnreliable / doSend
-// ============================================================
-
-void Client::sendReliable(SequenceNumber seq, std::vector<char> packet)
-{
-    {
-        std::lock_guard lock(_pendingAcksMutex);
-        PendingReliable pr;
-        pr.packet = packet;
-        pr.dest = _serverAddr;
-        pr.lastSentAt = std::chrono::steady_clock::now() -
-            std::chrono::duration_cast<std::chrono::steady_clock::duration>(
-                std::chrono::duration<double>(RetransmitIntervalSec));
-        pr.attempts = 0;
-        _pendingAcks[seq] = std::move(pr);
-    }
-    sendUnreliable(std::move(packet));
-}
-
-void Client::sendUnreliable(std::vector<char> packet)
-{
-    std::lock_guard lock(_sendQueueMutex);
-    _sendQueue.push({std::move(packet), _serverAddr});
-}
-
-void Client::doSend(const std::vector<char>& packet, const sockaddr_in& dest)
-{
-    sendto(_socket, packet.data(), static_cast<int>(packet.size()),
-        0, reinterpret_cast<const sockaddr*>(&dest), sizeof(dest));
-}
-
-// ============================================================
-// handle_Ack
-// ============================================================
-
-void Client::handle_Ack(std::span<const char> body)
-{
-    if(body.size() < sizeof(SequenceNumber)) return;
-
-    ByteReader rdr{.buffer = body};
-    SequenceNumber seq = ntohl(rdr.read<SequenceNumber>());
-
-    std::lock_guard lock(_pendingAcksMutex);
-    auto it = _pendingAcks.find(seq);
-    if(it != _pendingAcks.end())
-    {
-        log(std::cout, std::format("[Client] ACK received for seq={}", seq));
-        _pendingAcks.erase(it);
-    }
-}
-
-// ============================================================
-// Stroke ordering helpers
-// ============================================================
-
-// Must be called with BOTH _strokeBufferMutex AND _canvasCommandMutex held.
-void Client::pushCommand(CanvasCommandRecv cmd)
-{
-    _canvasCommands.push(std::move(cmd));
-}
-
-// ============================================================
-// handle_StartStroke
-//
-// Packet body: [sessionId 4][serverSeq 4][strokeId 4][mousePos 4][RGBAT 5] = 21 bytes
-//
-// Ordering:
-//   1. Dispatch START_STROKE to _canvasCommands.
-//   2. Flush any buffered ADD_POINT / END_STROKE for this strokeId
-//      (sorted by server sequence number).
-// ============================================================
-
-void Client::handle_StartStroke(std::span<const char> body)
-{
-    assert(body.size() == PacketSize::PF_START_STROKE - 1);
-
-    ByteReader rdr{.buffer = body};
-    if(ntohl(rdr.read<SessionId>()) != _sessionId) return; // not for us
-
-    auto serverSeq = ntohl(rdr.read<SequenceNumber>());
-    auto strokeId = ntohl(rdr.read<std::uint32_t>());
-    auto mousePos = rdr.read<MousePosition>();
-    auto RGBAT = rdr.read<std::array<char, 5>>();
-    mousePos[0] = ntohs(mousePos[0]);
-    mousePos[1] = ntohs(mousePos[1]);
-
-    // Build the received command — _data: [strokeId u32][mousePos u16x2][RGBAT 5] = 13 bytes
-    CanvasCommandRecv ccr;
-    ccr._type = CanvasCommandRecv::Type::START_STROKE;
-    ccr._serverSeqNumber = serverSeq;
-    ccr._strokeId = strokeId;
-    ccr._data.resize(PacketSize::PF_START_STROKE - PacketSize::HEADER_SIZE);
-    {
-        ByteWriter wrt{.buffer = ccr._data};
-        wrt.write(strokeId);
-        wrt.write(mousePos);
-        wrt.write(RGBAT);
-    }
-
-    // Lock ordering: _strokeBufferMutex before _canvasCommandMutex (always).
-    std::lock_guard bufLock(_strokeBufferMutex);
-    std::lock_guard cmdLock(_canvasCommandMutex);
-
-    // Dispatch START_STROKE first.
-    pushCommand(std::move(ccr));
-
-    // Mark stroke as started and flush any early-arriving commands.
-    StrokeBuffer& sb = _strokeBuffers[strokeId];
-    sb.started = true;
-
-    std::sort(sb.pending.begin(), sb.pending.end(),
-        [](const CanvasCommandRecv& a, const CanvasCommandRecv& b)
-        {
-            return a._serverSeqNumber < b._serverSeqNumber;
-        });
-
-    bool endSeen = false;
-    for(auto& buffered : sb.pending)
-    {
-        if(buffered._type == CanvasCommandRecv::Type::END_STROKE)
-            endSeen = true;
-        pushCommand(std::move(buffered));
-    }
-
-    if(endSeen)
-        _strokeBuffers.erase(strokeId); // stroke fully complete
-    else
-        sb.pending.clear();
-}
-
-// ============================================================
-// handle_AddPoint  — unreliable
-//
-// Packet body: [sessionId 4][serverSeq 4][strokeId 4][mousePos 4] = 16 bytes
-//
-// If START_STROKE for this strokeId has already been dispatched,
-// push immediately.  Otherwise buffer until it arrives.
-// ============================================================
-
-void Client::handle_AddPoint(std::span<const char> body)
-{
-    assert(body.size() == PacketSize::PF_ADD_POINT - 1);
-
-    ByteReader rdr{.buffer = body};
-    if(ntohl(rdr.read<SessionId>()) != _sessionId) return;
-
-    auto serverSeq = ntohl(rdr.read<SequenceNumber>());
-    auto strokeId = ntohl(rdr.read<std::uint32_t>());
-    auto mousePos = rdr.read<MousePosition>();
-    mousePos[0] = ntohs(mousePos[0]);
-    mousePos[1] = ntohs(mousePos[1]);
-
-    // Build the received command — _data: [strokeId u32][mousePos u16x2] = 8 bytes
-    CanvasCommandRecv ccr;
-    ccr._type = CanvasCommandRecv::Type::ADD_POINT;
-    ccr._serverSeqNumber = serverSeq;
-    ccr._strokeId = strokeId;
-    ccr._data.resize(PacketSize::PF_ADD_POINT - PacketSize::HEADER_SIZE);
-    {
-        ByteWriter wrt{.buffer = ccr._data};
-        wrt.write(strokeId);
-        wrt.write(mousePos);
-    }
-
-    std::lock_guard bufLock(_strokeBufferMutex);
-
-    auto it = _strokeBuffers.find(strokeId);
-    if(it != _strokeBuffers.end() && it->second.started)
-    {
-        std::lock_guard cmdLock(_canvasCommandMutex);
-        pushCommand(std::move(ccr));
-    }
-    else
-    {
-        // START_STROKE not yet received — hold this point.
-        _strokeBuffers[strokeId].pending.push_back(std::move(ccr));
-    }
-}
-
-// ============================================================
-// handle_EndStroke
-//
-// Packet body: [sessionId 4][serverSeq 4][strokeId 4] = 12 bytes
-//
-// Same buffering logic as ADD_POINT.
-// ============================================================
-
-void Client::handle_EndStroke(std::span<const char> body)
-{
-    assert(body.size() == PacketSize::PF_END_STROKE - 1);
-
-    ByteReader rdr{.buffer = body};
-    if(ntohl(rdr.read<SessionId>()) != _sessionId) return;
-
-    auto serverSeq = ntohl(rdr.read<SequenceNumber>());
-    auto strokeId = ntohl(rdr.read<std::uint32_t>());
-
-    // Build the received command — _data: [strokeId u32] = 4 bytes
-    CanvasCommandRecv ccr;
-    ccr._type = CanvasCommandRecv::Type::END_STROKE;
-    ccr._serverSeqNumber = serverSeq;
-    ccr._strokeId = strokeId;
-    ccr._data.resize(PacketSize::PF_END_STROKE - PacketSize::HEADER_SIZE);
-    {
-        ByteWriter wrt{.buffer = ccr._data};
-        wrt.write(strokeId);
-    }
-
-    std::lock_guard bufLock(_strokeBufferMutex);
-
-    auto it = _strokeBuffers.find(strokeId);
-    if(it != _strokeBuffers.end() && it->second.started)
-    {
-        {
-            std::lock_guard cmdLock(_canvasCommandMutex);
-            pushCommand(std::move(ccr));
-        }
-        _strokeBuffers.erase(it); // stroke complete
-    }
-    else
-    {
-        // START_STROKE not yet received — buffer END_STROKE.
-        _strokeBuffers[strokeId].pending.push_back(std::move(ccr));
     }
 }
 
@@ -514,32 +355,40 @@ LoginStatus Client::loginViaBroadcast(const std::string& username, const std::st
             if(select(0, &rs, nullptr, nullptr, &tv) <= 0) break;
 
             sockaddr_in from{}; int fromLen = sizeof(from);
-            int n = recvfrom(_socket, recvBuf.data(), static_cast<int>(recvBuf.size()),
-                0, reinterpret_cast<sockaddr*>(&from), &fromLen);
-            if(n != static_cast<int>(PacketSize::RSP_LOGIN)) continue;
-            if(static_cast<MessageType>(recvBuf[0]) != MessageType::RSP_LOGIN) continue;
-
-            ByteReader rdr{.buffer = std::span<const char>(recvBuf).subspan(1, n - 1)};
-            SessionId   sid = ntohl(rdr.read<SessionId>());
-            LoginStatus status = static_cast<LoginStatus>(rdr.read<std::uint8_t>());
-
-            if(status == LoginStatus::SUCCESS)
+            while (true)
             {
-                _sessionId = sid;
-                _serverAddr = from;
-                char ip[INET_ADDRSTRLEN]{};
-                inet_ntop(AF_INET, &from.sin_addr, ip, sizeof(ip));
-                _serverIpAndPort = std::format("{}:{}", ip, ntohs(from.sin_port));
-                _nextSeq.store(0);
+                int n = recvfrom(_socket, recvBuf.data(), static_cast<int>(recvBuf.size()),
+                    0, reinterpret_cast<sockaddr*>(&from), &fromLen);
 
-                _stopSource = std::stop_source{};
-                _listeningThread = std::jthread([](std::stop_token st) { startListening(st); }, _stopSource.get_token());
-                _sendingThread = std::jthread([](std::stop_token st) { startSending(st);   }, _stopSource.get_token());
+                if (n == SOCKET_ERROR)
+                {
+                    if (WSAGetLastError() == WSAEWOULDBLOCK) break;
+                    break;
+                }
+                if (n != static_cast<int>(PacketSize::RSP_LOGIN)) continue;
+                if (static_cast<MessageType>(recvBuf[0]) != MessageType::RSP_LOGIN) continue;
 
-                log(std::cout, std::format("[Client] Login OK — session {}, server {}",
-                    _sessionId, _serverIpAndPort));
+                ByteReader rdr{ .buffer = std::span<const char>(recvBuf).subspan(1, n - 1) };
+                SessionId   sid = ntohl(rdr.read<SessionId>());
+                LoginStatus status = static_cast<LoginStatus>(rdr.read<std::uint8_t>());
+
+                if (status == LoginStatus::SUCCESS)
+                {
+                    _sessionId = sid;
+                    _serverAddr = from;
+                    char ip[INET_ADDRSTRLEN]{};
+                    inet_ntop(AF_INET, &from.sin_addr, ip, sizeof(ip));
+                    _serverIpAndPort = std::format("{}:{}", ip, ntohs(from.sin_port));
+                    //_nextSeq.store(0);
+
+                    _stopSource = std::stop_source{};
+                    _listeningThread = std::jthread([](std::stop_token st) { startListening(st); }, _stopSource.get_token());
+
+                    log(std::cout, std::format("[Client] Login OK — session {}, server {}",
+                        _sessionId.load(), _serverIpAndPort));
+                }
+                return status;
             }
-            return status;
         }
     }
 
@@ -593,17 +442,25 @@ LoginStatus Client::createAccountViaBroadcast(const std::string& username, const
             if(select(0, &rs, nullptr, nullptr, &tv) <= 0) break;
 
             sockaddr_in from{}; int fromLen = sizeof(from);
-            int n = recvfrom(_socket, recvBuf.data(), static_cast<int>(recvBuf.size()),
-                0, reinterpret_cast<sockaddr*>(&from), &fromLen);
-            if(n != static_cast<int>(PacketSize::RSP_LOGIN)) continue;
-            if(static_cast<MessageType>(recvBuf[0]) != MessageType::RSP_LOGIN) continue;
+            while (true)
+            {
+                int n = recvfrom(_socket, recvBuf.data(), static_cast<int>(recvBuf.size()),
+                    0, reinterpret_cast<sockaddr*>(&from), &fromLen);
+                if (n == SOCKET_ERROR)
+                {
+                    if (WSAGetLastError() == WSAEWOULDBLOCK) break;
+                    break;
+                }
+                if(n != static_cast<int>(PacketSize::RSP_LOGIN)) continue;
+                if(static_cast<MessageType>(recvBuf[0]) != MessageType::RSP_LOGIN) continue;
 
-            ByteReader rdr{.buffer = std::span<const char>(recvBuf).subspan(1, n - 1)};
-            [[maybe_unused]] SessionId sid = ntohl(rdr.read<SessionId>());
-            LoginStatus status = static_cast<LoginStatus>(rdr.read<std::uint8_t>());
-            log(std::cout, std::format("[Client] createAccount for '{}': status {}",
-                username, static_cast<int>(status)));
-            return status;
+                ByteReader rdr{.buffer = std::span<const char>(recvBuf).subspan(1, n - 1)};
+                [[maybe_unused]] SessionId sid = ntohl(rdr.read<SessionId>());
+                LoginStatus status = static_cast<LoginStatus>(rdr.read<std::uint8_t>());
+                log(std::cout, std::format("[Client] createAccount for '{}': status {}",
+                    username, static_cast<int>(status)));
+                return status;
+            }
         }
     }
 
@@ -621,7 +478,6 @@ void Client::disconnect()
         {
             _stopSource.request_stop();
             if(_listeningThread.joinable()) _listeningThread.join();
-            if(_sendingThread.joinable())   _sendingThread.join();
         };
 
     if(_sessionId == InvalidSessionId) { stopThreads(); return; }
@@ -640,4 +496,84 @@ void Client::disconnect()
     _sessionId = InvalidSessionId;
 
     stopThreads();
+}
+
+// ============================================================
+// send start stroke
+// ============================================================
+
+void Client::sendStartStroke(
+    std::uint32_t strokeid,
+    std::array<std::uint16_t, 2> mousePos,
+    std::array<std::uint8_t, 5> rgbat)
+{
+    std::vector<char> msg;
+    msg.resize(PacketSize::RSP_START_STROKE);
+    ByteWriter wrt{ .buffer = msg };
+    wrt.write(static_cast<char>(MessageType::REQ_START_STROKE));
+    wrt.write(htonl(_sessionId));
+    wrt.write(htonl(strokeid));
+    wrt.write(htons(mousePos[0]));
+    wrt.write(htons(mousePos[1]));
+    wrt.write(rgbat);
+    BufferedStartEndStrokeToSend bsests;
+    bsests._type = BufferedStartEndStrokeToSend::Type::START_STROKE;
+    bsests._data = std::move(msg);
+    bsests._hostStrokeId = strokeid;
+    std::lock_guard lock(_bsestsMutex);
+    _bsestsQueue.push(std::move(bsests));
+}
+
+// ============================================================
+// send extend stroke
+// ============================================================
+
+void Client::sendExtendStroke(std::uint32_t strokeid, std::array<std::uint16_t, 2> mousePos)
+{
+    // fire and forget ts
+    // dont need buffering and staging ground, just send only
+    std::array<char, PacketSize::FAF_EXTEND_STROKE> msg;
+    ByteWriterN wrt{ .buffer = msg };
+    wrt.write(static_cast<char>(MessageType::FAF_EXTEND_STROKE));
+    wrt.write(htonl(_sessionId));
+    wrt.write(htonl(strokeid));
+    wrt.write(htons(mousePos[0]));
+    wrt.write(htons(mousePos[1]));
+    sendto(_socket, msg.data(), static_cast<int>(msg.size()),
+        0, reinterpret_cast<sockaddr*>(&_serverAddr), sizeof(_serverAddr));
+}
+
+// ============================================================
+// send end stroke
+// ============================================================
+
+void Client::sendEndStroke(std::uint32_t strokeid)
+{
+    std::vector<char> msg;
+    msg.resize(PacketSize::REQ_END_STROKE);
+    ByteWriter wrt{ .buffer = msg };
+    wrt.write(static_cast<char>(MessageType::REQ_END_STROKE));
+    wrt.write(htonl(_sessionId));
+    wrt.write(htonl(strokeid));
+    BufferedStartEndStrokeToSend bsests;
+    bsests._type = BufferedStartEndStrokeToSend::Type::END_STROKE;
+    bsests._data = std::move(msg);
+    bsests._hostStrokeId = strokeid;
+    std::lock_guard lock(_bsestsMutex);
+    _bsestsQueue.push(std::move(bsests));
+}
+
+// ============================================================
+// for game to retrieve stroke commands
+// 
+// only try_lock, if not move on
+// ============================================================
+
+std::queue<Client::ReceivedStrokeCommand> Client::getReceivedStrokeCommands()
+{
+    if (!_strokeCommandsReceivedMut.try_lock()) return {};
+    std::queue<Client::ReceivedStrokeCommand> cpy;
+    cpy.swap(_strokeCommandsReceived);
+    _strokeCommandsReceivedMut.unlock();
+    return cpy;
 }
