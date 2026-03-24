@@ -1,9 +1,7 @@
+#include "client.hpp"
 #include "loginstate.hpp"
 #include "state_machine.hpp"
-#include "client.hpp"
-
 #include <algorithm>
-
 namespace
 {
     void centerTextInBox(sf::Text& text, const sf::RectangleShape& box)
@@ -32,7 +30,7 @@ namespace
 
 LoginState::LoginState(StateMachine& stateMachine, StateContext& context) :
     State(stateMachine, context),
-    m_font("resources/Cinzel-Regular.ttf"),
+    m_font("resources/Marvel-Bold.ttf"),
     m_titleText(m_font, "Login", 48),
     m_statusText(m_font, "", 20),
     m_loginButtonText(m_font, "Login", 28),

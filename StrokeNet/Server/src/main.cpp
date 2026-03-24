@@ -47,11 +47,11 @@ int main()
         Server server;
 
         auto handleCanvasDrawCommandFn = [&server](SessionId sessionIdHostOrder,
-            const CanvasDrawState& cds)
+            const CanvasDrawCommand& cds)
             {
                 // should determine if the client can draw using session id
                 // to determine turn
-                server.sendCanvasDrawState(cds); 
+                server.sendCanvasDrawCommand(cds); 
                 // will need to refactor later
             };
         auto handleCanvasFnId = server.registerCdsFn(handleCanvasDrawCommandFn);

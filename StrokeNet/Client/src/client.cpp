@@ -1,1020 +1,643 @@
 #include "client.hpp"
 
 #include <array>
-#include <mutex>
-#include <vector>
 #include <format>
-#include <chrono>
 #include <cassert>
-#include <ostream>
 #include <iostream>
 #include <algorithm>
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
-
 #include <Windows.h>
 #include <winsock2.h>
 #include <WS2tcpip.h>
 #include <iphlpapi.h>
-
 #pragma comment(lib, "Ws2_32.lib")
+
 namespace
 {
-    std::mutex s_ostreamMutex;
-    void threadSafeOStream(std::ostream& os, std::string_view msg)
+    std::mutex s_logMutex;
+    void log(std::ostream& os, std::string_view msg)
     {
-        std::lock_guard lock(s_ostreamMutex);
+        std::lock_guard lock(s_logMutex);
         os << msg << '\n';
     }
 }
+
+// ============================================================
+// initalize / terminate
+// ============================================================
+
 void Client::initalize()
 {
-    constexpr int winsockMajorVersion = 2;
-    constexpr int winsockMinorVersion = 2;
     WSADATA wsaData;
-    int iResult{};
-    iResult = WSAStartup(
-        MAKEWORD(winsockMajorVersion,
-            winsockMinorVersion)
-        , &wsaData);
-
-    if (iResult != 0)
-    {
-        std::string err = std::format("[Client] WSAStartup failed: {}", iResult);
-        throw std::runtime_error(err);
-    }
+    if(int r = WSAStartup(MAKEWORD(2, 2), &wsaData); r != 0)
+        throw std::runtime_error(std::format("[Client] WSAStartup failed: {}", r));
 
     _socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    if (_socket == INVALID_SOCKET)
-        throw std::runtime_error(std::format("[Client] socket() failed, unable to set up udp socket: {}", wsaErrorStr()));
+    if(_socket == INVALID_SOCKET)
+        throw std::runtime_error(std::format("[Client] socket() failed: {}", wsaErrorStr()));
 
     sockaddr_in addr{};
-    addr.sin_family = AF_INET; // ipv4
+    addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = INADDR_ANY;
     addr.sin_port = htons(0);
+    if(bind(_socket, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == SOCKET_ERROR)
+        throw std::runtime_error(std::format("[Client] bind() failed: {}", wsaErrorStr()));
 
-    if (bind(_socket, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == SOCKET_ERROR)
-        throw std::runtime_error(std::format("[Client] bind() failed, unable to set up udp socket: {}", wsaErrorStr()));
+    sockaddr_in bound{};
+    int boundLen = sizeof(bound);
+    getsockname(_socket, reinterpret_cast<sockaddr*>(&bound), &boundLen);
+    _portHostOrder = ntohs(bound.sin_port);
 
-    // get port
-    sockaddr_in boundAddr{};
-    int boundAddrLen = sizeof(boundAddr);
-    if (getsockname(_socket, reinterpret_cast<sockaddr*>(&boundAddr), &boundAddrLen) == SOCKET_ERROR)
-        throw std::runtime_error(std::format("[Client] getsockname() failed, unable to setup udp socket: {}", wsaErrorStr()));
-
-    _portHostOrder = ntohs(boundAddr.sin_port);
-
-    // get machine host name
     char hostName[256]{};
-    if (gethostname(hostName, sizeof(hostName)) == SOCKET_ERROR)
-        throw std::runtime_error(std::format("[Client] gethostname() failed, unable to setup udp socket: {}", wsaErrorStr()));
-
+    gethostname(hostName, sizeof(hostName));
     addrinfo hints{};
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_DGRAM;
     hints.ai_protocol = IPPROTO_UDP;
-
     addrinfo* result = nullptr;
-    if (getaddrinfo(hostName, nullptr, &hints, &result) != 0)
-        throw std::runtime_error(std::format("[Client] getaddrinfo() failed, unable to setup udp socket"));
-
+    getaddrinfo(hostName, nullptr, &hints, &result);
     char ipStr[INET_ADDRSTRLEN]{};
-    auto* ipv4 = reinterpret_cast<sockaddr_in*>(result->ai_addr);
-    inet_ntop(AF_INET, &(ipv4->sin_addr), ipStr, sizeof(ipStr));
+    inet_ntop(AF_INET, &reinterpret_cast<sockaddr_in*>(result->ai_addr)->sin_addr, ipStr, sizeof(ipStr));
     _ip = ipStr;
     freeaddrinfo(result);
 
-    // allow sending to all LAN devices
     int broadcast = 1;
     setsockopt(_socket, SOL_SOCKET, SO_BROADCAST,
         reinterpret_cast<const char*>(&broadcast), sizeof(broadcast));
 
-    threadSafeOStream(std::cout, std::format("[Client]: {}:{}", _ip, _portHostOrder));
+    log(std::cout, std::format("[Client] Ready at {}:{}", _ip, _portHostOrder));
 }
 
 void Client::terminate()
 {
-    if (_socket != INVALID_SOCKET) closesocket(_socket);
+    if(_socket != INVALID_SOCKET) closesocket(_socket);
     WSACleanup();
 }
 
+// ============================================================
+// startListening
+// ============================================================
+
 void Client::startListening(std::stop_token st)
 {
-    std::vector<char> udpPacket;
-    udpPacket.resize(MaxUdpPacketBytes);
-    while (!st.stop_requested())
+    std::vector<char> buf(MaxUdpPacketBytes);
+
+    while(!st.stop_requested())
     {
-        fd_set readSet;
-        FD_ZERO(&readSet);
-        FD_SET(_socket, &readSet);
+        fd_set rs;
+        FD_ZERO(&rs);
+        FD_SET(_socket, &rs);
+        timeval tv{0, static_cast<long>(_recvTimeOut * 1'000'000.0)};
 
-        timeval timeout{};
-        timeout.tv_sec = 0;
-        timeout.tv_usec = static_cast<long>(_recvTimeOut * 1'000'000.0);
-        int ready = select(
-            0,
-            &readSet,
-            nullptr,
-            nullptr,
-            &timeout
-        );
-
-        if (ready == SOCKET_ERROR)
-        {
-            threadSafeOStream(std::cerr, std::format("[Client] select() failed: {}", wsaErrorStr()));
-            return;
-        }
-        else if (ready == 0) continue; // timeout, no data, check stop token again
-
-        if (FD_ISSET(_socket, &readSet))
-        {
-            sockaddr_in from{};
-            int fromLen = sizeof(from);
-
-            int bytesReceived = recvfrom(
-                _socket,
-                udpPacket.data(),
-                static_cast<int>(udpPacket.size()),
-                0,
-                reinterpret_cast<sockaddr*>(&from),
-                &fromLen
-            );
-            if (bytesReceived == SOCKET_ERROR)
-            {
-                threadSafeOStream(std::cerr, std::format("[Client] recvfrom() failed: {}", wsaErrorStr()));
-                return;
-            }
-            else if (bytesReceived == 0) continue; // empty datagram, move on
-
-            MessageType message = static_cast<MessageType>(udpPacket[0]);
-            auto it = _listenMsgFns.find(message);
-            if (it != _listenMsgFns.end())
-            {
-                (it->second)(std::span<const char>(udpPacket).subspan(1, bytesReceived -1));
-            }
-        }
-    }
-}
-
-bool Client::connectViaBroadcast()
-{
-    if (_sessionId != InvalidSessionId)
-    {
-        threadSafeOStream(std::cerr, "[Client] Tried to connect while there is already an active connection");
-        return false;
-    }
-
-    if (_listeningThread.joinable())
-    {
-        threadSafeOStream(std::cerr, "[Client] Tried to connect while there is already an active connection");
-        return false;
-    }
-
-    sockaddr_in broadcastAddr{};
-    broadcastAddr.sin_family = AF_INET;
-    broadcastAddr.sin_port = htons(ServerUdpPort);
-    broadcastAddr.sin_addr.S_un.S_addr = INADDR_BROADCAST;
-
-    std::vector<char> udpPacket;
-    udpPacket.resize(MaxUdpPacketBytes);
-
-    for (int attempt = 0; attempt < _maxRetries; attempt++)
-    {
-        const char mid = static_cast<char>(static_cast<std::uint8_t>(MessageType::REQ_REGISTER));
-        int sentBytes = sendto
-        (
-            _socket,
-            &mid,
-            1,
-            0,
-            reinterpret_cast<sockaddr*>(&broadcastAddr),
-            sizeof(broadcastAddr)
-        );
-
-        if (sentBytes == SOCKET_ERROR)
-        {
-            const int err = WSAGetLastError();
-            if (isRecoverableWSAError(err)) continue; // retry
-            else
-            {
-                threadSafeOStream(std::cerr,
-                    std::format("[Client] sendto() failed, unable to connect to server: {}", err));
-                return false;
-            }
-        }
-
-        auto deadline = std::chrono::steady_clock::now() +
-            std::chrono::milliseconds(static_cast<int>(_recvTimeOut * 1000.0));
-        while (true)
-        {
-            auto remaining = deadline - std::chrono::steady_clock::now();
-            if (remaining.count() <= 0) break;
-
-            fd_set readset;
-            FD_ZERO(&readset);
-            FD_SET(_socket, &readset);
-
-            auto us = std::chrono::duration_cast<std::chrono::microseconds>(remaining);
-            timeval timeout{};
-            timeout.tv_sec = static_cast<long>(us.count() / 1'000'000);
-            timeout.tv_usec = static_cast<long>(us.count() % 1'000'000);
-
-            int ready = select(0, &readset, nullptr, nullptr, &timeout);
-            if (ready == SOCKET_ERROR)
-            {
-                const int err = WSAGetLastError();
-                if (isRecoverableWSAError(err)) continue; // retry
-                else
-                {
-                    threadSafeOStream(std::cerr,
-                        std::format("[Client] select() failed: {}", err));
-                    return false;
-                }
-            }
-
-            if (ready == 0) break; // timeout
-
-            sockaddr_in from{};
-            int fromLen = sizeof(from);
-            int bytesReceived = recvfrom(
-                _socket,
-                udpPacket.data(),
-                static_cast<int>(udpPacket.size()),
-                0,
-                reinterpret_cast<sockaddr*>(&from),
-                &fromLen
-            );
-
-            if (bytesReceived == SOCKET_ERROR)
-            {
-                const int err = WSAGetLastError();
-                if (isRecoverableWSAError(err)) continue; // retry
-                else
-                {
-
-                    threadSafeOStream(std::cerr,
-                        std::format("[Client] recvfrom() failed: {}", err));
-                    return false;
-                }
-            }
-
-            else if (bytesReceived == 0) continue;
-
-            if (bytesReceived != PacketSize::RSP_REGISTER) continue;
-            if (static_cast<MessageType>(udpPacket[0]) != MessageType::RSP_REGISTER) continue;
-
-            ByteReader rdr{ .buffer = std::span<const char>(udpPacket).subspan(1, bytesReceived - 1) };
-            _sessionId = ntohl(rdr.read<SessionId>());
-
-            _serverAddr = from;
-            char ipStr[INET_ADDRSTRLEN]{};
-            inet_ntop(AF_INET, &from.sin_addr, ipStr, sizeof(ipStr));
-            _serverIpAndPort = std::format("{}:{}", ipStr, ntohs(from.sin_port));
-
-            _listeningThread = std::jthread([st = _stopSource.get_token()]()
-                {
-                    startListening(st);
-                });
-
-            threadSafeOStream(std::cout, std::format("[Client] Successfully connected to server: {}", _serverIpAndPort));
-            return true;
-        }
-    }
-    return false;
-}
-
-bool Client::connectViaIpAndPort(const std::string& serverIp, const std::string& serverPort)
-{
-    if (_sessionId != InvalidSessionId)
-    {
-        threadSafeOStream(std::cerr, "[Client] Tried to connect while there is already an active connection");
-        return false;
-    }
-
-    if (_listeningThread.joinable())
-    {
-        threadSafeOStream(std::cerr, "[Client] Tried to connect while there is already an active connection");
-        return false;
-    }
-
-    std::uint16_t portHostOrder;
-    try
-    {
-        portHostOrder = std::stoi(serverPort);
-        if (portHostOrder > 65535) throw std::runtime_error("Invalid port range");
-    }
-    catch (...)
-    {
-        threadSafeOStream(std::cerr, std::format("[Client] Tried to connect with an invalid port, port {} is not a valid number", serverPort));
-        return false;
-    }
-    sockaddr_in addr{};
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(portHostOrder);
-    if (inet_pton(AF_INET, serverIp.c_str(), &addr.sin_addr) != 1)
-    {
-        threadSafeOStream(std::cerr, std::format("[Client] Tried to connect with an invalid ip {}", serverIp));
-        return false;
-    }
-    _serverAddr = addr;
-    std::vector<char> udpPacket;
-    udpPacket.resize(MaxUdpPacketBytes);
-    for (int attempt = 0; attempt < _maxRetries; ++attempt)
-    {
-        const char mid = static_cast<char>(static_cast<std::uint8_t>(MessageType::REQ_REGISTER));
-
-        int sentBytes = sendto(
-            _socket,
-            &mid,
-            1,
-            0,
-            reinterpret_cast<sockaddr*>(&_serverAddr),
-            sizeof(_serverAddr)
-        );
-
-        if (sentBytes == SOCKET_ERROR)
-        {
-            const int err = WSAGetLastError();
-            if (isRecoverableWSAError(err))
-            {
-                continue;
-            }
-
-            threadSafeOStream(
-                std::cerr,
-                std::format("[Client] sendto() failed: {}", wsaErrorStr())
-            );
-            return false;
-        }
-
-        assert(sentBytes == 1 && "sendto() should send exactly 1 byte for REQ_REGISTER");
-
-        fd_set readSet;
-        FD_ZERO(&readSet);
-        FD_SET(_socket, &readSet);
-
-        timeval timeout{};
-        timeout.tv_sec = 0;
-        timeout.tv_usec = static_cast<int>(_recvTimeOut * 1000);
-
-        int ready = select(
-            0,
-            &readSet,
-            nullptr,
-            nullptr,
-            &timeout
-        );
-
-        if (ready == SOCKET_ERROR)
-        {
-            threadSafeOStream(
-                std::cerr,
-                std::format("[Client] select() failed: {}", wsaErrorStr())
-            );
-            return false;
-        }
-
-        if (ready == 0)
-        {
-            continue; // timeout, retry next attempt
-        }
-
-        if (!FD_ISSET(_socket, &readSet))
-        {
-            continue; // defensive: treat as failed attempt
-        }
+        int ready = select(0, &rs, nullptr, nullptr, &tv);
+        if(ready == SOCKET_ERROR) { log(std::cerr, "[Client] listen select() failed"); return; }
+        if(ready == 0) continue;
 
         sockaddr_in from{};
         int fromLen = sizeof(from);
+        int n = recvfrom(_socket, buf.data(), static_cast<int>(buf.size()),
+            0, reinterpret_cast<sockaddr*>(&from), &fromLen);
+        if(n <= 0) continue;
 
-        int bytesReceived = recvfrom(
-            _socket,
-            udpPacket.data(),
-            static_cast<int>(udpPacket.size()),
-            0,
-            reinterpret_cast<sockaddr*>(&from),
-            &fromLen
-        );
-
-        if (bytesReceived == SOCKET_ERROR)
-        {
-            threadSafeOStream(
-                std::cerr,
-                std::format("[Client] recvfrom() failed: {}", wsaErrorStr())
-            );
-            return false;
-        }
-
-        if (bytesReceived == 0)
-        {
-            continue; // empty datagram, treat as failed attempt
-        }
-
-        // Validate sender.
-        if (from.sin_family != AF_INET ||
-            from.sin_port != addr.sin_port ||
-            from.sin_addr.s_addr != addr.sin_addr.s_addr)
-        {
-            continue; // packet not from the server we are registering with
-        }
-
-        // Validate payload size
-        if (bytesReceived != PacketSize::RSP_REGISTER)
-        {
-            continue;
-        }
-
-        const auto receivedType =
-            static_cast<MessageType>(static_cast<std::uint8_t>(udpPacket[0]));
-
-        if (receivedType != MessageType::RSP_REGISTER)
-        {
-            continue; // not the response we were waiting for
-        }
-
-        // okay we successfully received rsp_register, now to get the session id
-        ByteReader rdr{ .buffer = std::span<const char>(udpPacket).subspan(1, bytesReceived) };
-        _sessionId = ntohl(rdr.read<SessionId>());
-        _serverIpAndPort = std::format("{}:{}", serverIp, serverPort);
-        _listeningThread = std::jthread([st = _stopSource.get_token()]()
-            {
-                startListening(st);
-            });
-        threadSafeOStream(std::cout, std::format("[Client] Successfully connected to {} after {} attempts!", _serverIpAndPort, attempt + 1));
-        return true;
+        auto mid = static_cast<MessageType>(buf[0]);
+        auto it = _listenMsgFns.find(mid);
+        if(it != _listenMsgFns.end())
+            (it->second)(std::span<const char>(buf).subspan(1, n - 1));
     }
-    return false;
 }
+
+// ============================================================
+// startSending
+// ============================================================
+
+void Client::startSending(std::stop_token st)
+{
+    while(!st.stop_requested())
+    {
+        // Drain outbound queue
+        {
+            std::lock_guard lock(_sendQueueMutex);
+            while(!_sendQueue.empty())
+            {
+                auto& [pkt, dest] = _sendQueue.front();
+                doSend(pkt, dest);
+                _sendQueue.pop();
+            }
+        }
+
+        // Retransmit timed-out reliable packets
+        {
+            auto now = std::chrono::steady_clock::now();
+            std::lock_guard lock(_pendingAcksMutex);
+
+            for(auto it = _pendingAcks.begin(); it != _pendingAcks.end(); )
+            {
+                PendingReliable& pr = it->second;
+                double elapsed = std::chrono::duration<double>(now - pr.lastSentAt).count();
+
+                if(elapsed >= RetransmitIntervalSec)
+                {
+                    if(pr.attempts >= MaxReliableAttempts)
+                    {
+                        log(std::cerr, std::format(
+                            "[Client] Reliable packet seq={} dropped after {} attempts",
+                            it->first, pr.attempts));
+                        it = _pendingAcks.erase(it);
+                        continue;
+                    }
+
+                    log(std::cout, std::format(
+                        "[Client] Retransmitting seq={} (attempt {})", it->first, pr.attempts + 1));
+
+                    doSend(pr.packet, pr.dest);
+                    pr.lastSentAt = now;
+                    pr.attempts++;
+                }
+                ++it;
+            }
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+}
+
+// ============================================================
+// sendCanvasCommand  — called from the game/UI thread
+//
+// Packet wire layouts (network byte order):
+//   START_STROKE : [type1][session4][seq4][strokeId4][mousePos4][RGBAT5]  = 22
+//   ADD_POINT    : [type1][session4][seq4][strokeId4][mousePos4]          = 17
+//   END_STROKE   : [type1][session4][seq4][strokeId4]                     = 13
+// ============================================================
+
+void Client::sendCanvasCommand(const CanvasCommandSend& cmd)
+{
+    if(cmd._type == CanvasCommandSend::Type::START_STROKE)
+    {
+        // _data: [strokeId u32][mousePos u16x2][RGBAT 5] = 13 bytes
+        assert(cmd._data.size() == PacketSize::PF_START_STROKE - PacketSize::HEADER_SIZE);
+
+        SequenceNumber seq = allocSeq();
+        std::vector<char> pkt(PacketSize::PF_START_STROKE);
+        ByteWriter wrt{.buffer = pkt};
+
+        wrt.write(static_cast<char>(MessageType::PF_START_STROKE));
+        wrt.write(htonl(_sessionId));
+        wrt.write(htonl(seq));
+
+        ByteReader rdr{.buffer = cmd._data};
+        wrt.write(htonl(rdr.read<std::uint32_t>())); // strokeId
+        auto mp = rdr.read<MousePosition>();
+        mp[0] = htons(mp[0]);
+        mp[1] = htons(mp[1]);
+        wrt.write(mp);
+        wrt.write(rdr.read<std::array<char, 5>>()); // RGBAT
+
+        sendReliable(seq, std::move(pkt));
+    }
+    else if(cmd._type == CanvasCommandSend::Type::ADD_POINT)
+    {
+        // _data: [strokeId u32][mousePos u16x2] = 8 bytes
+        assert(cmd._data.size() == PacketSize::PF_ADD_POINT - PacketSize::HEADER_SIZE);
+
+        std::vector<char> pkt(PacketSize::PF_ADD_POINT);
+        ByteWriter wrt{.buffer = pkt};
+
+        wrt.write(static_cast<char>(MessageType::PF_ADD_POINT));
+        wrt.write(htonl(_sessionId));
+        wrt.write(htonl(allocSeq()));
+
+        ByteReader rdr{.buffer = cmd._data};
+        wrt.write(htonl(rdr.read<std::uint32_t>())); // strokeId
+        auto mp = rdr.read<MousePosition>();
+        mp[0] = htons(mp[0]);
+        mp[1] = htons(mp[1]);
+        wrt.write(mp);
+
+        sendUnreliable(std::move(pkt));
+    }
+    else if(cmd._type == CanvasCommandSend::Type::END_STROKE)
+    {
+        // _data: [strokeId u32] = 4 bytes
+        assert(cmd._data.size() == PacketSize::PF_END_STROKE - PacketSize::HEADER_SIZE);
+
+        SequenceNumber seq = allocSeq();
+        std::vector<char> pkt(PacketSize::PF_END_STROKE);
+        ByteWriter wrt{.buffer = pkt};
+
+        wrt.write(static_cast<char>(MessageType::PF_END_STROKE));
+        wrt.write(htonl(_sessionId));
+        wrt.write(htonl(seq));
+
+        ByteReader rdr{.buffer = cmd._data};
+        wrt.write(htonl(rdr.read<std::uint32_t>())); // strokeId
+
+        sendReliable(seq, std::move(pkt));
+    }
+}
+
+// ============================================================
+// sendReliable / sendUnreliable / doSend
+// ============================================================
+
+void Client::sendReliable(SequenceNumber seq, std::vector<char> packet)
+{
+    {
+        std::lock_guard lock(_pendingAcksMutex);
+        PendingReliable pr;
+        pr.packet = packet;
+        pr.dest = _serverAddr;
+        pr.lastSentAt = std::chrono::steady_clock::now() -
+            std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                std::chrono::duration<double>(RetransmitIntervalSec));
+        pr.attempts = 0;
+        _pendingAcks[seq] = std::move(pr);
+    }
+    sendUnreliable(std::move(packet));
+}
+
+void Client::sendUnreliable(std::vector<char> packet)
+{
+    std::lock_guard lock(_sendQueueMutex);
+    _sendQueue.push({std::move(packet), _serverAddr});
+}
+
+void Client::doSend(const std::vector<char>& packet, const sockaddr_in& dest)
+{
+    sendto(_socket, packet.data(), static_cast<int>(packet.size()),
+        0, reinterpret_cast<const sockaddr*>(&dest), sizeof(dest));
+}
+
+// ============================================================
+// handle_Ack
+// ============================================================
+
+void Client::handle_Ack(std::span<const char> body)
+{
+    if(body.size() < sizeof(SequenceNumber)) return;
+
+    ByteReader rdr{.buffer = body};
+    SequenceNumber seq = ntohl(rdr.read<SequenceNumber>());
+
+    std::lock_guard lock(_pendingAcksMutex);
+    auto it = _pendingAcks.find(seq);
+    if(it != _pendingAcks.end())
+    {
+        log(std::cout, std::format("[Client] ACK received for seq={}", seq));
+        _pendingAcks.erase(it);
+    }
+}
+
+// ============================================================
+// Stroke ordering helpers
+// ============================================================
+
+// Must be called with BOTH _strokeBufferMutex AND _canvasCommandMutex held.
+void Client::pushCommand(CanvasCommandRecv cmd)
+{
+    _canvasCommands.push(std::move(cmd));
+}
+
+// ============================================================
+// handle_StartStroke
+//
+// Packet body: [sessionId 4][serverSeq 4][strokeId 4][mousePos 4][RGBAT 5] = 21 bytes
+//
+// Ordering:
+//   1. Dispatch START_STROKE to _canvasCommands.
+//   2. Flush any buffered ADD_POINT / END_STROKE for this strokeId
+//      (sorted by server sequence number).
+// ============================================================
+
+void Client::handle_StartStroke(std::span<const char> body)
+{
+    assert(body.size() == PacketSize::PF_START_STROKE - 1);
+
+    ByteReader rdr{.buffer = body};
+    if(ntohl(rdr.read<SessionId>()) != _sessionId) return; // not for us
+
+    auto serverSeq = ntohl(rdr.read<SequenceNumber>());
+    auto strokeId = ntohl(rdr.read<std::uint32_t>());
+    auto mousePos = rdr.read<MousePosition>();
+    auto RGBAT = rdr.read<std::array<char, 5>>();
+    mousePos[0] = ntohs(mousePos[0]);
+    mousePos[1] = ntohs(mousePos[1]);
+
+    // Build the received command — _data: [strokeId u32][mousePos u16x2][RGBAT 5] = 13 bytes
+    CanvasCommandRecv ccr;
+    ccr._type = CanvasCommandRecv::Type::START_STROKE;
+    ccr._serverSeqNumber = serverSeq;
+    ccr._strokeId = strokeId;
+    ccr._data.resize(PacketSize::PF_START_STROKE - PacketSize::HEADER_SIZE);
+    {
+        ByteWriter wrt{.buffer = ccr._data};
+        wrt.write(strokeId);
+        wrt.write(mousePos);
+        wrt.write(RGBAT);
+    }
+
+    // Lock ordering: _strokeBufferMutex before _canvasCommandMutex (always).
+    std::lock_guard bufLock(_strokeBufferMutex);
+    std::lock_guard cmdLock(_canvasCommandMutex);
+
+    // Dispatch START_STROKE first.
+    pushCommand(std::move(ccr));
+
+    // Mark stroke as started and flush any early-arriving commands.
+    StrokeBuffer& sb = _strokeBuffers[strokeId];
+    sb.started = true;
+
+    std::sort(sb.pending.begin(), sb.pending.end(),
+        [](const CanvasCommandRecv& a, const CanvasCommandRecv& b)
+        {
+            return a._serverSeqNumber < b._serverSeqNumber;
+        });
+
+    bool endSeen = false;
+    for(auto& buffered : sb.pending)
+    {
+        if(buffered._type == CanvasCommandRecv::Type::END_STROKE)
+            endSeen = true;
+        pushCommand(std::move(buffered));
+    }
+
+    if(endSeen)
+        _strokeBuffers.erase(strokeId); // stroke fully complete
+    else
+        sb.pending.clear();
+}
+
+// ============================================================
+// handle_AddPoint  — unreliable
+//
+// Packet body: [sessionId 4][serverSeq 4][strokeId 4][mousePos 4] = 16 bytes
+//
+// If START_STROKE for this strokeId has already been dispatched,
+// push immediately.  Otherwise buffer until it arrives.
+// ============================================================
+
+void Client::handle_AddPoint(std::span<const char> body)
+{
+    assert(body.size() == PacketSize::PF_ADD_POINT - 1);
+
+    ByteReader rdr{.buffer = body};
+    if(ntohl(rdr.read<SessionId>()) != _sessionId) return;
+
+    auto serverSeq = ntohl(rdr.read<SequenceNumber>());
+    auto strokeId = ntohl(rdr.read<std::uint32_t>());
+    auto mousePos = rdr.read<MousePosition>();
+    mousePos[0] = ntohs(mousePos[0]);
+    mousePos[1] = ntohs(mousePos[1]);
+
+    // Build the received command — _data: [strokeId u32][mousePos u16x2] = 8 bytes
+    CanvasCommandRecv ccr;
+    ccr._type = CanvasCommandRecv::Type::ADD_POINT;
+    ccr._serverSeqNumber = serverSeq;
+    ccr._strokeId = strokeId;
+    ccr._data.resize(PacketSize::PF_ADD_POINT - PacketSize::HEADER_SIZE);
+    {
+        ByteWriter wrt{.buffer = ccr._data};
+        wrt.write(strokeId);
+        wrt.write(mousePos);
+    }
+
+    std::lock_guard bufLock(_strokeBufferMutex);
+
+    auto it = _strokeBuffers.find(strokeId);
+    if(it != _strokeBuffers.end() && it->second.started)
+    {
+        std::lock_guard cmdLock(_canvasCommandMutex);
+        pushCommand(std::move(ccr));
+    }
+    else
+    {
+        // START_STROKE not yet received — hold this point.
+        _strokeBuffers[strokeId].pending.push_back(std::move(ccr));
+    }
+}
+
+// ============================================================
+// handle_EndStroke
+//
+// Packet body: [sessionId 4][serverSeq 4][strokeId 4] = 12 bytes
+//
+// Same buffering logic as ADD_POINT.
+// ============================================================
+
+void Client::handle_EndStroke(std::span<const char> body)
+{
+    assert(body.size() == PacketSize::PF_END_STROKE - 1);
+
+    ByteReader rdr{.buffer = body};
+    if(ntohl(rdr.read<SessionId>()) != _sessionId) return;
+
+    auto serverSeq = ntohl(rdr.read<SequenceNumber>());
+    auto strokeId = ntohl(rdr.read<std::uint32_t>());
+
+    // Build the received command — _data: [strokeId u32] = 4 bytes
+    CanvasCommandRecv ccr;
+    ccr._type = CanvasCommandRecv::Type::END_STROKE;
+    ccr._serverSeqNumber = serverSeq;
+    ccr._strokeId = strokeId;
+    ccr._data.resize(PacketSize::PF_END_STROKE - PacketSize::HEADER_SIZE);
+    {
+        ByteWriter wrt{.buffer = ccr._data};
+        wrt.write(strokeId);
+    }
+
+    std::lock_guard bufLock(_strokeBufferMutex);
+
+    auto it = _strokeBuffers.find(strokeId);
+    if(it != _strokeBuffers.end() && it->second.started)
+    {
+        {
+            std::lock_guard cmdLock(_canvasCommandMutex);
+            pushCommand(std::move(ccr));
+        }
+        _strokeBuffers.erase(it); // stroke complete
+    }
+    else
+    {
+        // START_STROKE not yet received — buffer END_STROKE.
+        _strokeBuffers[strokeId].pending.push_back(std::move(ccr));
+    }
+}
+
+// ============================================================
+// loginViaBroadcast
+// ============================================================
 
 LoginStatus Client::loginViaBroadcast(const std::string& username, const std::string& password)
 {
-    if (_sessionId != InvalidSessionId)
+    if(_sessionId != InvalidSessionId) return LoginStatus::INVALID_CREDENTIALS;
+
+    sockaddr_in bcast{};
+    bcast.sin_family = AF_INET;
+    bcast.sin_port = htons(ServerUdpPort);
+    bcast.sin_addr.S_un.S_addr = INADDR_BROADCAST;
+
+    std::vector<char> sendPkt(PacketSize::REQ_LOGIN, '\0');
     {
-        threadSafeOStream(std::cerr, "[Client] loginViaBroadcast() called while already connected");
-        return LoginStatus::INVALID_CREDENTIALS;
+        ByteWriter wrt{.buffer = sendPkt};
+        wrt.write(static_cast<char>(MessageType::REQ_LOGIN));
+        std::array<char, MAX_USERNAME_LEN> u{};
+        std::memcpy(u.data(), username.c_str(), username.size());
+        wrt.write(u);
+        std::array<char, MAX_PASSWORD_LEN> p{};
+        std::memcpy(p.data(), password.c_str(), password.size());
+        wrt.write(p);
     }
 
-    if (_listeningThread.joinable())
+    std::vector<char> recvBuf(MaxUdpPacketBytes);
+
+    for(int attempt = 0; attempt < _maxRetries; ++attempt)
     {
-        threadSafeOStream(std::cerr, "[Client] loginViaBroadcast() called while listening thread active");
-        return LoginStatus::INVALID_CREDENTIALS;
-    }
-
-    sockaddr_in broadcastAddr{};
-    broadcastAddr.sin_family = AF_INET;
-    broadcastAddr.sin_port = htons(ServerUdpPort);
-    broadcastAddr.sin_addr.S_un.S_addr = INADDR_BROADCAST;
-
-    // build REQ_LOGIN packet
-    std::vector<char> sendPacket(PacketSize::REQ_LOGIN, '\0');
-    ByteWriter wrt{ .buffer = sendPacket };
-    wrt.write(static_cast<char>(MessageType::REQ_LOGIN));
-
-    std::array<char, MAX_USERNAME_LEN> userBuf{};
-    std::memcpy(userBuf.data(), username.c_str(), username.size());
-    wrt.write(userBuf);
-
-    std::array<char, MAX_PASSWORD_LEN> passBuf{};
-    std::memcpy(passBuf.data(), password.c_str(), password.size());
-    wrt.write(passBuf);
-
-    std::vector<char> udpPacket;
-    udpPacket.resize(MaxUdpPacketBytes);
-
-    for (int attempt = 0; attempt < _maxRetries; attempt++)
-    {
-        int sentBytes = sendto(
-            _socket,
-            sendPacket.data(),
-            static_cast<int>(sendPacket.size()),
-            0,
-            reinterpret_cast<sockaddr*>(&broadcastAddr),
-            sizeof(broadcastAddr)
-        );
-
-        if (sentBytes == SOCKET_ERROR)
-        {
-            const int err = WSAGetLastError();
-            if (isRecoverableWSAError(err)) continue;
-            threadSafeOStream(std::cerr,
-                std::format("[Client] loginViaBroadcast sendto() failed: {}", wsaErrorStr()));
-            return LoginStatus::INVALID_CREDENTIALS;
-        }
+        sendto(_socket, sendPkt.data(), static_cast<int>(sendPkt.size()),
+            0, reinterpret_cast<sockaddr*>(&bcast), sizeof(bcast));
 
         auto deadline = std::chrono::steady_clock::now() +
             std::chrono::milliseconds(static_cast<int>(_recvTimeOut * 1000.0));
 
-        while (true)
+        while(true)
         {
-            auto remaining = deadline - std::chrono::steady_clock::now();
-            if (remaining.count() <= 0) break;
+            auto rem = deadline - std::chrono::steady_clock::now();
+            if(rem.count() <= 0) break;
 
-            fd_set readset;
-            FD_ZERO(&readset);
-            FD_SET(_socket, &readset);
+            fd_set rs; FD_ZERO(&rs); FD_SET(_socket, &rs);
+            auto us = std::chrono::duration_cast<std::chrono::microseconds>(rem);
+            timeval tv{static_cast<long>(us.count() / 1'000'000),
+                       static_cast<long>(us.count() % 1'000'000)};
 
-            auto us = std::chrono::duration_cast<std::chrono::microseconds>(remaining);
-            timeval timeout{};
-            timeout.tv_sec = static_cast<long>(us.count() / 1'000'000);
-            timeout.tv_usec = static_cast<long>(us.count() % 1'000'000);
+            if(select(0, &rs, nullptr, nullptr, &tv) <= 0) break;
 
-            int ready = select(0, &readset, nullptr, nullptr, &timeout);
-            if (ready == SOCKET_ERROR)
-            {
-                const int err = WSAGetLastError();
-                if (isRecoverableWSAError(err)) continue;
-                threadSafeOStream(std::cerr,
-                    std::format("[Client] loginViaBroadcast select() failed: {}", wsaErrorStr()));
-                return LoginStatus::INVALID_CREDENTIALS;
-            }
+            sockaddr_in from{}; int fromLen = sizeof(from);
+            int n = recvfrom(_socket, recvBuf.data(), static_cast<int>(recvBuf.size()),
+                0, reinterpret_cast<sockaddr*>(&from), &fromLen);
+            if(n != static_cast<int>(PacketSize::RSP_LOGIN)) continue;
+            if(static_cast<MessageType>(recvBuf[0]) != MessageType::RSP_LOGIN) continue;
 
-            if (ready == 0) break; // timeout
-
-            sockaddr_in from{};
-            int fromLen = sizeof(from);
-            int bytesReceived = recvfrom(
-                _socket,
-                udpPacket.data(),
-                static_cast<int>(udpPacket.size()),
-                0,
-                reinterpret_cast<sockaddr*>(&from),
-                &fromLen
-            );
-
-            if (bytesReceived == SOCKET_ERROR)
-            {
-                const int err = WSAGetLastError();
-                if (isRecoverableWSAError(err)) continue;
-                threadSafeOStream(std::cerr,
-                    std::format("[Client] loginViaBroadcast recvfrom() failed: {}", wsaErrorStr()));
-                return LoginStatus::INVALID_CREDENTIALS;
-            }
-
-            if (bytesReceived == 0) continue;
-            if (bytesReceived != PacketSize::RSP_LOGIN) continue;
-            if (static_cast<MessageType>(udpPacket[0]) != MessageType::RSP_LOGIN) continue;
-
-            ByteReader rdr{ .buffer = std::span<const char>(udpPacket).subspan(1, bytesReceived - 1) };
-            SessionId sessionIdHostOrder = ntohl(rdr.read<SessionId>());
+            ByteReader rdr{.buffer = std::span<const char>(recvBuf).subspan(1, n - 1)};
+            SessionId   sid = ntohl(rdr.read<SessionId>());
             LoginStatus status = static_cast<LoginStatus>(rdr.read<std::uint8_t>());
 
-            if (status == LoginStatus::SUCCESS)
+            if(status == LoginStatus::SUCCESS)
             {
-                _sessionId = sessionIdHostOrder;
+                _sessionId = sid;
                 _serverAddr = from;
+                char ip[INET_ADDRSTRLEN]{};
+                inet_ntop(AF_INET, &from.sin_addr, ip, sizeof(ip));
+                _serverIpAndPort = std::format("{}:{}", ip, ntohs(from.sin_port));
+                _nextSeq.store(0);
 
-                char ipStr[INET_ADDRSTRLEN]{};
-                inet_ntop(AF_INET, &from.sin_addr, ipStr, sizeof(ipStr));
-                _serverIpAndPort = std::format("{}:{}", ipStr, ntohs(from.sin_port));
+                _stopSource = std::stop_source{};
+                _listeningThread = std::jthread([](std::stop_token st) { startListening(st); }, _stopSource.get_token());
+                _sendingThread = std::jthread([](std::stop_token st) { startSending(st);   }, _stopSource.get_token());
 
-                _listeningThread = std::jthread([st = _stopSource.get_token()]()
-                    {
-                        startListening(st);
-                    });
-
-                threadSafeOStream(std::cout,
-                    std::format("[Client] Login successful for '{}', session {}, server: {}",
-                        username, _sessionId, _serverIpAndPort));
+                log(std::cout, std::format("[Client] Login OK — session {}, server {}",
+                    _sessionId, _serverIpAndPort));
             }
             return status;
         }
     }
 
-    threadSafeOStream(std::cerr, "[Client] loginViaBroadcast: no server responded");
+    log(std::cerr, "[Client] loginViaBroadcast: no server responded");
     return LoginStatus::INVALID_CREDENTIALS;
 }
+
+// ============================================================
+// createAccountViaBroadcast
+// ============================================================
 
 LoginStatus Client::createAccountViaBroadcast(const std::string& username, const std::string& password)
 {
-    sockaddr_in broadcastAddr{};
-    broadcastAddr.sin_family = AF_INET;
-    broadcastAddr.sin_port = htons(ServerUdpPort);
-    broadcastAddr.sin_addr.S_un.S_addr = INADDR_BROADCAST;
+    sockaddr_in bcast{};
+    bcast.sin_family = AF_INET;
+    bcast.sin_port = htons(ServerUdpPort);
+    bcast.sin_addr.S_un.S_addr = INADDR_BROADCAST;
 
-    // build REQ_CREATE_ACCOUNT packet
-    std::vector<char> sendPacket(PacketSize::REQ_CREATE_ACCOUNT, '\0');
-    ByteWriter wrt{ .buffer = sendPacket };
-    wrt.write(static_cast<char>(MessageType::REQ_CREATE_ACCOUNT));
-
-    std::array<char, MAX_USERNAME_LEN> userBuf{};
-    std::memcpy(userBuf.data(), username.c_str(), username.size());
-    wrt.write(userBuf);
-
-    std::array<char, MAX_PASSWORD_LEN> passBuf{};
-    std::memcpy(passBuf.data(), password.c_str(), password.size());
-    wrt.write(passBuf);
-
-    std::vector<char> udpPacket;
-    udpPacket.resize(MaxUdpPacketBytes);
-
-    for (int attempt = 0; attempt < _maxRetries; attempt++)
+    std::vector<char> sendPkt(PacketSize::REQ_CREATE_ACCOUNT, '\0');
     {
-        int sentBytes = sendto(
-            _socket,
-            sendPacket.data(),
-            static_cast<int>(sendPacket.size()),
-            0,
-            reinterpret_cast<sockaddr*>(&broadcastAddr),
-            sizeof(broadcastAddr)
-        );
+        ByteWriter wrt{.buffer = sendPkt};
+        wrt.write(static_cast<char>(MessageType::REQ_CREATE_ACCOUNT));
+        std::array<char, MAX_USERNAME_LEN> u{};
+        std::memcpy(u.data(), username.c_str(), username.size());
+        wrt.write(u);
+        std::array<char, MAX_PASSWORD_LEN> p{};
+        std::memcpy(p.data(), password.c_str(), password.size());
+        wrt.write(p);
+    }
 
-        if (sentBytes == SOCKET_ERROR)
-        {
-            const int err = WSAGetLastError();
-            if (isRecoverableWSAError(err)) continue;
-            threadSafeOStream(std::cerr,
-                std::format("[Client] createAccountViaBroadcast sendto() failed: {}", wsaErrorStr()));
-            return LoginStatus::INVALID_CREDENTIALS;
-        }
+    std::vector<char> recvBuf(MaxUdpPacketBytes);
+
+    for(int attempt = 0; attempt < _maxRetries; ++attempt)
+    {
+        sendto(_socket, sendPkt.data(), static_cast<int>(sendPkt.size()),
+            0, reinterpret_cast<sockaddr*>(&bcast), sizeof(bcast));
 
         auto deadline = std::chrono::steady_clock::now() +
             std::chrono::milliseconds(static_cast<int>(_recvTimeOut * 1000.0));
 
-        while (true)
+        while(true)
         {
-            auto remaining = deadline - std::chrono::steady_clock::now();
-            if (remaining.count() <= 0) break;
+            auto rem = deadline - std::chrono::steady_clock::now();
+            if(rem.count() <= 0) break;
 
-            fd_set readset;
-            FD_ZERO(&readset);
-            FD_SET(_socket, &readset);
+            fd_set rs; FD_ZERO(&rs); FD_SET(_socket, &rs);
+            auto us = std::chrono::duration_cast<std::chrono::microseconds>(rem);
+            timeval tv{static_cast<long>(us.count() / 1'000'000),
+                       static_cast<long>(us.count() % 1'000'000)};
 
-            auto us = std::chrono::duration_cast<std::chrono::microseconds>(remaining);
-            timeval timeout{};
-            timeout.tv_sec = static_cast<long>(us.count() / 1'000'000);
-            timeout.tv_usec = static_cast<long>(us.count() % 1'000'000);
+            if(select(0, &rs, nullptr, nullptr, &tv) <= 0) break;
 
-            int ready = select(0, &readset, nullptr, nullptr, &timeout);
-            if (ready == SOCKET_ERROR)
-            {
-                const int err = WSAGetLastError();
-                if (isRecoverableWSAError(err)) continue;
-                threadSafeOStream(std::cerr,
-                    std::format("[Client] createAccountViaBroadcast select() failed: {}", wsaErrorStr()));
-                return LoginStatus::INVALID_CREDENTIALS;
-            }
+            sockaddr_in from{}; int fromLen = sizeof(from);
+            int n = recvfrom(_socket, recvBuf.data(), static_cast<int>(recvBuf.size()),
+                0, reinterpret_cast<sockaddr*>(&from), &fromLen);
+            if(n != static_cast<int>(PacketSize::RSP_LOGIN)) continue;
+            if(static_cast<MessageType>(recvBuf[0]) != MessageType::RSP_LOGIN) continue;
 
-            if (ready == 0) break;
-
-            sockaddr_in from{};
-            int fromLen = sizeof(from);
-            int bytesReceived = recvfrom(
-                _socket,
-                udpPacket.data(),
-                static_cast<int>(udpPacket.size()),
-                0,
-                reinterpret_cast<sockaddr*>(&from),
-                &fromLen
-            );
-
-            if (bytesReceived == SOCKET_ERROR)
-            {
-                const int err = WSAGetLastError();
-                if (isRecoverableWSAError(err)) continue;
-                threadSafeOStream(std::cerr,
-                    std::format("[Client] createAccountViaBroadcast recvfrom() failed: {}", wsaErrorStr()));
-                return LoginStatus::INVALID_CREDENTIALS;
-            }
-
-            if (bytesReceived == 0) continue;
-            if (bytesReceived != PacketSize::RSP_LOGIN) continue;
-            if (static_cast<MessageType>(udpPacket[0]) != MessageType::RSP_LOGIN) continue;
-
-            ByteReader rdr{ .buffer = std::span<const char>(udpPacket).subspan(1, bytesReceived - 1) };
-            [[maybe_unused]] SessionId sessionId = ntohl(rdr.read<SessionId>());
+            ByteReader rdr{.buffer = std::span<const char>(recvBuf).subspan(1, n - 1)};
+            [[maybe_unused]] SessionId sid = ntohl(rdr.read<SessionId>());
             LoginStatus status = static_cast<LoginStatus>(rdr.read<std::uint8_t>());
-
-            threadSafeOStream(std::cout,
-                std::format("[Client] createAccountViaBroadcast for '{}': status {}",
-                    username, static_cast<int>(status)));
+            log(std::cout, std::format("[Client] createAccount for '{}': status {}",
+                username, static_cast<int>(status)));
             return status;
         }
     }
 
-    threadSafeOStream(std::cerr, "[Client] createAccountViaBroadcast: no server responded");
+    log(std::cerr, "[Client] createAccountViaBroadcast: no server responded");
     return LoginStatus::INVALID_CREDENTIALS;
 }
 
+// ============================================================
+// disconnect
+// ============================================================
+
 void Client::disconnect()
 {
-    auto cleanUpThread = []()
+    auto stopThreads = []()
         {
-            if (_listeningThread.joinable())
-            {
-                _stopSource.request_stop();
-                _listeningThread.join();
-            }
+            _stopSource.request_stop();
+            if(_listeningThread.joinable()) _listeningThread.join();
+            if(_sendingThread.joinable())   _sendingThread.join();
         };
 
-    if (_sessionId == InvalidSessionId)
-    {
-        threadSafeOStream(std::cerr,
-            "[Client] Disconnect called when there is not a valid session id");
-        cleanUpThread();
-        return;
-    }
-    std::vector<char> msg;
-    msg.resize(PacketSize::REQ_UNREGISTER);
+    if(_sessionId == InvalidSessionId) { stopThreads(); return; }
 
-    ByteWriter wrt{ .buffer = msg };
+    std::vector<char> pkt(PacketSize::REQ_UNREGISTER);
+    ByteWriter wrt{.buffer = pkt};
     wrt.write(static_cast<char>(MessageType::REQ_UNREGISTER));
     wrt.write(htonl(_sessionId));
-    for (int attempt = 0; attempt < _maxRetries; ++attempt)
-    {
-        int sentBytes = sendto(
-            _socket,
-            msg.data(),
-            static_cast<int>(msg.size()),
-            0,
-            reinterpret_cast<sockaddr*>(&_serverAddr),
-            sizeof(_serverAddr)
-        );
 
-        if (sentBytes == SOCKET_ERROR)
-        {
-            const int err = WSAGetLastError();
-            if (isRecoverableWSAError(err))
-            {
-                continue;
-            }
+    sendto(_socket, pkt.data(), static_cast<int>(pkt.size()),
+        0, reinterpret_cast<sockaddr*>(&_serverAddr), sizeof(_serverAddr));
 
-            threadSafeOStream(
-                std::cerr,
-                std::format("[Client] sendto() failed, disconnecting from the server had issues: {}", wsaErrorStr())
-            );
-            cleanUpThread();
-            return;
-        }
-        else
-        {
-            // success
-            threadSafeOStream(
-                std::cout,
-                std::format("[Client] Successfully disconnected from Server {}", _serverIpAndPort));
-            _serverIpAndPort.clear();
-            std::memset(&_serverAddr, 0, sizeof(_serverAddr));
-            _sessionId = InvalidSessionId;
+    log(std::cout, std::format("[Client] Disconnected from {}", _serverIpAndPort));
+    _serverIpAndPort.clear();
+    std::memset(&_serverAddr, 0, sizeof(_serverAddr));
+    _sessionId = InvalidSessionId;
 
-            cleanUpThread();
-
-            return;
-        }
-    }
-    threadSafeOStream(
-        std::cerr,
-        std::format("[Client] Disconnecting from the server had issues"));
-    cleanUpThread();
-}
-
-void Client::sendInputState(const InputState& inputState)
-{
-    std::vector<char> msg;
-    msg.resize(PacketSize::PF_INPUT_STATE);
-
-    MousePosition mousePosNetworkOrder = inputState.currentMousePos;
-    mousePosNetworkOrder[0] = htons(mousePosNetworkOrder[0]);
-    mousePosNetworkOrder[1] = htons(mousePosNetworkOrder[1]);
-
-    ByteWriter wrt{ .buffer = msg };
-    wrt.write(static_cast<char>(MessageType::PF_INPUT_STATE));
-    wrt.write(htonl(_sessionId));
-    wrt.write(htonl(inputState.currentSequenceNumber));
-    wrt.write(htonl(inputState.currentInput));
-    wrt.write(mousePosNetworkOrder);
-    for (int attempt = 0; attempt < _maxRetries; ++attempt)
-    {
-        int sentBytes = sendto(
-            _socket,
-            msg.data(),
-            static_cast<int>(msg.size()),
-            0,
-            reinterpret_cast<sockaddr*>(&_serverAddr),
-            sizeof(_serverAddr)
-        );
-
-        if (sentBytes == SOCKET_ERROR)
-        {
-            const int err = WSAGetLastError();
-            if (isRecoverableWSAError(err))
-            {
-                continue;
-            }
-
-            threadSafeOStream(
-                std::cerr,
-                std::format("[Client] sendto() failed: {}", wsaErrorStr())
-            );
-            return;
-        }
-        else
-        {
-            return; // success
-        }
-    }
-    threadSafeOStream(std::cerr,
-        std::format("[Client] Failed to send input state for sequence {}",
-            inputState.currentSequenceNumber));
-    return;
-}
-
-void Client::sendCanvasCommand(const CanvasDrawState& drawState)
-{
-    //drawState.assertCanvasDrawState();
-    std::vector<char> msg;
-    MessageType type = drawState._type;
-    if (type == MessageType::PF_START_STROKE)
-    {
-        assert((drawState._msg.size() == PacketSize::PF_START_STROKE - PacketSize::HEADER_SIZE)
-            && "Size is wrong when sending start stroke");
-        msg.resize(PacketSize::PF_START_STROKE);
-
-        auto sessionIdNetworkOrder = htonl(_sessionId);
-        auto seqNumberNetworkOrder = htonl(drawState._sqNumberHostOrder);
-
-        ByteReader rdr{ .buffer = drawState._msg };
-        auto strokeIdNetworkOrder = htonl(rdr.read<std::uint32_t>());
-        auto mousePositionNetworkOrder = rdr.read<MousePosition>();
-        auto RGBAT = rdr.read<std::array<char, 5>>();
-
-        mousePositionNetworkOrder[0] = htons(mousePositionNetworkOrder[0]);
-        mousePositionNetworkOrder[1] = htons(mousePositionNetworkOrder[1]);
-
-        ByteWriter wrt{ .buffer = msg };
-        wrt.write(static_cast<char>(MessageType::PF_START_STROKE));
-        wrt.write(sessionIdNetworkOrder);
-        wrt.write(seqNumberNetworkOrder);
-        wrt.write(strokeIdNetworkOrder);
-        wrt.write(mousePositionNetworkOrder);
-        wrt.write(RGBAT);
-    }
-    else if (type == MessageType::PF_ADD_POINT)
-    {
-        assert((drawState._msg.size() == PacketSize::PF_ADD_POINT - PacketSize::HEADER_SIZE)
-            && "Size is wrong when sending add point");
-        msg.resize(PacketSize::PF_ADD_POINT);
-
-        auto sessionIdNetworkOrder = htonl(_sessionId);
-        auto seqNumberNetworkOrder = htonl(drawState._sqNumberHostOrder);
-
-        ByteReader rdr{ .buffer = drawState._msg };
-        auto mousePositionNetworkOrder = rdr.read<MousePosition>();
-        mousePositionNetworkOrder[0] = htons(mousePositionNetworkOrder[0]);
-        mousePositionNetworkOrder[1] = htons(mousePositionNetworkOrder[1]);
-
-        ByteWriter wrt{ .buffer = msg };
-        wrt.write(static_cast<char>(MessageType::PF_ADD_POINT));
-        wrt.write(sessionIdNetworkOrder);
-        wrt.write(seqNumberNetworkOrder);
-        wrt.write(mousePositionNetworkOrder);
-    }
-    else if (type == MessageType::PF_END_STROKE)
-    {
-        assert((drawState._msg.size() == PacketSize::PF_END_STROKE - PacketSize::HEADER_SIZE)
-            && "Size is wrong when sending end stroke");
-        msg.resize(PacketSize::PF_END_STROKE);
-
-        auto sessionIdNetworkOrder = htonl(_sessionId);
-        auto seqNumberNetworkOrder = htonl(drawState._sqNumberHostOrder);
-
-        ByteWriter wrt{ .buffer = msg };
-        wrt.write(static_cast<char>(MessageType::PF_END_STROKE));
-        wrt.write(sessionIdNetworkOrder);
-        wrt.write(seqNumberNetworkOrder);
-    }
-    else assert(false && "sendCanvasCommand() received an invalid message type");
-
-    for (int attempt = 0; attempt < _maxRetries; ++attempt)
-    {
-        int sentBytes = sendto(
-            _socket,
-            msg.data(),
-            static_cast<int>(msg.size()),
-            0,
-            reinterpret_cast<sockaddr*>(&_serverAddr),
-            sizeof(_serverAddr)
-        );
-
-        if (sentBytes == SOCKET_ERROR)
-        {
-            const int err = WSAGetLastError();
-            if (isRecoverableWSAError(err))
-            {
-                continue;
-            }
-
-            threadSafeOStream(
-                std::cerr,
-                std::format("[Client] sendto() failed: {}", wsaErrorStr())
-            );
-            return;
-        }
-        else
-        {
-            return;
-        }
-    }
-    threadSafeOStream(std::cerr,
-        std::format("[Client] Failed to send canvas state for sequence {}",
-            drawState._sqNumberHostOrder));
-    return;
-}
-
-Client::RegCanvasStateFnId Client::registerCanvasStateCommandEvent(std::function<void(const CanvasDrawState&)> fn)
-{
-    std::lock_guard lock(_canvasDrawStateFunctionsMutex);
-    _canvasDrawStateFunctions.emplace(std::make_pair(_nextCanvasStateFnId,fn));
-    return _nextCanvasStateFnId++;
-}
-
-void Client::deregisterCanvasStateCommandEvent(RegCanvasStateFnId id)
-{
-    std::lock_guard lock(_canvasDrawStateFunctionsMutex);
-    auto it = _canvasDrawStateFunctions.find(id);
-    if (it == _canvasDrawStateFunctions.end())
-    {
-        threadSafeOStream(std::cerr,
-            std::format("[Client] Failed to deregister canvas state command event: {}",id));
-        return;
-    }
-    _canvasDrawStateFunctions.erase(id);
-}
-
-void Client::handle_StartStroke(std::span<const char> msgWithoutMID)
-{
-    assert((msgWithoutMID.size() == PacketSize::PF_START_STROKE - 1)
-        && "Size is wrong when receiving start stroke");
-
-    CanvasDrawState cds;
-    cds._type = MessageType::PF_START_STROKE;
-    cds._msg.resize(PacketSize::PF_START_STROKE - PacketSize::HEADER_SIZE);
-    ByteWriter wrt{ .buffer = cds._msg };
-
-    ByteReader rdr{ .buffer = msgWithoutMID };
-    auto sessionIdHostOrder = ntohl(rdr.read<SessionId>());
-
-    // datagram not meant for us, ignore it
-    if (sessionIdHostOrder != _sessionId) return;
-
-    cds._sqNumberHostOrder = ntohl(rdr.read<SequenceNumber>());
-    wrt.write(ntohl(rdr.read<std::uint32_t>())); // stroke id
-
-    auto mousePositionHostOrder = rdr.read<MousePosition>();
-    mousePositionHostOrder[0] = ntohs(mousePositionHostOrder[0]);
-    mousePositionHostOrder[1] = ntohs(mousePositionHostOrder[1]);
-    wrt.write(mousePositionHostOrder);
-
-    wrt.write(rdr.read<std::array<char, 5>>());
-    
-    invokeCanvasDrawCallbacks(cds);
-}
-
-void Client::handle_AddPoint(std::span<const char> msgWithoutMID)
-{
-    assert((msgWithoutMID.size() == PacketSize::PF_ADD_POINT - 1)
-        && "Size is wrong when receiving add point");
-
-    CanvasDrawState cds;
-    cds._type = MessageType::PF_ADD_POINT;
-    cds._msg.resize(PacketSize::PF_ADD_POINT - PacketSize::HEADER_SIZE);
-    ByteWriter wrt{ .buffer = cds._msg };
-
-    ByteReader rdr{ .buffer = msgWithoutMID };
-    auto sessionIdHostOrder = ntohl(rdr.read<SessionId>());
-
-    // datagram not meant for us, ignore it
-    if (sessionIdHostOrder != _sessionId) return;
-
-    cds._sqNumberHostOrder = ntohl(rdr.read<SequenceNumber>());
-
-    auto mousePositionHostOrder = rdr.read<MousePosition>();
-    mousePositionHostOrder[0] = ntohs(mousePositionHostOrder[0]);
-    mousePositionHostOrder[1] = ntohs(mousePositionHostOrder[1]);
-    wrt.write(mousePositionHostOrder);
-
-    invokeCanvasDrawCallbacks(cds);
-}
-
-void Client::handle_EndStroke(std::span<const char> msgWithoutMID)
-{
-    assert((msgWithoutMID.size() == PacketSize::PF_END_STROKE - 1)
-        && "Size is wrong when receiving end stroke");
-
-    CanvasDrawState cds;
-    cds._type = MessageType::PF_END_STROKE;
-    ByteReader rdr{ .buffer = msgWithoutMID };
-    auto sessionIdHostOrder = ntohl(rdr.read<SessionId>());
-
-    // datagram not meant for us, ignore it
-    if (sessionIdHostOrder != _sessionId) return;
-
-    cds._sqNumberHostOrder = ntohl(rdr.read<SequenceNumber>());
-    invokeCanvasDrawCallbacks(cds);
-}
-
-void Client::invokeCanvasDrawCallbacks(const CanvasDrawState& cds)
-{
-    std::lock_guard lock(_canvasDrawStateFunctionsMutex);
-    for (const auto& [_ignore, fn] : _canvasDrawStateFunctions) fn(cds);
+    stopThreads();
 }

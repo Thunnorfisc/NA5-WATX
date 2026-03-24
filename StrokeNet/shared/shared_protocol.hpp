@@ -8,172 +8,163 @@
 #include <cassert>
 #include <cstdint>
 #include <cstddef>
-#include <cassert>
 #include <optional>
+
 // ========================================== PROTOCOL STUFF START
-using SessionId = std::uint32_t; // 2 ^ 32 sessions
-using SequenceNumber = std::uint32_t; // 2 ^ 32 sequences
+using SessionId = std::uint32_t;
+using SequenceNumber = std::uint32_t;
 using InputBits = std::uint32_t;
 using MousePosition = std::array<std::uint16_t, 2>;
-inline constexpr SessionId InvalidSessionId = 0;
+
+inline constexpr SessionId   InvalidSessionId = 0;
 inline constexpr std::size_t MaxUdpPacketBytes = 65'536;
 inline constexpr std::size_t MAX_USERNAME_LEN = 32;
 inline constexpr std::size_t MAX_PASSWORD_LEN = 32;
 inline constexpr std::uint16_t ServerUdpPort = 32112;
+
 namespace PacketSize
 {
-    // +1 because includes message type
-    constexpr inline std::size_t HEADER_SIZE = 1 + sizeof(SessionId) + sizeof(SequenceNumber);
-    //  1
-    // [REQ_REGISTER]
-    constexpr inline std::size_t REQ_REGISTER = 1;
-    //  1             4
-    // [RSP_REGISTER][SESSION_ID]
-    constexpr inline std::size_t RSP_REGISTER = 5;
-    //  1               4
-    // [REQ_UNREGISTER][SESSION_ID]
-    constexpr inline std::size_t REQ_UNREGISTER = 5;
-    //  1               4           4                4           4
-    // [PF_INPUT_STATE][SESSION_ID][SEQUENCE_NUMBER][INPUT_BITS][MOUSE_POSITION]
-    constexpr inline std::size_t PF_INPUT_STATE = 17;
-    //  1                4           4                4          4               4      1
-    // [PF_START_STROKE][SESSION_ID][SEQUENCE_NUMBER][STROKE_ID][MOUSE_POSITION][COLOR][THICKNESS]
-    constexpr inline std::size_t PF_START_STROKE = 22;
-    //  1             4           4                4
-    // [PF_ADD_POINT][SESSION_ID][SEQUENCE_NUMBER][MOUSE_POSITION]
-    constexpr inline std::size_t PF_ADD_POINT = 13;
-    //  1              4           4
-    // [PF_END_STROKE][SESSION_ID][SEQUENCE_NUMBER]
-    constexpr inline std::size_t PF_END_STROKE = 9;
+    // +1 because includes message type byte
+    constexpr inline std::size_t HEADER_SIZE = 1 + sizeof(SessionId) + sizeof(SequenceNumber); // 9
+
+    //  1        5
+    // [ACK][SEQ_NUMBER]
+    constexpr inline std::size_t ACK = 5;
+
     //  1          32       32
     // [REQ_LOGIN][USERNAME][PASSWORD]
     constexpr inline std::size_t REQ_LOGIN = 1 + MAX_USERNAME_LEN + MAX_PASSWORD_LEN;
+
     //  1                  32        32
     // [REQ_CREATE_ACCOUNT][USERNAME][PASSWORD]
     constexpr inline std::size_t REQ_CREATE_ACCOUNT = 1 + MAX_USERNAME_LEN + MAX_PASSWORD_LEN;
+
     //  1         4           1
     // [RSP_LOGIN][SESSION_ID][STATUS]
     constexpr inline std::size_t RSP_LOGIN = 6;
+
+    //  1               4
+    // [REQ_UNREGISTER][SESSION_ID]
+    constexpr inline std::size_t REQ_UNREGISTER = 5;
+
+    //  1                4           4                4          4               5
+    // [PF_START_STROKE][SESSION_ID][SEQUENCE_NUMBER][STROKE_ID][MOUSE_POSITION][RGBAT]
+    constexpr inline std::size_t PF_START_STROKE = 22;
+
+    //  1             4           4                4          4
+    // [PF_ADD_POINT][SESSION_ID][SEQUENCE_NUMBER][STROKE_ID][MOUSE_POSITION]
+    constexpr inline std::size_t PF_ADD_POINT = 17;
+
+    //  1              4           4                4
+    // [PF_END_STROKE][SESSION_ID][SEQUENCE_NUMBER][STROKE_ID]
+    constexpr inline std::size_t PF_END_STROKE = 13;
 }
-enum class MessageType : std::uint8_t
+
+enum class MessageType: std::uint8_t
 {
     REQ_REGISTER = 1,
-    RSP_REGISTER,
-    REQ_UNREGISTER,
-
-    PF_INPUT_STATE,
-    
-    PF_START_STROKE,
-    PF_ADD_POINT,
-    PF_END_STROKE,
-
-    REQ_LOGIN,
-    REQ_CREATE_ACCOUNT,
-    RSP_LOGIN
+    RSP_REGISTER = 2,
+    REQ_UNREGISTER = 3,
+    // 4 was PF_INPUT_STATE — removed
+    PF_START_STROKE = 5,
+    PF_ADD_POINT = 6,
+    PF_END_STROKE = 7,
+    REQ_LOGIN = 8,
+    REQ_CREATE_ACCOUNT = 9,
+    RSP_LOGIN = 10,
+    ACK = 11,
 };
-enum class LoginStatus : std::uint8_t
+
+enum class LoginStatus: std::uint8_t
 {
     SUCCESS = 0,
     INVALID_CREDENTIALS,
     USERNAME_TAKEN,
     USERNAME_TOO_LONG,
 };
-struct CanvasDrawState
+
+// Canvas draw command — passed between network layer and game logic.
+// _msg holds the type-specific payload in HOST byte order (no session/seq header).
+//
+//   PF_START_STROKE  _msg: [strokeId u32][mousePos u16x2][RGBAT 5 bytes]  = 13 bytes
+//   PF_ADD_POINT     _msg: [strokeId u32][mousePos u16x2]                 =  8 bytes
+//   PF_END_STROKE    _msg: [strokeId u32]                                  =  4 bytes
+struct CanvasDrawCommand
 {
-    // type and msg size will be VALIDATED
-    MessageType _type;
-    std::vector<char> _msg;
-    SequenceNumber _sqNumberHostOrder;
+    MessageType    _type{};
+    SequenceNumber _sqNumberHostOrder{};
+    std::uint32_t  _strokeId{};        // stroke this command belongs to
+    std::vector<char> _msg;            // type-specific payload (host byte order)
 };
-struct InputState
+
+struct ReceivedChatMessage
 {
-    enum class Input { /*Empty at the moment, no use for it*/ };
-    SequenceNumber currentSequenceNumber;
-    InputBits currentInput = static_cast<InputBits>(0);
-    MousePosition currentMousePos;
+    std::string    chatMessage;
+    std::string    playerName;
+    SequenceNumber serverSequenceHostOrder;
 };
-// helpers for input bits
-inline void setBit(InputBits& inputBits,std::uint8_t index)
+
+// ========================================== helpers for input bits
+inline void setBit(InputBits& inputBits, std::uint8_t index)
 {
     assert((index < sizeof(InputBits) * 8) && "Index passed in must be less than 32!");
-    InputBits mask = static_cast<InputBits>(1) << index;
-    inputBits |= mask;
+    inputBits |= static_cast<InputBits>(1) << index;
 }
-inline void setAllBits(InputBits& inputBits)
-{
-    inputBits = ~static_cast<InputBits>(0);
-}
+inline void setAllBits(InputBits& inputBits) { inputBits = ~static_cast<InputBits>(0); }
 inline void clearBit(InputBits& inputBits, std::uint8_t index)
 {
     assert((index < sizeof(InputBits) * 8) && "Index passed in must be less than 32!");
-    InputBits mask = ~(static_cast<InputBits>(1) << index);
-    inputBits &= mask;
+    inputBits &= ~(static_cast<InputBits>(1) << index);
 }
-inline void clearAllBits(InputBits& inputBits)
-{
-    inputBits = static_cast<InputBits>(0);
-}
-inline bool test(const InputBits& inputBits,std::uint8_t index)
+inline void clearAllBits(InputBits& inputBits) { inputBits = static_cast<InputBits>(0); }
+inline bool test(const InputBits& inputBits, std::uint8_t index)
 {
     assert((index < sizeof(InputBits) * 8) && "Index passed in must be less than 32!");
     return static_cast<bool>((inputBits >> index) & static_cast<InputBits>(1));
 }
-inline bool test(const InputBits& inputBits, InputState::Input input)
-{
-    return test(inputBits,static_cast<std::uint8_t>(input));
-}
+
 // ========================================== PROTOCOL STUFF END
+
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
-
 #include <Windows.h>
 #include <winsock2.h>
 #include <WS2tcpip.h>
 #include <iphlpapi.h>
+
 // ========================================== WIN SOCK STUFF START
 inline std::string wsaErrorStr()
 {
     int err = WSAGetLastError();
     char* msg = nullptr;
-
     FormatMessageA(
-        FORMAT_MESSAGE_ALLOCATE_BUFFER |
-        FORMAT_MESSAGE_FROM_SYSTEM |
-        FORMAT_MESSAGE_IGNORE_INSERTS,
-        nullptr,
-        err,
-        0,
-        (LPSTR)&msg,
-        0,
-        nullptr
-    );
-
+        FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+        nullptr, err, 0, (LPSTR)&msg, 0, nullptr);
     std::string result = msg ? msg : "Unknown error";
     LocalFree(msg);
     return result;
 }
+
 inline bool isRecoverableWSAError(int err)
 {
-    switch (err)
+    switch(err)
     {
-        // --- Non-fatal / expected conditions ---
-    case WSAEWOULDBLOCK:     // no data available (non-blocking socket)
-    case WSAEINTR:           // interrupted call
-    case WSAETIMEDOUT:       // timeout (common for UDP)
-    case WSAECONNRESET:      // UDP: ICMP port unreachable
-    case WSAENETRESET:       // connection dropped temporarily
-    case WSAENOBUFS:         // buffer pressure, can retry
-    case WSAEINPROGRESS:     // async still in progress
-    case WSAEALREADY:        // operation already ongoing
+    case WSAEWOULDBLOCK:
+    case WSAEINTR:
+    case WSAETIMEDOUT:
+    case WSAECONNRESET:
+    case WSAENETRESET:
+    case WSAENOBUFS:
+    case WSAEINPROGRESS:
+    case WSAEALREADY:
         return true;
-
-        // --- Everything else: treat as fatal ---
     default:
         return false;
     }
 }
 // ========================================== WIN SOCK STUFF END
+
 // ========================================== NETWORKING SHARED UTILITIES START
 struct ByteWriter
 {
@@ -188,6 +179,7 @@ struct ByteWriter
         offset += sizeof(T);
     }
 };
+
 struct ByteReader
 {
     std::span<const char> buffer;

@@ -21,7 +21,7 @@ namespace
 
 CoreGameState::CoreGameState(StateMachine& stateMachine, StateContext& context) :
     State(stateMachine, context),
-    m_font("resources/Cinzel-Regular.ttf"),
+    m_font("resources/Marvel-Bold.ttf"),
     m_titleText(m_font, "Core Game", 32),
     m_backText(m_font, "Main Menu", 34)
 {
@@ -42,12 +42,16 @@ CoreGameState::CoreGameState(StateMachine& stateMachine, StateContext& context) 
     updateLayout();
 
     _canvasStateFnId = Client::registerCanvasStateCommandEvent(
-        [this](const CanvasDrawState& cds) { handleCanvasStateCommandEvent(cds); });
+        [this](const CanvasDrawCommand& cds) { handleCanvasStateCommandEvent(cds); });
+    _chatMessageFnId = Client::registerChatMessageEvent(
+        [this](const ReceivedChatMessage& chatMessage) { handleChatMessageEvent(chatMessage); });
+    )
 }
 
 CoreGameState::~CoreGameState()
 {
     Client::deregisterCanvasStateCommandEvent(_canvasStateFnId);
+    Client::deregisterChatMessageEvent(_chatMessageFnId);
 }
 
 void CoreGameState::handleEvent(const sf::Event& event)
@@ -96,7 +100,7 @@ void CoreGameState::update(sf::Time)
             auto myHostOrder = static_cast<std::uint16_t>(mousePos.y);
             auto clr = m_cpicker.getSelectedColour();
             std::uint8_t thicknessHostOrder = 6;
-            CanvasDrawState cds;
+            CanvasDrawCommand cds;
             cds._sqNumberHostOrder = sequenceNumber;
             cds._type = MessageType::PF_START_STROKE;
             std::vector<char> msg;
@@ -117,7 +121,7 @@ void CoreGameState::update(sf::Time)
     }
 
     if (leftDown && m_drawing && pos != m_lastMousePos) {
-        CanvasDrawState cds;
+        CanvasDrawCommand cds;
         cds._sqNumberHostOrder = sequenceNumber;
         cds._type = MessageType::PF_ADD_POINT;
         std::vector<char> msg;
@@ -132,7 +136,7 @@ void CoreGameState::update(sf::Time)
 
     if (!leftDown && m_wasLeftDown && m_drawing) {
         m_drawing = false;
-        CanvasDrawState cds;
+        CanvasDrawCommand cds;
         cds._sqNumberHostOrder = sequenceNumber;
         cds._type = MessageType::PF_END_STROKE;
         cds._msg = {};
@@ -143,11 +147,11 @@ void CoreGameState::update(sf::Time)
     m_lastMousePos = pos;
 
     // retrieve the stroke commands from the queue
-    if (m_strokesMutex.try_lock())
+    if (m_commandsMutex.try_lock())
     {
-        std::queue<StrokeCmdReceived> copyCmds;
-        copyCmds.swap(m_strokes);
-        m_strokesMutex.unlock();
+        std::queue<CmdReceived> copyCmds;
+        copyCmds.swap(m_commands);
+        m_commandsMutex.unlock();
 
         while (!copyCmds.empty())
         {
@@ -166,6 +170,9 @@ void CoreGameState::update(sf::Time)
                 else if constexpr (std::is_same_v<T, EndStroke>)
                 {
                     m_canvas.endStroke();
+                }
+                else if constexpr(std::is_same_v<T, ReceivedMsg>)
+                {
                 }
                 else assert(false && "Missing visit case in std::visit in coregame");
                 }, strokeCmd);
@@ -227,7 +234,7 @@ void CoreGameState::updateLayout()
         });
 }
 
-void CoreGameState::handleCanvasStateCommandEvent(const CanvasDrawState& cds)
+void CoreGameState::handleCanvasStateCommandEvent(const CanvasDrawCommand& cds)
 {
     // NOTE: ALL DATA SENT BY THE CLIENT.HPP IS ALREADY IN HOST ORDER!!!!!!!!!!
     switch (cds._type)
@@ -242,8 +249,8 @@ void CoreGameState::handleCanvasStateCommandEvent(const CanvasDrawState& cds)
         auto idHostOrder = rdr.read<std::uint32_t>(); // do nothing with this yet i guess
         auto mousePositionHostOrder = rdr.read<MousePosition>();
         auto RGBAT = rdr.read<std::array<char, 5>>();
-        std::lock_guard lock(m_strokesMutex);
-        m_strokes.push(BeginStroke{ sf::Vector2f(mousePositionHostOrder[0], mousePositionHostOrder[1]),
+        std::lock_guard lock(m_commandsMutex);
+        m_commands.push(BeginStroke{ sf::Vector2f(mousePositionHostOrder[0], mousePositionHostOrder[1]),
             sf::Color(RGBAT[0], RGBAT[1], RGBAT[2], RGBAT[3]), static_cast<float>(RGBAT[4])});
         break;
     }
@@ -254,16 +261,23 @@ void CoreGameState::handleCanvasStateCommandEvent(const CanvasDrawState& cds)
 
         ByteReader rdr{ .buffer = cds._msg };
         auto mousePositionHostOrder = rdr.read<MousePosition>();
-        m_strokes.push(AddPoint{ sf::Vector2f(mousePositionHostOrder[0],mousePositionHostOrder[1])});
+        std::lock_guard lock(m_commandsMutex);
+        m_commands.push(AddPoint{ sf::Vector2f(mousePositionHostOrder[0],mousePositionHostOrder[1])});
         break;
     }
     case PF_END_STROKE:
     {
         assert((cds._msg.size() == PacketSize::PF_END_STROKE - PacketSize::HEADER_SIZE) &&
             "Size of msg for PF_END_STROKE is wrong");
-        m_strokes.push(EndStroke{});
+        std::lock_guard lock(m_commandsMutex);
+        m_commands.push(EndStroke{});
         break;
     }
     default: assert(false && "Logic error");
     }
+}
+void CoreGameState::handleChatMessageEvent(const ReceivedChatMessage& chatMsg)
+{
+    std::lock_guard lock(m_commandsMutex);
+    m_commands.push(ReceivedMsg{.playerName = chatMsg.playerName, .msg = chatMsg.chatMessage});
 }

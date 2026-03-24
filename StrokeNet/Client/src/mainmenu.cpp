@@ -19,7 +19,7 @@ namespace
 
 MainMenuState::MainMenuState(StateMachine& stateMachine, StateContext& context) :
     State(stateMachine, context),
-    m_font("resources/Cinzel-Regular.ttf"),
+    m_font("resources/Marvel-Bold.ttf"),
     m_playText(m_font, "Play Game", 52)
 {
     m_playButton.setRadius(180.0f);

@@ -1,255 +1,277 @@
-/* Start Header
-***********************************************************************/
-
-/*! \file   server.hpp
+/* Start Header **************************************************************/
+/*! \file   server.cpp
     \author Loh Boon Cheong, Timothy
     \par    email: loh.b@digipen.edu
     \date   20th March, 2026
     \brief  Copyright (C) 2026 DigiPen Institute of Technology
-
-    Reproduction or diclosure of this file or its contents without the prior
-    written consent of DigiPen Institute of Technology is prohibited. */
-
-    /* End Header
-    ***********************************************************************/
+            Reproduction or disclosure of this file or its contents without
+            the prior written consent of DigiPen Institute of Technology is
+            prohibited. */
+            /* End Header ****************************************************************/
 #define _WINSOCK_DEPRECATED_NO_WARNINGS
 
 #include "server.hpp"
 #include "shared_protocol.hpp"
 
-#include <mutex>
 #include <cmath>
-#include <deque>
 #include <chrono>
-#include <string>
 #include <format>
-#include <vector>
-#include <ostream>
-#include <cstring>
+#include <fstream>
 #include <cassert>
 #include <cstdint>
-#include <utility>
-#include <fstream>
+#include <cstring>
 #include <iostream>
 #include <algorithm>
 #include <filesystem>
 #include <string_view>
+#include <execution>
+#include <filesystem>
+
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
-
 #include <Windows.h>
 #include <winsock2.h>
 #include <WS2tcpip.h>
 #include <iphlpapi.h>
-
 #pragma comment(lib, "Ws2_32.lib")
 
 namespace
 {
-    std::mutex s_ostreamMutex;
-    void threadSafeOStream(std::ostream& os, std::string_view msg)
+    std::mutex s_logMutex;
+    void log(std::ostream& os, std::string_view msg)
     {
-        std::lock_guard lock(s_ostreamMutex);
+        std::lock_guard lock(s_logMutex);
         os << msg << '\n';
     }
 }
 
+// ============================================================
+// Constructor / Destructor
+// ============================================================
+
 Server::Server()
 {
-    constexpr int winsockMajorVersion = 2;
-    constexpr int winsockMinorVersion = 2;
     WSADATA wsaData;
-    int iResult{};
-    iResult = WSAStartup(
-        MAKEWORD(winsockMajorVersion,
-            winsockMinorVersion)
-        , &wsaData);
-
-    if (iResult != 0)
-    {
-        std::string err = std::format("[Server] WSAStartup failed: {}", iResult);
-        throw std::runtime_error(err);
-    }
+    if(int r = WSAStartup(MAKEWORD(2, 2), &wsaData); r != 0)
+        throw std::runtime_error(std::format("[Server] WSAStartup failed: {}", r));
 
     _socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    if (_socket == INVALID_SOCKET) 
-        throw std::runtime_error(std::format("[Server] socket() failed, unable to set up udp socket: {}", wsaErrorStr()));
+    if(_socket == INVALID_SOCKET)
+        throw std::runtime_error(std::format("[Server] socket() failed: {}", wsaErrorStr()));
 
     sockaddr_in addr{};
-    addr.sin_family = AF_INET; // ipv4
+    addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = INADDR_ANY;
     addr.sin_port = htons(ServerUdpPort);
+    if(bind(_socket, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == SOCKET_ERROR)
+        throw std::runtime_error(std::format("[Server] bind() failed: {}", wsaErrorStr()));
 
-    if (bind(_socket, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == SOCKET_ERROR) 
-        throw std::runtime_error(std::format("[Server] bind() failed, unable to set up udp socket: {}", wsaErrorStr()));
+    sockaddr_in bound{};
+    int boundLen = sizeof(bound);
+    getsockname(_socket, reinterpret_cast<sockaddr*>(&bound), &boundLen);
+    _portHostOrder = ntohs(bound.sin_port);
 
-    // get port
-    sockaddr_in boundAddr{};
-    int boundAddrLen = sizeof(boundAddr);
-    if (getsockname(_socket, reinterpret_cast<sockaddr*>(&boundAddr), &boundAddrLen) == SOCKET_ERROR)
-        throw std::runtime_error(std::format("[Server] getsockname() failed, unable to setup udp socket: {}", wsaErrorStr()));
-
-    _portHostOrder = ntohs(boundAddr.sin_port);
-
-    // get machine host name
     char hostName[256]{};
-    if (gethostname(hostName, sizeof(hostName)) == SOCKET_ERROR)
-        throw std::runtime_error(std::format("[Server] gethostname() failed, unable to setup udp socket: {}", wsaErrorStr()));
-
+    gethostname(hostName, sizeof(hostName));
     addrinfo hints{};
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_DGRAM;
     hints.ai_protocol = IPPROTO_UDP;
-
     addrinfo* result = nullptr;
-    if (getaddrinfo(hostName, nullptr, &hints, &result) != 0)
-        throw std::runtime_error(std::format("[Server] getaddrinfo() failed, unable to setup udp socket"));
-
+    getaddrinfo(hostName, nullptr, &hints, &result);
     char ipStr[INET_ADDRSTRLEN]{};
-    auto* ipv4 = reinterpret_cast<sockaddr_in*>(result->ai_addr);
-    inet_ntop(AF_INET, &(ipv4->sin_addr), ipStr, sizeof(ipStr));
+    inet_ntop(AF_INET, &reinterpret_cast<sockaddr_in*>(result->ai_addr)->sin_addr, ipStr, sizeof(ipStr));
     _ip = ipStr;
     freeaddrinfo(result);
+
     _userStore.load();
-    threadSafeOStream(std::cout, std::format("[Server]: {}:{}", _ip, _portHostOrder));
+    log(std::cout, std::format("[Server] Ready at {}:{}", _ip, _portHostOrder));
 }
-Server::~Server() 
+
+Server::~Server()
 {
     _stopSource.request_stop();
-    if (_thread.joinable()) _thread.join();
-
-    if (_socket != INVALID_SOCKET) closesocket(_socket);
+    if(_thread.joinable())           _thread.join();
+    if(_retransmitThread.joinable()) _retransmitThread.join();
+    if(_socket != INVALID_SOCKET)    closesocket(_socket);
     WSACleanup();
 }
 
+// ============================================================
+// startListening
+// ============================================================
+
 void Server::startListening()
 {
-    if (_thread.joinable()) throw std::runtime_error("[Server] startAcceptingClients() failed, thread is already assigned");
-    _thread = std::thread([this]()
-        {
-            actualStartListening(_stopSource.get_token());
-        });
+    if(_thread.joinable())
+        throw std::runtime_error("[Server] startListening() called while already running");
+
+    _thread = std::thread([this]() { actualStartListening(_stopSource.get_token()); });
+    _retransmitThread = std::thread([this]() { retransmitLoop(_stopSource.get_token()); });
 }
 
-bool Server::isListeningThreadFinished() noexcept
+bool Server::isListeningThreadFinished() noexcept { return _threadFinished; }
+
+// ============================================================
+// retransmitLoop
+// ============================================================
+
+void Server::retransmitLoop(std::stop_token st) noexcept
 {
-    return _threadFinished;
-}
-
-void Server::sendCanvasDrawState(const CanvasDrawState& cds)
-{
-    std::vector<char> msg;
-    const SessionId dummySessionId = InvalidSessionId;
-    switch (cds._type)
+    while(!st.stop_requested())
     {
-        using enum MessageType;
-    case PF_START_STROKE:
-    {
-        msg.resize(PacketSize::PF_START_STROKE);
-        ByteReader rdr{ .buffer = cds._msg };
-        auto idNetworkOrder = htonl(rdr.read<std::uint32_t>());
-        auto mousePositionNetworkOrder = rdr.read<MousePosition>();
-        auto RGBAT = rdr.read<std::array<char, 5>>();
+        std::this_thread::sleep_for(
+            std::chrono::duration<double>(RetransmitIntervalSec / 2.0));
 
-        mousePositionNetworkOrder[0] = htons(mousePositionNetworkOrder[0]);
-        mousePositionNetworkOrder[1] = htons(mousePositionNetworkOrder[1]);
+        auto now = std::chrono::steady_clock::now();
+        std::lock_guard lock(_pendingAcksMutex);
 
-        ByteWriter wrt{ .buffer = msg };
-
-        wrt.write(static_cast<char>(cds._type));
-        wrt.write(dummySessionId);
-        wrt.write(htonl(cds._sqNumberHostOrder));
-        wrt.write(idNetworkOrder);
-        wrt.write(mousePositionNetworkOrder);
-        wrt.write(RGBAT);
-        break;
-    }
-    case PF_ADD_POINT:
-    {
-        msg.resize(PacketSize::PF_ADD_POINT);
-
-        ByteReader rdr{ .buffer = cds._msg };
-        auto mousePositionNetworkOrder = rdr.read<MousePosition>();
-
-        mousePositionNetworkOrder[0] = htons(mousePositionNetworkOrder[0]);
-        mousePositionNetworkOrder[1] = htons(mousePositionNetworkOrder[1]);
-
-        ByteWriter wrt{ .buffer = msg };
-        wrt.write(static_cast<char>(cds._type));
-        wrt.write(dummySessionId);
-        wrt.write(htonl(cds._sqNumberHostOrder));
-        wrt.write(mousePositionNetworkOrder);
-        break;
-    }
-    case PF_END_STROKE:
-    {
-        msg.resize(PacketSize::PF_END_STROKE);
-
-        ByteWriter wrt{ .buffer = msg };
-        wrt.write(static_cast<char>(cds._type));
-        wrt.write(dummySessionId);
-        wrt.write(htonl(cds._sqNumberHostOrder));
-        break;
-    }
-    default:
-    {
-        assert(false && "Send canvas draw state is only meant for certain message types");
-    }
-    }
-    decltype (_sessionIdToClient) copySessionIdToClient;
-    {
-    std::lock_guard lock(_clientStorageMutex);
-    copySessionIdToClient = _sessionIdToClient;
-    }
-    for (const auto& [sessionIdHostOrder, client] : copySessionIdToClient)
-    {
-        // update session id
-        SessionId sessionIdNetworkOrder = htonl(sessionIdHostOrder);
-        std::memcpy(msg.data() + 1, &sessionIdNetworkOrder, sizeof(sessionIdNetworkOrder));
-        bool successClient = false;
-    for (int attempt = 0; attempt < _maxRetry; ++attempt)
-    {
-
-        int sentBytes = sendto(
-            _socket,
-            msg.data(),
-            static_cast<int>(msg.size()),
-            0,
-            reinterpret_cast<const sockaddr*>(&client.sa),
-            sizeof(client.sa)
-        );
-
-        if (sentBytes == SOCKET_ERROR)
+        for(auto it = _pendingAcks.begin(); it != _pendingAcks.end(); )
         {
-            const int err = WSAGetLastError();
-            if (isRecoverableWSAError(err))
+            PendingReliable& pr = it->second;
+            double elapsed = std::chrono::duration<double>(now - pr.lastSentAt).count();
+
+            if(elapsed >= RetransmitIntervalSec)
             {
-                continue;
-            }
+                if(pr.attempts >= MaxReliableAttempts)
+                {
+                    log(std::cerr, std::format(
+                        "[Server] Reliable packet serverSeq={} to session {} dropped after {} attempts",
+                        it->first, pr.destSessionId, pr.attempts));
+                    it = _pendingAcks.erase(it);
+                    continue;
+                }
 
-            threadSafeOStream(
-                std::cerr,
-                std::format("[Server] sendto() failed: {}", wsaErrorStr()));
-            successClient = false;
-            break;
+                log(std::cout, std::format(
+                    "[Server] Retransmitting serverSeq={} to session {} (attempt {})",
+                    it->first, pr.destSessionId, pr.attempts + 1));
+
+                doSend(pr.packet, pr.dest);
+                pr.lastSentAt = now;
+                pr.attempts++;
+            }
+            ++it;
         }
-        else
-        {
-            successClient = true;
-            break; // success
-        }
-    }
-    if (!successClient)
-    threadSafeOStream(std::cerr,
-        std::format("[Server] Failed to send canvas state to client {}",client.ipPort));
     }
 }
 
-Server::RegCdsFnId Server::registerCdsFn(std::function<void(SessionId sessionIdHostOrder,const CanvasDrawState&)> fn)
+// ============================================================
+// sendCanvasDrawCommand
+//
+// Relays a canvas command to ALL connected clients.
+//   START_STROKE : reliable per-client
+//   ADD_POINT    : fire-and-forget
+//   END_STROKE   : reliable per-client
+//
+// Packet layouts (network byte order on the wire):
+//   PF_START_STROKE: [type1][sessionId4][serverSeq4][strokeId4][mousePos4][RGBAT5]  = 22
+//   PF_ADD_POINT   : [type1][sessionId4][serverSeq4][strokeId4][mousePos4]          = 17
+//   PF_END_STROKE  : [type1][sessionId4][serverSeq4][strokeId4]                     = 13
+// ============================================================
+
+void Server::sendCanvasDrawCommand(const CanvasDrawCommand& cds)
+{
+    decltype(_sessionIdToClient) clients;
+    {
+        std::lock_guard lock(_clientStorageMutex);
+        clients = _sessionIdToClient;
+    }
+
+    for(const auto& [sessionIdHostOrder, client] : clients)
+    {
+        std::vector<char> pkt;
+
+        switch(cds._type)
+        {
+            using enum MessageType;
+
+        case PF_START_STROKE:
+        {
+            // _msg layout: [strokeId u32][mousePos u16x2][RGBAT 5 bytes] = 13 bytes
+            assert(cds._msg.size() == PacketSize::PF_START_STROKE - PacketSize::HEADER_SIZE);
+            pkt.resize(PacketSize::PF_START_STROKE);
+
+            ByteReader rdr{.buffer = cds._msg};
+            auto strokeId = htonl(rdr.read<std::uint32_t>());
+            auto mousePos = rdr.read<MousePosition>();
+            auto RGBAT = rdr.read<std::array<char, 5>>();
+            mousePos[0] = htons(mousePos[0]);
+            mousePos[1] = htons(mousePos[1]);
+
+            SequenceNumber serverSeq = allocServerSeq();
+            ByteWriter wrt{.buffer = pkt};
+            wrt.write(static_cast<char>(PF_START_STROKE));
+            wrt.write(htonl(sessionIdHostOrder));
+            wrt.write(htonl(serverSeq));
+            wrt.write(strokeId);
+            wrt.write(mousePos);
+            wrt.write(RGBAT);
+
+            sendReliableTo(serverSeq, std::move(pkt), client.sa, sessionIdHostOrder);
+            continue;
+        }
+
+        case PF_ADD_POINT:
+        {
+            // _msg layout: [strokeId u32][mousePos u16x2] = 8 bytes
+            assert(cds._msg.size() == PacketSize::PF_ADD_POINT - PacketSize::HEADER_SIZE);
+            pkt.resize(PacketSize::PF_ADD_POINT);
+
+            ByteReader rdr{.buffer = cds._msg};
+            auto strokeId = htonl(rdr.read<std::uint32_t>());
+            auto mousePos = rdr.read<MousePosition>();
+            mousePos[0] = htons(mousePos[0]);
+            mousePos[1] = htons(mousePos[1]);
+
+            ByteWriter wrt{.buffer = pkt};
+            wrt.write(static_cast<char>(PF_ADD_POINT));
+            wrt.write(htonl(sessionIdHostOrder));
+            wrt.write(htonl(cds._sqNumberHostOrder));
+            wrt.write(strokeId);
+            wrt.write(mousePos);
+            break; // falls through to unreliable doSend below
+        }
+
+        case PF_END_STROKE:
+        {
+            // _msg layout: [strokeId u32] = 4 bytes
+            assert(cds._msg.size() == PacketSize::PF_END_STROKE - PacketSize::HEADER_SIZE);
+            pkt.resize(PacketSize::PF_END_STROKE);
+
+            ByteReader rdr{.buffer = cds._msg};
+            auto strokeId = htonl(rdr.read<std::uint32_t>());
+
+            SequenceNumber serverSeq = allocServerSeq();
+            ByteWriter wrt{.buffer = pkt};
+            wrt.write(static_cast<char>(PF_END_STROKE));
+            wrt.write(htonl(sessionIdHostOrder));
+            wrt.write(htonl(serverSeq));
+            wrt.write(strokeId);
+
+            sendReliableTo(serverSeq, std::move(pkt), client.sa, sessionIdHostOrder);
+            continue;
+        }
+
+        default:
+            assert(false && "sendCanvasDrawCommand: unexpected message type");
+            continue;
+        }
+
+        // Unreliable path (ADD_POINT only)
+        doSend(pkt, client.sa);
+    }
+}
+
+// ============================================================
+// registerCdsFn / deregisterCdsFn
+// ============================================================
+
+Server::RegCdsFnId Server::registerCdsFn(
+    std::function<void(SessionId, const CanvasDrawCommand&)> fn)
 {
     std::lock_guard lock(_cdsFnsMutex);
-    _cdsFns.emplace(_nextRegCdsFnId, fn);
+    _cdsFns.emplace(_nextRegCdsFnId, std::move(fn));
     return _nextRegCdsFnId++;
 }
 
@@ -257,128 +279,289 @@ void Server::deregisterCdsFn(RegCdsFnId id)
 {
     std::lock_guard lock(_cdsFnsMutex);
     auto it = _cdsFns.find(id);
-    if (it == _cdsFns.end())
+    if(it == _cdsFns.end())
     {
-        threadSafeOStream(std::cerr,
-            std::format("[Server] Requested to deregister callback function but id is not found: {}", id));
+        log(std::cerr, std::format("[Server] deregisterCdsFn: id {} not found", id));
         return;
     }
     _cdsFns.erase(it);
-    return;
 }
 
-void Server::handle_pfStartStroke(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
+// ============================================================
+// sendReliableTo / doSend / sendAck
+// ============================================================
+
+void Server::sendReliableTo(SequenceNumber serverSeq, std::vector<char> packet,
+    const sockaddr_in& dest, SessionId destSessionId)
 {
-    assert((udpPacketWithoutMID.size() == PacketSize::PF_START_STROKE - 1) &&
-        "Size of PF_START_STROKE packet received is wrong");
+    PendingReliable pr;
+    pr.packet = packet;
+    pr.dest = dest;
+    pr.destSessionId = destSessionId;
+    pr.lastSentAt = std::chrono::steady_clock::now() -
+        std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+            std::chrono::duration<double>(RetransmitIntervalSec));
+    pr.attempts = 0;
 
-    ByteReader rdr{ .buffer = udpPacketWithoutMID };
+    {
+        std::lock_guard lock(_pendingAcksMutex);
+        _pendingAcks[serverSeq] = std::move(pr);
+    }
+
+    doSend(packet, dest);
+}
+
+void Server::doSend(const std::vector<char>& packet, const sockaddr_in& dest)
+{
+    sendto(_socket, packet.data(), static_cast<int>(packet.size()),
+        0, reinterpret_cast<const sockaddr*>(&dest), sizeof(dest));
+}
+
+void Server::sendAck(const sockaddr_in& dest, SequenceNumber seqNetworkOrder)
+{
+    std::vector<char> ack(PacketSize::ACK);
+    ByteWriter wrt{.buffer = ack};
+    wrt.write(static_cast<char>(MessageType::ACK));
+    wrt.write(seqNetworkOrder);
+    doSend(ack, dest);
+}
+
+// ============================================================
+// handle_ack
+// ============================================================
+
+void Server::handle_ack(std::span<const char> body, sockaddr_in* /*sa*/)
+{
+    if(body.size() < sizeof(SequenceNumber)) return;
+
+    ByteReader rdr{.buffer = body};
+    SequenceNumber serverSeq = ntohl(rdr.read<SequenceNumber>());
+
+    std::lock_guard lock(_pendingAcksMutex);
+    auto it = _pendingAcks.find(serverSeq);
+    if(it != _pendingAcks.end())
+    {
+        log(std::cout, std::format("[Server] ACK received for serverSeq={}", serverSeq));
+        _pendingAcks.erase(it);
+    }
+}
+
+// ============================================================
+// handle_pfStartStroke
+//
+// Packet body (after type byte):
+//   [sessionId 4][seqNet 4][strokeId 4][mousePos 4][RGBAT 5]  = 21 bytes
+//
+// 1. ACK the sender.
+// 2. Deserialise into a CanvasDrawCommand.
+// 3. Pass to handle_CanvasDrawingCommand for ordering + dispatch.
+// ============================================================
+
+void Server::handle_pfStartStroke(std::span<const char> body, sockaddr_in* sa)
+{
+    assert(body.size() == PacketSize::PF_START_STROKE - 1);
+
+    ByteReader rdr{.buffer = body};
     auto sessionIdHostOrder = ntohl(rdr.read<SessionId>());
-    auto sequenceNumberHostOrder = ntohl(rdr.read<SequenceNumber>());
-    auto idHostOrder = ntohl(rdr.read<std::uint32_t>());
-    auto mousePositionHostOrder = rdr.read<MousePosition>();
+    auto seqNetworkOrder = rdr.read<SequenceNumber>(); // kept for ACK
+    auto sequenceNumberHostOrder = ntohl(seqNetworkOrder);
+    auto strokeIdHostOrder = ntohl(rdr.read<std::uint32_t>());
+    auto mousePos = rdr.read<MousePosition>();
     auto RGBAT = rdr.read<std::array<char, 5>>();
+    mousePos[0] = ntohs(mousePos[0]);
+    mousePos[1] = ntohs(mousePos[1]);
 
-    mousePositionHostOrder[0] = ntohs(mousePositionHostOrder[0]);
-    mousePositionHostOrder[1] = ntohs(mousePositionHostOrder[1]);
+    sendAck(*sa, seqNetworkOrder);
 
-    CanvasDrawState cds;
-    cds._sqNumberHostOrder = sequenceNumberHostOrder;
+    // Build CanvasDrawCommand — _msg: [strokeId u32][mousePos u16x2][RGBAT 5] = 13 bytes
+    CanvasDrawCommand cds;
     cds._type = MessageType::PF_START_STROKE;
+    cds._sqNumberHostOrder = sequenceNumberHostOrder;
+    cds._strokeId = strokeIdHostOrder;
     cds._msg.resize(PacketSize::PF_START_STROKE - PacketSize::HEADER_SIZE);
 
-    ByteWriter wrt{ .buffer = cds._msg };
-    wrt.write(idHostOrder);
-    wrt.write(mousePositionHostOrder[0]);
-    wrt.write(mousePositionHostOrder[1]);
-    wrt.write(RGBAT[0]);
-    wrt.write(RGBAT[1]);
-    wrt.write(RGBAT[2]);
-    wrt.write(RGBAT[3]);
-    wrt.write(RGBAT[4]);
+    ByteWriter wrt{.buffer = cds._msg};
+    wrt.write(strokeIdHostOrder);
+    wrt.write(mousePos);
+    wrt.write(RGBAT);
 
-    handle_CanvasDrawingCommand(cds, sessionIdHostOrder);
+    handle_CanvasDrawingCommand(std::move(cds), sessionIdHostOrder);
 }
 
-void Server::handle_pfAddPoint(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
-{
-    assert((udpPacketWithoutMID.size() == PacketSize::PF_ADD_POINT - 1) &&
-        "Size of PF_ADD_POINT packet received is wrong");
+// ============================================================
+// handle_pfAddPoint  — unreliable, no ACK
+//
+// Packet body: [sessionId 4][seq 4][strokeId 4][mousePos 4]  = 16 bytes
+// ============================================================
 
-    ByteReader rdr{ .buffer = udpPacketWithoutMID };
+void Server::handle_pfAddPoint(std::span<const char> body, sockaddr_in* /*sa*/)
+{
+    assert(body.size() == PacketSize::PF_ADD_POINT - 1);
+
+    ByteReader rdr{.buffer = body};
     auto sessionIdHostOrder = ntohl(rdr.read<SessionId>());
     auto sequenceNumberHostOrder = ntohl(rdr.read<SequenceNumber>());
-    auto mouseHostOrder = rdr.read<MousePosition>();
-    mouseHostOrder[0] = ntohs(mouseHostOrder[0]);
-    mouseHostOrder[1] = ntohs(mouseHostOrder[1]);
+    auto strokeIdHostOrder = ntohl(rdr.read<std::uint32_t>());
+    auto mousePos = rdr.read<MousePosition>();
+    mousePos[0] = ntohs(mousePos[0]);
+    mousePos[1] = ntohs(mousePos[1]);
 
-    CanvasDrawState cds;
-    cds._sqNumberHostOrder = sequenceNumberHostOrder;
+    // Build CanvasDrawCommand — _msg: [strokeId u32][mousePos u16x2] = 8 bytes
+    CanvasDrawCommand cds;
     cds._type = MessageType::PF_ADD_POINT;
+    cds._sqNumberHostOrder = sequenceNumberHostOrder;
+    cds._strokeId = strokeIdHostOrder;
     cds._msg.resize(PacketSize::PF_ADD_POINT - PacketSize::HEADER_SIZE);
 
-    ByteWriter wrt{ .buffer = cds._msg };
-    wrt.write(mouseHostOrder[0]);
-    wrt.write(mouseHostOrder[1]);
-    handle_CanvasDrawingCommand(cds, sessionIdHostOrder);
+    ByteWriter wrt{.buffer = cds._msg};
+    wrt.write(strokeIdHostOrder);
+    wrt.write(mousePos);
+
+    handle_CanvasDrawingCommand(std::move(cds), sessionIdHostOrder);
 }
 
-void Server::handle_pfEndStroke(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
+// ============================================================
+// handle_pfEndStroke
+//
+// Packet body: [sessionId 4][seqNet 4][strokeId 4]  = 12 bytes
+// ============================================================
+
+void Server::handle_pfEndStroke(std::span<const char> body, sockaddr_in* sa)
 {
-    assert((udpPacketWithoutMID.size() == PacketSize::PF_END_STROKE - 1) &&
-        "Size of PF_END_STROKE packet received is wrong");
+    assert(body.size() == PacketSize::PF_END_STROKE - 1);
 
-    ByteReader rdr{ .buffer = udpPacketWithoutMID };
+    ByteReader rdr{.buffer = body};
     auto sessionIdHostOrder = ntohl(rdr.read<SessionId>());
-    auto sequenceNumberHostOrder = ntohl(rdr.read<SequenceNumber>());
+    auto seqNetworkOrder = rdr.read<SequenceNumber>();
+    auto sequenceNumberHostOrder = ntohl(seqNetworkOrder);
+    auto strokeIdHostOrder = ntohl(rdr.read<std::uint32_t>());
 
-    CanvasDrawState cds;
-    cds._sqNumberHostOrder = sequenceNumberHostOrder;
+    sendAck(*sa, seqNetworkOrder);
+
+    // Build CanvasDrawCommand — _msg: [strokeId u32] = 4 bytes
+    CanvasDrawCommand cds;
     cds._type = MessageType::PF_END_STROKE;
-    handle_CanvasDrawingCommand(cds, sessionIdHostOrder);
+    cds._sqNumberHostOrder = sequenceNumberHostOrder;
+    cds._strokeId = strokeIdHostOrder;
+    cds._msg.resize(PacketSize::PF_END_STROKE - PacketSize::HEADER_SIZE);
+
+    ByteWriter wrt{.buffer = cds._msg};
+    wrt.write(strokeIdHostOrder);
+
+    handle_CanvasDrawingCommand(std::move(cds), sessionIdHostOrder);
 }
 
-void Server::handle_CanvasDrawingCommand(CanvasDrawState cds, SessionId sessionIdHostOrder)
+// ============================================================
+// handle_CanvasDrawingCommand
+//
+// Enforces per-stroke ordering: START_STROKE must be dispatched
+// before any ADD_POINT or END_STROKE with the same strokeId.
+//
+// If START_STROKE has not yet arrived for a given stroke, ADD_POINT
+// and END_STROKE are buffered.  When START_STROKE arrives the buffer
+// is flushed in sequence-number order, ensuring the game layer always
+// sees: START_STROKE → ADD_POINTs (ordered) → END_STROKE.
+// ============================================================
+
+void Server::handle_CanvasDrawingCommand(CanvasDrawCommand cds, SessionId sessionIdHostOrder)
+{
+    uint64_t key = strokeKey(sessionIdHostOrder, cds._strokeId);
+
+    std::lock_guard bufLock(_strokeBufferMutex);
+
+    if(cds._type == MessageType::PF_START_STROKE)
+    {
+        StrokeBuffer& sb = _strokeBuffers[key];
+
+        // Dispatch START_STROKE first.
+        dispatchCanvasCommand(sessionIdHostOrder, cds);
+        sb.started = true;
+
+        // Flush any ADD_POINTs / END_STROKE that arrived early.
+        // Sort by sequence number so ordering within the stroke is preserved.
+        std::sort(sb.pending.begin(), sb.pending.end(),
+            [](const CanvasDrawCommand& a, const CanvasDrawCommand& b)
+            {
+                return a._sqNumberHostOrder < b._sqNumberHostOrder;
+            });
+
+        bool endSeen = false;
+        for(auto& buffered : sb.pending)
+        {
+            dispatchCanvasCommand(sessionIdHostOrder, buffered);
+            if(buffered._type == MessageType::PF_END_STROKE)
+                endSeen = true;
+        }
+
+        if(endSeen)
+            _strokeBuffers.erase(key); // stroke is fully complete
+        else
+            sb.pending.clear();
+    }
+    else // ADD_POINT or END_STROKE
+    {
+        auto it = _strokeBuffers.find(key);
+        if(it != _strokeBuffers.end() && it->second.started)
+        {
+            // START_STROKE already dispatched — send immediately.
+            dispatchCanvasCommand(sessionIdHostOrder, cds);
+
+            if(cds._type == MessageType::PF_END_STROKE)
+                _strokeBuffers.erase(it);
+        }
+        else
+        {
+            // START_STROKE not yet seen — buffer this command.
+            _strokeBuffers[key].pending.push_back(std::move(cds));
+        }
+    }
+}
+
+// ============================================================
+// dispatchCanvasCommand  — fires all registered callbacks
+// ============================================================
+
+void Server::dispatchCanvasCommand(SessionId sessionIdHostOrder, const CanvasDrawCommand& cds)
 {
     std::lock_guard lock(_cdsFnsMutex);
-    for (const auto& [_ignore, fns] : _cdsFns) fns(sessionIdHostOrder, cds);
+    for(const auto& [_, fn] : _cdsFns)
+        fn(sessionIdHostOrder, cds);
 }
 
-void Server::handle_reqLogin(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
+// ============================================================
+// handle_reqLogin
+// ============================================================
+
+void Server::handle_reqLogin(std::span<const char> body, sockaddr_in* sa)
 {
-    assert((udpPacketWithoutMID.size() == PacketSize::REQ_LOGIN - 1) &&
-        "Size of REQ_LOGIN packet received is wrong");
+    assert(body.size() == PacketSize::REQ_LOGIN - 1);
 
     char ipStr[INET_ADDRSTRLEN]{};
     inet_ntop(AF_INET, &sa->sin_addr, ipStr, INET_ADDRSTRLEN);
-    auto port = ntohs(sa->sin_port);
-    std::string ipStrAndPort = std::format("{}:{}", ipStr, port);
+    std::string ipPort = std::format("{}:{}", ipStr, ntohs(sa->sin_port));
 
-    // check if this ip:port is already registered
     {
         std::lock_guard lock(_clientStorageMutex);
-        for (const auto& [_ignore, client] : _sessionIdToClient)
+        for(const auto& [_, client] : _sessionIdToClient)
         {
-            if (client.ipPort == ipStrAndPort)
+            if(client.ipPort == ipPort)
             {
-                threadSafeOStream(std::cout,
-                    std::format("[Server] Client {} is already logged in, ignoring REQ_LOGIN", ipStrAndPort));
+                log(std::cout, std::format("[Server] {} already logged in, ignoring REQ_LOGIN", ipPort));
                 return;
             }
         }
     }
 
-    ByteReader rdr{ .buffer = udpPacketWithoutMID };
+    ByteReader rdr{.buffer = body};
     auto userBuf = rdr.read<std::array<char, MAX_USERNAME_LEN>>();
     auto passBuf = rdr.read<std::array<char, MAX_PASSWORD_LEN>>();
-
     std::string username(userBuf.data(), strnlen(userBuf.data(), MAX_USERNAME_LEN));
     std::string password(passBuf.data(), strnlen(passBuf.data(), MAX_PASSWORD_LEN));
 
     LoginStatus status;
-    SessionId sessionIdHostOrder = InvalidSessionId;
+    SessionId   sessionIdHostOrder = InvalidSessionId;
 
-    if (_userStore.authenticate(username, password))
+    if(_userStore.authenticate(username, password))
     {
         sessionIdHostOrder = getNextSessionIdHostOrder();
         status = LoginStatus::SUCCESS;
@@ -386,329 +569,211 @@ void Server::handle_reqLogin(std::span<const char> udpPacketWithoutMID, sockaddr
     else
     {
         status = LoginStatus::INVALID_CREDENTIALS;
-        threadSafeOStream(std::cout,
-            std::format("[Server] Client {}: Login failed for username '{}'", ipStrAndPort, username));
+        log(std::cout, std::format("[Server] {} login failed for '{}'", ipPort, username));
     }
 
-    // build RSP_LOGIN
-    auto sessionIdNetworkOrder = htonl(sessionIdHostOrder);
-    std::vector<char> sendPacket;
-    sendPacket.resize(PacketSize::RSP_LOGIN);
-    ByteWriter wrt{ .buffer = sendPacket };
-    wrt.write(static_cast<char>(MessageType::RSP_LOGIN));
-    wrt.write(sessionIdNetworkOrder);
-    wrt.write(static_cast<char>(status));
-
-    bool success = false;
-    for (int i = 0; i < _maxRetry; i++)
+    std::vector<char> rspPkt(PacketSize::RSP_LOGIN);
     {
-        int sentBytes = sendto(_socket, sendPacket.data(), static_cast<int>(sendPacket.size()), 0,
-            reinterpret_cast<sockaddr*>(sa), sizeof(*sa));
-        if (sentBytes == SOCKET_ERROR)
-        {
-            if (isRecoverableWSAError(WSAGetLastError())) continue;
-            else
-            {
-                success = false;
-                break;
-            }
-        }
-        else
-        {
-            success = true;
-            break;
-        }
+        ByteWriter wrt{.buffer = rspPkt};
+        wrt.write(static_cast<char>(MessageType::RSP_LOGIN));
+        wrt.write(htonl(sessionIdHostOrder));
+        wrt.write(static_cast<char>(status));
     }
 
-    if (success && status == LoginStatus::SUCCESS)
+    bool sent = false;
+    for(int i = 0; i < _maxRetry && !sent; ++i)
     {
-        {
-            std::lock_guard lock(_clientStorageMutex);
-            auto [_ignore, succeed] = _sessionIdToClient.emplace(
-                std::make_pair(
-                    sessionIdHostOrder,
-                    Client{ .ipPort = ipStrAndPort, .sa = *sa }
-                ));
-            assert(succeed && "Session id registration has logic error");
-        }
-        threadSafeOStream(std::cout,
-            std::format("[Server] Client {}: '{}' logged in successfully", ipStrAndPort, username));
+        int n = sendto(_socket, rspPkt.data(), static_cast<int>(rspPkt.size()),
+            0, reinterpret_cast<sockaddr*>(sa), sizeof(*sa));
+        if(n != SOCKET_ERROR)                             sent = true;
+        else if(!isRecoverableWSAError(WSAGetLastError())) break;
     }
-    else if (!success)
+
+    if(sent && status == LoginStatus::SUCCESS)
     {
-        threadSafeOStream(std::cerr,
-            std::format("[Server] Client {}: Unable to send RSP_LOGIN", ipStrAndPort));
+        std::lock_guard lock(_clientStorageMutex);
+        auto [_, ok] = _sessionIdToClient.emplace(sessionIdHostOrder,
+            Client{.ipPort = ipPort, .sa = *sa});
+        assert(ok && "Duplicate session id — logic error");
+        log(std::cout, std::format("[Server] {} '{}' logged in (session {})",
+            ipPort, username, sessionIdHostOrder));
+    }
+    else if(!sent)
+    {
+        log(std::cerr, std::format("[Server] {} failed to send RSP_LOGIN", ipPort));
     }
 }
 
-void Server::handle_reqCreateAccount(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
+// ============================================================
+// handle_reqCreateAccount
+// ============================================================
+
+void Server::handle_reqCreateAccount(std::span<const char> body, sockaddr_in* sa)
 {
-    assert((udpPacketWithoutMID.size() == PacketSize::REQ_CREATE_ACCOUNT - 1) &&
-        "Size of REQ_CREATE_ACCOUNT packet received is wrong");
+    assert(body.size() == PacketSize::REQ_CREATE_ACCOUNT - 1);
 
     char ipStr[INET_ADDRSTRLEN]{};
     inet_ntop(AF_INET, &sa->sin_addr, ipStr, INET_ADDRSTRLEN);
-    auto port = ntohs(sa->sin_port);
-    std::string ipStrAndPort = std::format("{}:{}", ipStr, port);
+    std::string ipPort = std::format("{}:{}", ipStr, ntohs(sa->sin_port));
 
-    ByteReader rdr{ .buffer = udpPacketWithoutMID };
+    ByteReader rdr{.buffer = body};
     auto userBuf = rdr.read<std::array<char, MAX_USERNAME_LEN>>();
     auto passBuf = rdr.read<std::array<char, MAX_PASSWORD_LEN>>();
-
     std::string username(userBuf.data(), strnlen(userBuf.data(), MAX_USERNAME_LEN));
     std::string password(passBuf.data(), strnlen(passBuf.data(), MAX_PASSWORD_LEN));
 
     LoginStatus status;
-
-    if (username.empty())
-    {
+    if(username.empty())
         status = LoginStatus::USERNAME_TOO_LONG;
-        threadSafeOStream(std::cout,
-            std::format("[Server] Client {}: Account creation failed, empty username", ipStrAndPort));
-    }
-    else if (_userStore.createAccount(username, password))
-    {
+    else if(_userStore.createAccount(username, password))
         status = LoginStatus::SUCCESS;
-        threadSafeOStream(std::cout,
-            std::format("[Server] Client {}: Account '{}' created successfully", ipStrAndPort, username));
-    }
     else
-    {
         status = LoginStatus::USERNAME_TAKEN;
-        threadSafeOStream(std::cout,
-            std::format("[Server] Client {}: Account creation failed, '{}' already exists", ipStrAndPort, username));
+
+    log(std::cout, std::format("[Server] {} createAccount '{}': status {}",
+        ipPort, username, static_cast<int>(status)));
+
+    std::vector<char> rspPkt(PacketSize::RSP_LOGIN);
+    {
+        ByteWriter wrt{.buffer = rspPkt};
+        wrt.write(static_cast<char>(MessageType::RSP_LOGIN));
+        wrt.write(htonl(InvalidSessionId));
+        wrt.write(static_cast<char>(status));
     }
 
-    // respond with RSP_LOGIN (session id is invalid — they still need to login after creating)
-    auto sessionIdNetworkOrder = htonl(InvalidSessionId);
-    std::vector<char> sendPacket;
-    sendPacket.resize(PacketSize::RSP_LOGIN);
-    ByteWriter wrt{ .buffer = sendPacket };
-    wrt.write(static_cast<char>(MessageType::RSP_LOGIN));
-    wrt.write(sessionIdNetworkOrder);
-    wrt.write(static_cast<char>(status));
-
-    bool success = false;
-    for (int i = 0; i < _maxRetry; i++)
+    for(int i = 0; i < _maxRetry; ++i)
     {
-        int sentBytes = sendto(_socket, sendPacket.data(), static_cast<int>(sendPacket.size()), 0,
-            reinterpret_cast<sockaddr*>(sa), sizeof(*sa));
-        if (sentBytes == SOCKET_ERROR)
-        {
-            if (isRecoverableWSAError(WSAGetLastError())) continue;
-            else
-            {
-                success = false;
-                break;
-            }
-        }
-        else
-        {
-            success = true;
-            break;
-        }
-    }
-
-    if (!success)
-    {
-        threadSafeOStream(std::cerr,
-            std::format("[Server] Client {}: Unable to send RSP_LOGIN for account creation", ipStrAndPort));
+        int n = sendto(_socket, rspPkt.data(), static_cast<int>(rspPkt.size()),
+            0, reinterpret_cast<sockaddr*>(sa), sizeof(*sa));
+        if(n != SOCKET_ERROR)                             break;
+        if(!isRecoverableWSAError(WSAGetLastError()))     break;
     }
 }
 
-void Server::handle_reqRegister(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
+// ============================================================
+// handle_reqUnregister
+// ============================================================
+
+void Server::handle_reqUnregister(std::span<const char> body, sockaddr_in* sa)
 {
-    assert((udpPacketWithoutMID.size() == PacketSize::REQ_REGISTER - 1) &&
-        "Size of REQ_REGISTER packet received is wrong");
+    assert(body.size() == PacketSize::REQ_UNREGISTER - 1);
+
     char ipStr[INET_ADDRSTRLEN]{};
     inet_ntop(AF_INET, &sa->sin_addr, ipStr, INET_ADDRSTRLEN);
-    auto port = ntohs(sa->sin_port);
-    std::string ipStrAndPort = std::format("{}:{}", ipStr, port);
-    {
-    // see if there are any sessions from the same udp port and ip, if so, we ignore this
-    std::lock_guard lock(_clientStorageMutex);
-    for (const auto& [_ignore, client] : _sessionIdToClient)
-    {
-        if (client.ipPort == ipStrAndPort)
-        {
-            // we found a connection that already has the ip address and port
-            threadSafeOStream(std::cout,
-                std::format("[Server] Client {} has already been registered, ignoring this REQ_REGISTER message", ipStrAndPort));
-            return;
-        }
-    }
-    }
+    std::string ipPort = std::format("{}:{}", ipStr, ntohs(sa->sin_port));
 
-    if (!udpPacketWithoutMID.empty())
+    ByteReader rdr{.buffer = body};
+    auto sessionIdHostOrder = ntohl(rdr.read<SessionId>());
+
+    if(!destroySessionIdHostOrder(sessionIdHostOrder, ipPort))
     {
-        threadSafeOStream(std::cerr,
-            std::format("[Server] Client {}: REQ_REGISTER received {} bytes but expected 0 bytes in its payload",
-                ipStrAndPort, udpPacketWithoutMID.size()));
+        log(std::cerr, std::format("[Server] {} REQ_UNREGISTER: session {} not found",
+            ipPort, sessionIdHostOrder));
         return;
     }
-    auto sessionIdHostOrder = getNextSessionIdHostOrder();
-    auto sessionIdNetworkOrder = htonl(sessionIdHostOrder);
-    std::vector<char> sendPacket;
-    sendPacket.resize(PacketSize::RSP_REGISTER);
-    ByteWriter wrt{ .buffer = sendPacket };
-    wrt.write(static_cast<char>(MessageType::RSP_REGISTER));
-    wrt.write(sessionIdNetworkOrder);
-    bool success = false;
-    for (int i = 0; i < _maxRetry; i++)
-    {
-        int sentBytes = sendto(_socket, sendPacket.data(), static_cast<int>(sendPacket.size()), 0,
-            reinterpret_cast<sockaddr*>(sa), sizeof(*sa));
-        if (sentBytes == SOCKET_ERROR)
-        {
-            if (isRecoverableWSAError(WSAGetLastError())) continue;
-            else
-            {
-                success = false; // not recoverable
-                break;
-            }
-        }
-        else
-        {
-            // not socket error, so ok alrd
-            success = true;
-            break;
-        }
-    }
-    if (success)
-    {
-        {
-        std::lock_guard lock(_clientStorageMutex);
-        auto [_ignore,succeed] = _sessionIdToClient.emplace(
-            std::make_pair(
-                sessionIdHostOrder,
-                Client{ .ipPort = ipStrAndPort, .sa = *sa }
-            ));
-        assert(succeed && "Session id registration has logic error");
-        }
-        threadSafeOStream(std::cout, std::format("[Server] Client: {} connected", ipStrAndPort));
-    }
-    else
-    {
-        threadSafeOStream(std::cerr, std::format("[Server] Client {}: Unable to register",ipStrAndPort));
-    }
+    log(std::cout, std::format("[Server] {} disconnected", ipPort));
 }
 
-void Server::handle_reqUnregister(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
-{
-    assert((udpPacketWithoutMID.size() == PacketSize::REQ_UNREGISTER - 1) &&
-        "Size of REQ_UNREGISTER packet received is wrong");
-    char ipStr[INET_ADDRSTRLEN]{};
-    inet_ntop(AF_INET, &sa->sin_addr, ipStr, INET_ADDRSTRLEN);
-    auto port = ntohs(sa->sin_port);
-    std::string ipStrAndPort = std::format("{}:{}", ipStr, port);
-
-    ByteReader rdr{ .buffer = udpPacketWithoutMID };
-    auto sessionIdHostOrder = ntohl(rdr.read<SessionId>());
-    if (!destroySessionIdHostOrder(sessionIdHostOrder, ipStrAndPort))
-    {
-        threadSafeOStream(std::cerr,
-            std::format("[Server] Client {}: Request to destroy session id {} but not found on server side",
-                ipStrAndPort,sessionIdHostOrder));
-        return;
-    }
-    threadSafeOStream(std::cout, std::format("[Server] Client: {} disconnected", ipStrAndPort));
-    return;
-}
-
-void Server::handle_pfInputState(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
-{
-    assert((udpPacketWithoutMID.size() == PacketSize::PF_INPUT_STATE - 1) &&
-        "Size of PF_INPUT_STATE packet received is wrong");
-    ByteReader rdr{ .buffer = udpPacketWithoutMID };
-    auto sessionIdHostOrder = ntohl(rdr.read<SessionId>());
-    auto sqNumberHostOrder = ntohl(rdr.read<SequenceNumber>());
-    auto inputBitsHostOrder = ntohl(rdr.read<InputBits>());
-    auto mousePositionHostOrder = rdr.read<MousePosition>();
-
-    mousePositionHostOrder[0] = ntohs(mousePositionHostOrder[0]);
-    mousePositionHostOrder[1] = ntohs(mousePositionHostOrder[1]);
-}
+// ============================================================
+// actualStartListening
+// ============================================================
 
 void Server::actualStartListening(std::stop_token st) noexcept
 {
-    std::vector<char> udpPacket;
-    udpPacket.resize(MaxUdpPacketBytes);
-    while (!st.stop_requested())
+    std::vector<char> buf(MaxUdpPacketBytes);
+
+    while(!st.stop_requested())
     {
-        fd_set readSet;
-        FD_ZERO(&readSet);
-        FD_SET(_socket, &readSet);
+        fd_set rs;
+        FD_ZERO(&rs);
+        FD_SET(_socket, &rs);
+        timeval tv{0, static_cast<int>(_recvTimeOut * 1'000'000.0)};
 
-        timeval timeout{};
-        timeout.tv_sec = 0;
-        timeout.tv_usec = static_cast<int>(_recvTimeOut * 1'000'000.0);
-        int ready = select(
-            0,
-            &readSet,
-            nullptr,
-            nullptr,
-            &timeout
-        );
-
-        if (ready == SOCKET_ERROR)
+        int ready = select(0, &rs, nullptr, nullptr, &tv);
+        if(ready == SOCKET_ERROR)
         {
-            threadSafeOStream(std::cerr,std::format("[Server] select() failed: {}", wsaErrorStr()));
-            goto end;
+            log(std::cerr, std::format("[Server] select() failed: {}", wsaErrorStr()));
+            break;
         }
-        else if (ready == 0) continue; // timeout, no data, check stop token again
+        if(ready == 0) continue;
 
-        if (FD_ISSET(_socket, &readSet))
+        sockaddr_in from{};
+        int fromLen = sizeof(from);
+        int n = recvfrom(_socket, buf.data(), static_cast<int>(buf.size()),
+            0, reinterpret_cast<sockaddr*>(&from), &fromLen);
+        if(n == SOCKET_ERROR)
         {
-            sockaddr_in from{};
-            int fromLen = sizeof(from);
-
-            int bytesReceived = recvfrom(
-                _socket,
-                udpPacket.data(),
-                static_cast<int>(udpPacket.size()),
-                0,
-                reinterpret_cast<sockaddr*>(&from),
-                &fromLen
-            );
-            if (bytesReceived == SOCKET_ERROR)
-            {
-                threadSafeOStream(std::cerr, std::format("[Server] recvfrom() failed: {}", wsaErrorStr()));
-                goto end;
-            }
-            else if (bytesReceived == 0) continue; // move on with our lives
-            MessageType message = static_cast<MessageType>(udpPacket[0]);
-            auto it = _messageTypeFns.find(message);
-            if (it != _messageTypeFns.end())
-                (this->*it->second)(std::span<const char>(udpPacket).subspan(1,bytesReceived - 1), &from);
+            log(std::cerr, std::format("[Server] recvfrom() failed: {}", wsaErrorStr()));
+            break;
         }
+        if(n == 0) continue;
+
+        auto mid = static_cast<MessageType>(buf[0]);
+        auto it = _messageTypeFns.find(mid);
+        if(it != _messageTypeFns.end())
+            (this->*it->second)(std::span<const char>(buf).subspan(1, n - 1), &from);
     }
-    end:
+
     _threadFinished = true;
 }
 
+// ============================================================
+// Session helpers
+// ============================================================
+
 SessionId Server::getNextSessionIdHostOrder()
 {
-    assert(_nextSessionIdHostOrder != InvalidSessionId && "Ran out of session ids!");
+    assert(_nextSessionIdHostOrder != InvalidSessionId);
     std::lock_guard lock(_clientStorageMutex);
     return _nextSessionIdHostOrder++;
 }
 
-bool Server::destroySessionIdHostOrder(SessionId id, std::string ipPort)
+bool Server::destroySessionIdHostOrder(SessionId id, const std::string& ipPort)
 {
     std::lock_guard lock(_clientStorageMutex);
-    auto it3 = _sessionIdToClient.find(id);
-    if (it3 == _sessionIdToClient.end())
+    auto it = _sessionIdToClient.find(id);
+    if(it == _sessionIdToClient.end()) return false;
+    if(it->second.ipPort != ipPort)
     {
-        threadSafeOStream(std::cerr,
-            std::format("[Server] Client {}: Requested to destroy a session id that is not active!!!!!",ipPort));
+        log(std::cerr, std::format("[Server] {} tried to destroy session {} which belongs to {}",
+            ipPort, id, it->second.ipPort));
         return false;
     }
-    if (it3->second.ipPort != ipPort)
-    {
-        threadSafeOStream(std::cerr,
-            std::format("[Server] Client {}: Requested to destroy a session id that is not theirs.",ipPort));
-        return false;
-    }
-    _sessionIdToClient.erase(it3);
+    _sessionIdToClient.erase(it);
     return true;
 }
+
+// ============================================================
+// Game logic
+// ============================================================
+
+void Server::load_wordlist()
+{
+    std::ifstream file("resources/words.txt");
+    if(!file.is_open())
+        throw std::runtime_error("Failed to open resources/words.txt");
+
+    std::string w;
+    while(std::getline(file, w))
+    {
+        if(!w.empty() && w.back() == '\r') w.pop_back();
+        if(!w.empty()) word_list.push_back(w);
+    }
+
+    auto it = std::max_element(std::execution::par,
+        word_list.begin(), word_list.end(),
+        [](const std::string& a, const std::string& b) { return a.size() < b.size(); });
+    if(it != word_list.end())
+        max_len = static_cast<uint32_t>(it->size());
+}
+
+void Server::pick_word()
+{
+    if(word_list.empty()) return;
+    std::srand(static_cast<unsigned int>(std::time(nullptr)));
+    word.second = word_list[std::rand() % word_list.size()];
+    word.first = false;
+    std::cout << word.second << '\n';
+}
+
+int Server::word_heuristic() { return 0; }

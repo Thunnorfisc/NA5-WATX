@@ -19,12 +19,14 @@ public:
     void handleEvent(const sf::Event& event) override;
     void update(sf::Time deltaTime) override;
     void render() override;
-
 private:
     [[nodiscard]] bool isMouseOverBackButton() const;
     void updateLayout();
-    void handleCanvasStateCommandEvent(const CanvasDrawState& cds);
+    void handleCanvasStateCommandEvent(const CanvasDrawCommand& cds);
+    void handleChatMessageEvent(const ReceivedChatMessage& chatMsg);
+
     Client::RegCanvasStateFnId _canvasStateFnId;
+    Client::RegChatMessageFnId _chatMessageFnId;
 
     sf::CircleShape m_backButton;
     sf::Font m_font;
@@ -40,10 +42,15 @@ private:
     struct BeginStroke { sf::Vector2f mouse; sf::Color color; float thickness; };
     struct AddPoint { sf::Vector2f mouse; };
     struct EndStroke {};
+    struct ReceivedMsg { std::string playerName; std::string msg };
 
-    using StrokeCmdReceived = std::variant<BeginStroke, AddPoint, EndStroke>;
-    std::queue<StrokeCmdReceived> m_strokes;
-    std::mutex m_strokesMutex;
+    using CmdReceived = std::variant<
+        BeginStroke,
+        AddPoint,
+        EndStroke,
+        ReceivedMsg>;
+    std::queue<CmdReceived> m_commands;
+    std::mutex m_commandsMutex;
 
     Canvas m_canvas;
     ColourPicker m_cpicker;
