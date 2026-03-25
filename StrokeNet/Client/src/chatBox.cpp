@@ -48,7 +48,7 @@ ChatBox::ChatBox(const std::string& fontPath) : text(font), sampleText(font)
 
 	sampleText.setCharacterSize(21);
 	sampleText.setFillColor(sf::Color::Black);
-	sampleText.setString("Click and type here...");
+	sampleText.setString("Press 'Enter' or Click here to type...");
 	sampleText.setPosition({ CHATBOX_POSITION_X + TEXT_PADDING, CHATBOX_POSITION_Y + CHATBOX_HEIGHT - TYPING_AREA_HEIGHT });
 }
 
@@ -71,14 +71,11 @@ void ChatBox::draw(sf::RenderWindow& window)
 		sf::Text lastLineText(font, lastLine, text.getCharacterSize());
 		float lastLineWidth = lastLineText.getLocalBounds().size.x;
 
-		sf::FloatRect textBounds = text.getLocalBounds();
-		float textHeight = textBounds.size.y;
+		float lineHeight = font.getLineSpacing(text.getCharacterSize());
+		int lineCount = static_cast<int>(std::count(wrappedStr.begin(), wrappedStr.end(), '\n'));
 
 		float cursorX = text.getPosition().x + lastLineWidth;
-		float cursorY;
-		// sum hack lmao
-		if (currentInput.empty()) cursorY = text.getPosition().y + textHeight;
-		else cursorY = (text.getPosition().y + textHeight) - 10;
+		float cursorY = text.getPosition().y + lineCount * lineHeight;
 		cursor.setPosition({ cursorX, cursorY });
 		window.draw(cursor);
 	}

@@ -91,7 +91,7 @@ void CoreGameState::handleEvent(const sf::Event& event)
         }
     }
     if (const auto* keyPressed = event.getIf<sf::Event::KeyPressed>()) {
-        if (keyPressed->code == sf::Keyboard::Key::Space) {
+        if (keyPressed->code == sf::Keyboard::Key::Enter) {
             m_chatBox.setTyping(true);
             return;
         }
