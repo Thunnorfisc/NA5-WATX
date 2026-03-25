@@ -354,13 +354,13 @@ void Server::handle_reqCreateAccount(std::span<const char> udpPacketWithoutMID, 
 }
 
 // ============================================================
-// REQ_UNREGISTER
+// FAF_DISCONNECT
 // ============================================================
 
-void Server::handle_reqUnregister(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
+void Server::handle_fafDisconnect(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
 {
-    assert((udpPacketWithoutMID.size() == PacketSize::REQ_UNREGISTER - 1) &&
-        "Size of REQ_UNREGISTER packet received is wrong");
+    assert((udpPacketWithoutMID.size() == PacketSize::FAF_DISCONNECT - 1) &&
+        "Size of FAF_DISCONNECT packet received is wrong");
     char ipStr[INET_ADDRSTRLEN]{};
     inet_ntop(AF_INET, &sa->sin_addr, ipStr, INET_ADDRSTRLEN);
     auto port = ntohs(sa->sin_port);

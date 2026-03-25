@@ -66,6 +66,9 @@ public:
     // ============================================================
     static std::queue<ReceivedStrokeCommand> getReceivedStrokeCommands();
 
+
+
+
 private:
     // ============================================================
     // Socket / session

@@ -106,19 +106,19 @@ private:
     // ============================================================
     void handle_reqLogin            (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
     void handle_reqCreateAccount    (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
-    void handle_reqUnregister       (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
 
     void handle_reqStartStroke      (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
     void handle_reqEndStroke        (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
 
     void handle_fafExtendStroke     (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
+    void handle_fafDisconnect       (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
 
     using MessageFn = void(Server::*)(std::span<const char>, sockaddr_in*);
     const std::unordered_map<MessageType, MessageFn> _messageTypeFns
     {
         std::make_pair(MessageType::REQ_LOGIN,          &Server::handle_reqLogin            ),
         std::make_pair(MessageType::REQ_CREATE_ACCOUNT, &Server::handle_reqCreateAccount    ),
-        std::make_pair(MessageType::REQ_UNREGISTER,     &Server::handle_reqUnregister       ),
+        std::make_pair(MessageType::FAF_DISCONNECT,     &Server::handle_fafDisconnect),
 
         std::make_pair(MessageType::REQ_START_STROKE,   &Server::handle_reqStartStroke      ),
         std::make_pair(MessageType::REQ_END_STROKE,     &Server::handle_reqEndStroke        ),

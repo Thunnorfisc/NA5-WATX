@@ -52,10 +52,6 @@ namespace PacketSize
     // [RSP_LOGIN][SESSION_ID][STATUS]
     constexpr inline std::size_t RSP_LOGIN = 6;
 
-    //  1               4
-    // [REQ_UNREGISTER][SESSION_ID]
-    constexpr inline std::size_t REQ_UNREGISTER = 5;
-
     //  1                 4           4          4          5
     // [REQ_START_STROKE][SESSION_ID][STROKE_ID][MOUSE_POS][RGBAT]
     constexpr inline std::size_t REQ_START_STROKE = 18;
@@ -84,6 +80,10 @@ namespace PacketSize
     // [FAF_EXTEND_STROKE][SESSION_ID][STROKE_ID][MOUSE_POS]
     constexpr inline std::size_t FAF_EXTEND_STROKE = 13;
 
+    //  1               4
+    // [FAF_DISCONNECT][SESSION_ID]
+    constexpr inline std::size_t FAF_DISCONNECT = 5;
+
     //  1                 4           4          5
     // [SVR_START_STROKE][SESSION_ID][MOUSE_POS][RGBAT]
     constexpr inline std::size_t SVR_START_STROKE = 14;
@@ -107,13 +107,13 @@ namespace PacketSize
 // ============================================================
 enum class MessageType: std::uint8_t
 {
-    // Require Ack
-    REQ_LOGIN = 1,
-    RSP_LOGIN,
-    REQ_CREATE_ACCOUNT,
-    REQ_UNREGISTER,
+    // ===================================
+    // Require ack
+    // ===================================
+    REQ_LOGIN = 1,      // < Sent by client
+    RSP_LOGIN,          // < Ack by server
+    REQ_CREATE_ACCOUNT, // < Sent by client
 
-    // Require Ack
     REQ_START_STROKE,
     RSP_START_STROKE,
 
@@ -123,10 +123,19 @@ enum class MessageType: std::uint8_t
     REQ_MSG,
     RSP_MSG,
 
-    // Best effort
-    FAF_EXTEND_STROKE,
+    REQ_START_GAME,
+    RSP_START_GAME,
 
-    // Best effort
+    // ===================================
+    // Best effort - client -> server
+    // ===================================
+    FAF_EXTEND_STROKE,
+    FAF_DISCONNECT,
+
+    // ===================================
+    // Best effort server -> client(s)
+    // ===================================
+
     SVR_START_STROKE,
     SVR_END_STROKE,
     SVR_EXTEND_STROKE,

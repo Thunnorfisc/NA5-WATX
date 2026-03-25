@@ -524,9 +524,9 @@ void Client::disconnect()
 
     if(_sessionId == InvalidSessionId) { stopThreads(); return; }
 
-    std::vector<char> pkt(PacketSize::REQ_UNREGISTER);
+    std::vector<char> pkt(PacketSize::FAF_DISCONNECT);
     ByteWriter wrt{.buffer = pkt};
-    wrt.write(static_cast<char>(MessageType::REQ_UNREGISTER));
+    wrt.write(static_cast<char>(MessageType::FAF_DISCONNECT));
     wrt.write(htonl(_sessionId));
 
     sendto(_socket, pkt.data(), static_cast<int>(pkt.size()),
