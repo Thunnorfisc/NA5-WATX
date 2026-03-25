@@ -378,10 +378,10 @@ void Server::handle_ntfRcvMsg(std::span<const char> udpPacketWithoutMID, sockadd
 {
     ByteReader rdr{ .buffer = udpPacketWithoutMID };
     auto sessionIdHostOrder = ntohl(rdr.read<SessionId>());
-    auto clearIdHostOrder = ntohl(rdr.read<std::uint32_t>());
+    auto msgIdHostOrder = ntohl(rdr.read<std::uint32_t>());
 
     std::lock_guard lock(_pendingNtfClearCanvasMutex);
-    _pendingNtfClearCanvases.erase(NtfKey{ sessionIdHostOrder, clearIdHostOrder });
+    _pendingNtfClearCanvases.erase(NtfKey{ sessionIdHostOrder, msgIdHostOrder });
 }
 
 // ============================================================
