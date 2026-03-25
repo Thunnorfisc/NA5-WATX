@@ -42,7 +42,7 @@ ChatBox::ChatBox(const std::string& fontPath) : text(font)
 
 	text.setCharacterSize(16);
 	text.setFillColor(sf::Color::Black);
-	text.setPosition({ 10, 10 });
+	text.setPosition({ CHATBOX_POSITION_X + 3, CHATBOX_POSITION_Y + CHATBOX_HEIGHT - TYPING_AREA_HEIGHT });
 }
 
 void ChatBox::draw(sf::RenderWindow& window)
@@ -60,8 +60,7 @@ void ChatBox::sendMessage(const std::string& name, const std::string& message)
 void ChatBox::receiveMessageFromServer(const std::string& name, const std::string& message)
 {
 	
-	currentInput = name + ": " + message;
-	text.setString(currentInput);
+
 }
 
 bool ChatBox::handleChatBox()
@@ -70,6 +69,7 @@ bool ChatBox::handleChatBox()
 		if (sf::Keyboard::isKeyPressed(static_cast<sf::Keyboard::Key>(58))) {
 			sendMessage("SnowPuppy", currentInput);
 			currentInput.clear();
+			text.setString("");
 			return true;
 		}
 		else if (sf::Keyboard::isKeyPressed(static_cast<sf::Keyboard::Key>(59))) {
