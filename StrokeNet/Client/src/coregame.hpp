@@ -57,6 +57,4 @@ private:
     ChatBox m_chatBox;
 
     ColourPicker m_cpicker;
-    // For networking
-    SequenceNumber sequenceNumber = 1;
 };

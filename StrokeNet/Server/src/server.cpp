@@ -53,14 +53,11 @@
 
 #pragma comment(lib, "Ws2_32.lib")
 
-namespace
+std::mutex s_ostreamMutex;
+void log(std::ostream& os, std::string_view msg)
 {
-    std::mutex s_ostreamMutex;
-    void log(std::ostream& os, std::string_view msg)
-    {
-        std::lock_guard lock(s_ostreamMutex);
-        os << msg << '\n';
-    }
+    std::lock_guard lock(s_ostreamMutex);
+    os << msg << '\n';
 }
 
 // ============================================================
@@ -232,26 +229,7 @@ void Server::handle_reqLogin(std::span<const char> udpPacketWithoutMID, sockaddr
     wrt.write(sessionIdNetworkOrder);
     wrt.write(static_cast<char>(status));
 
-    bool success = false;
-    for (int i = 0; i < _maxRetry; i++)
-    {
-        int sentBytes = sendto(_socket, sendPacket.data(), static_cast<int>(sendPacket.size()), 0,
-            reinterpret_cast<sockaddr*>(sa), sizeof(*sa));
-        if (sentBytes == SOCKET_ERROR)
-        {
-            if (isRecoverableWSAError(WSAGetLastError())) continue;
-            else
-            {
-                success = false;
-                break;
-            }
-        }
-        else
-        {
-            success = true;
-            break;
-        }
-    }
+    bool success = sendWithRetry(sendPacket, *sa);
 
     if (success && status == LoginStatus::SUCCESS)
     {
@@ -260,7 +238,7 @@ void Server::handle_reqLogin(std::span<const char> udpPacketWithoutMID, sockaddr
             auto [_ignore, succeed] = _sessionIdToClient.emplace(
                 std::make_pair(
                     sessionIdHostOrder,
-                    Client{ .ipPort = ipStrAndPort, .sa = *sa }
+                    Client{ .ipPort = ipStrAndPort,.username = username, .sa = *sa }
                 ));
             assert(succeed && "Session id registration has logic error");
         }
@@ -325,26 +303,7 @@ void Server::handle_reqCreateAccount(std::span<const char> udpPacketWithoutMID, 
     wrt.write(sessionIdNetworkOrder);
     wrt.write(static_cast<char>(status));
 
-    bool success = false;
-    for (int i = 0; i < _maxRetry; i++)
-    {
-        int sentBytes = sendto(_socket, sendPacket.data(), static_cast<int>(sendPacket.size()), 0,
-            reinterpret_cast<sockaddr*>(sa), sizeof(*sa));
-        if (sentBytes == SOCKET_ERROR)
-        {
-            if (isRecoverableWSAError(WSAGetLastError())) continue;
-            else
-            {
-                success = false;
-                break;
-            }
-        }
-        else
-        {
-            success = true;
-            break;
-        }
-    }
+    bool success = sendWithRetry(sendPacket, *sa);
 
     if (!success)
     {
@@ -397,14 +356,32 @@ void Server::handle_fafDisconnect(std::span<const char> udpPacketWithoutMID, soc
     return;
 }
 
+// ============================================================
+// NTF_RCV_CLEAR_CANVAS
+// ============================================================
+
 void Server::handle_ntfRcvClearCanvas(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
 {
     ByteReader rdr{ .buffer = udpPacketWithoutMID };
     auto sessionIdHostOrder = ntohl(rdr.read<SessionId>());
-    auto clearIdHostOrder = ntohl(rdr.read<std::uint32_t>());
+    auto msgIdHostOrder = ntohl(rdr.read<std::uint32_t>());
+
+    std::lock_guard lock(_pendingNtfMsgMutex);
+    _pendingNtfMsg.erase(NtfKey{ sessionIdHostOrder, msgIdHostOrder });
+}
+
+// ============================================================
+// NTF_RCV_MSG
+// ============================================================
+
+void Server::handle_ntfRcvMsg(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
+{
+    ByteReader rdr{ .buffer = udpPacketWithoutMID };
+    auto sessionIdHostOrder = ntohl(rdr.read<SessionId>());
+    auto msgIdHostOrder = ntohl(rdr.read<std::uint32_t>());
 
     std::lock_guard lock(_pendingNtfClearCanvasMutex);
-    _pendingNtfClearCanvases.erase(NtfKey{ sessionIdHostOrder, clearIdHostOrder });
+    _pendingNtfClearCanvases.erase(NtfKey{ sessionIdHostOrder, msgIdHostOrder });
 }
 
 // ============================================================
@@ -479,29 +456,11 @@ void Server::handle_reqStartStroke(std::span<const char> udpPacketWithoutMID, so
     rspwrt.write(static_cast<char>(MessageType::RSP_START_STROKE));
     rspwrt.write(htonl(sessionIdHostOrder));
     rspwrt.write(htonl(strokeIdHostOrder));
-    bool success = false;
-    for (int i = 0; i < _maxRetry; i++)
-    {
-        int sentBytes = sendto(_socket, rspmsg.data(), static_cast<int>(rspmsg.size()), 0,
-            reinterpret_cast<sockaddr*>(sa), sizeof(*sa));
-        if (sentBytes == SOCKET_ERROR)
-        {
-            if (isRecoverableWSAError(WSAGetLastError())) continue;
-            else
-            {
-                success = false;
-                break;
-            }
-        }
-        else
-        {
-            success = true;
-            break;
-        }
-    }
+
+    bool successRsp = sendWithRetry(rspmsg, *sa);
 
     // if not able to send rsp_start_stroke, just return, its ok. wtv
-    if (!success)
+    if (!successRsp)
     {
         log(std::cerr,
             std::format("[Server] Unable to send RSP_START_STROKE for client session id {}", sessionIdHostOrder));
@@ -514,45 +473,16 @@ void Server::handle_reqStartStroke(std::span<const char> udpPacketWithoutMID, so
     // just send back to all clients
     std::array<char, PacketSize::SVR_START_STROKE> svrmsg;
     ByteWriterN svrwrt{ .buffer = svrmsg };
-    for (const auto& [ssiho, client] : _sessionIdToClient)
-    {
-        //if (ssiho == sessionIdHostOrder) continue; // dont send back to itself
-        svrwrt.write(static_cast<char>(MessageType::SVR_START_STROKE));
-        svrwrt.write(htonl(ssiho));
-        svrwrt.write(mousePosNetworkOrder);
-        svrwrt.write(rgbat);
-
-        bool success = false;
-        for (int i = 0; i < _maxRetry; i++)
+    svrwrt.write(static_cast<char>(MessageType::SVR_START_STROKE));
+    svrwrt.write(std::uint32_t{}); // dummy
+    svrwrt.write(mousePosNetworkOrder);
+    svrwrt.write(rgbat);
+    broadcastPacket(svrmsg,
+        [&](auto& pkt, SessionId sid)
         {
-            sockaddr_in clientSa = client.sa;
-            int sentBytes = sendto(_socket, svrmsg.data(), static_cast<int>(svrmsg.size()), 0,
-                reinterpret_cast<sockaddr*>(&clientSa), sizeof(clientSa));
-            if (sentBytes == SOCKET_ERROR)
-            {
-                if (isRecoverableWSAError(WSAGetLastError())) continue;
-                else
-                {
-                    success = false;
-                    break;
-                }
-            }
-            else
-            {
-                success = true;
-                break;
-            }
-        }
-
-        // if not able to send rsp_start_stroke, its ok. wtv
-        if (!success)
-        {
-            log(std::cerr,
-                std::format("[Server] Unable to send RSP_START_STROKE for client session id {}", sessionIdHostOrder));
-        }
-
-        svrwrt.offset = 0; // offset at zero to write from the beginning again
-    }
+            SessionId networkSID = htonl(sid);
+            std::memcpy(pkt.data() + sizeof(MessageType::SVR_START_STROKE), &networkSID, sizeof(networkSID));
+        });
 }
 
 // ============================================================
@@ -621,29 +551,10 @@ void Server::handle_reqEndStroke(std::span<const char> udpPacketWithoutMID, sock
     rspwrt.write(static_cast<char>(MessageType::RSP_END_STROKE));
     rspwrt.write(htonl(sessionIdHostOrder));
     rspwrt.write(htonl(strokeIdHostOrder));
-    bool success = false;
-    for (int i = 0; i < _maxRetry; i++)
-    {
-        int sentBytes = sendto(_socket, rspmsg.data(), static_cast<int>(rspmsg.size()), 0,
-            reinterpret_cast<sockaddr*>(sa), sizeof(*sa));
-        if (sentBytes == SOCKET_ERROR)
-        {
-            if (isRecoverableWSAError(WSAGetLastError())) continue;
-            else
-            {
-                success = false;
-                break;
-            }
-        }
-        else
-        {
-            success = true;
-            break;
-        }
-    }
+    bool successRsp = sendWithRetry(rspmsg, *sa);
 
     // if not able to send REQ_END_STROKE, just return, its ok. wtv
-    if (!success)
+    if (!successRsp)
     {
         log(std::cerr,
             std::format("[Server] Unable to send REQ_END_STROKE for client session id {}", sessionIdHostOrder));
@@ -656,43 +567,89 @@ void Server::handle_reqEndStroke(std::span<const char> udpPacketWithoutMID, sock
     // just send back to all clients
     std::array<char, PacketSize::SVR_END_STROKE> svrmsg;
     ByteWriterN svrwrt{ .buffer = svrmsg };
+    svrwrt.write(static_cast<char>(MessageType::SVR_END_STROKE));
+    svrwrt.write(std::uint32_t{}); // dummy
+    broadcastPacket(svrmsg,
+        [&](auto& pkt, SessionId sid)
+        {
+            SessionId networkSID = htonl(sid);
+            std::memcpy(pkt.data() + sizeof(MessageType::SVR_END_STROKE), &networkSID, sizeof(networkSID));
+        });
+}
+
+void Server::handle_reqMsg(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
+{
+    ByteReader rdr{ .buffer = udpPacketWithoutMID };
+    auto sessionIdHostOrder = ntohl(rdr.read<SessionId>());
+    // check if session id exists
+    auto it = _sessionIdToClient.find(sessionIdHostOrder);
+    if (it == _sessionIdToClient.end())
+    {
+        // no session id exists, ignore
+        log(std::cerr,
+            std::format("[Server] Received REQ_MSG from unknown client session id: {}", sessionIdHostOrder));
+        return;
+    }
+
+    auto msgIdHostOrder = ntohl(rdr.read<std::uint32_t>());
+    auto msgLength = rdr.read<std::uint8_t>();
+    auto actualmsg = rdr.readBytes(msgLength);
+
+    // CHECK IF ITS NOT CURRENT DRAWER + IF ACTUAL MSG IS THE GUESS, THEN SEND BACK
+    // "USER GUESSED THE WORD" @TODOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO
+
+
+
+
+    // validated its good REQ_MSG packet, send back RSP_MSG
+    std::array<char, PacketSize::RSP_MSG> rspmsg;
+    ByteWriterN rspwrt{ .buffer = rspmsg };
+    rspwrt.write(static_cast<char>(MessageType::RSP_MSG));
+    rspwrt.write(htonl(sessionIdHostOrder));
+    rspwrt.write(htonl(msgIdHostOrder));
+    bool successRsp = sendWithRetry(rspmsg, *sa);
+
+    auto name = it->second.username;
+    auto nameLength = static_cast<std::uint8_t>(name.length());
+    if (nameLength > 15) // 15 is arbitrary here
+    {
+        name = name.substr(0, 12); // trunc it
+        name += "...";
+        nameLength = 15;
+    }
+
+    // Now NTF all clients for msg
+    auto now = std::chrono::steady_clock::now();
+    std::lock_guard ntfLock(_pendingNtfClearCanvasMutex);
     for (const auto& [ssiho, client] : _sessionIdToClient)
     {
-        svrwrt.write(static_cast<char>(MessageType::SVR_END_STROKE));
+        std::vector<char> svrmsg;
+        svrmsg.resize(PacketSize::NTF_MSG_WITHOUT_BUFFER + msgLength + nameLength);
+        ByteWriter svrwrt{ .buffer = svrmsg };
+        svrwrt.write(static_cast<char>(MessageType::NTF_MSG));
         svrwrt.write(htonl(ssiho));
-        //if (ssiho == sessionIdHostOrder) continue; // dont send back to itself
+        svrwrt.write(htonl(_messageIdServer));
+        svrwrt.write(msgLength);
+        svrwrt.writeSpan(actualmsg);
+        svrwrt.write(nameLength);
+        svrwrt.writeSpan(name);
 
-        bool success = false;
-        for (int i = 0; i < _maxRetry; i++)
-        {
-            sockaddr_in clientSa = client.sa;
-            int sentBytes = sendto(_socket, svrmsg.data(), static_cast<int>(svrmsg.size()), 0,
-                reinterpret_cast<sockaddr*>(&clientSa), sizeof(clientSa));
-            if (sentBytes == SOCKET_ERROR)
-            {
-                if (isRecoverableWSAError(WSAGetLastError())) continue;
-                else
-                {
-                    success = false;
-                    break;
-                }
-            }
-            else
-            {
-                success = true;
-                break;
-            }
-        }
+        // Send immediately once
+        sockaddr_in clientSa = client.sa;
+        sendto(_socket, svrmsg.data(), static_cast<int>(svrmsg.size()), 0,
+            reinterpret_cast<sockaddr*>(&clientSa), sizeof(clientSa));
 
-        // if not able to send REQ_END_STROKE, its ok. wtv
-        if (!success)
-        {
-            log(std::cerr,
-                std::format("[Server] Unable to send REQ_END_STROKE for client session id {}", sessionIdHostOrder));
-        }
-
-        svrwrt.offset = 0; // offset at zero to write from the beginning again
+        // Add to pending for retry
+        _pendingNtfClearCanvases[NtfKey{ ssiho, _messageIdServer }] = PendingNTF{
+            ._data = std::move(svrmsg),
+            ._clientAddr = client.sa,
+            ._targetSessionId = ssiho,
+            ._ntfId = _messageIdServer,
+            ._nextSendTime = now + std::chrono::milliseconds(100),
+            ._giveUpTime = now + std::chrono::seconds(2),
+        };
     }
+    _messageIdServer++;
 }
 
 // ============================================================
@@ -865,44 +822,15 @@ void Server::handle_fafExtendStroke(std::span<const char> udpPacketWithoutMID, s
     // just send back to all clients
     std::array<char, PacketSize::SVR_EXTEND_STROKE> svrmsg;
     ByteWriterN svrwrt{ .buffer = svrmsg };
-    for (const auto& [ssiho, client] : _sessionIdToClient)
-    {
-        svrwrt.write(static_cast<char>(MessageType::SVR_EXTEND_STROKE));
-        svrwrt.write(htonl(ssiho));
-        svrwrt.write(mousePosNetworkOrder);
-        //if (ssiho == sessionIdHostOrder) continue; // dont send back to itself
-
-        bool success = false;
-        for (int i = 0; i < _maxRetry; i++)
+    svrwrt.write(static_cast<char>(MessageType::SVR_EXTEND_STROKE));
+    svrwrt.write(std::uint32_t{}); // dummy
+    svrwrt.write(mousePosNetworkOrder);
+    broadcastPacket(svrmsg,
+        [&](auto& pkt, SessionId sid)
         {
-            sockaddr_in clientSa = client.sa;
-            int sentBytes = sendto(_socket, svrmsg.data(), static_cast<int>(svrmsg.size()), 0,
-                reinterpret_cast<sockaddr*>(&clientSa), sizeof(clientSa));
-            if (sentBytes == SOCKET_ERROR)
-            {
-                if (isRecoverableWSAError(WSAGetLastError())) continue;
-                else
-                {
-                    success = false;
-                    break;
-                }
-            }
-            else
-            {
-                success = true;
-                break;
-            }
-        }
-
-        // if not able to send FAF_EXTEND_STROKE, its ok. wtv
-        if (!success)
-        {
-            log(std::cerr,
-                std::format("[Server] Unable to send FAF_EXTEND_STROKE for client session id {}", sessionIdHostOrder));
-        }
-
-        svrwrt.offset = 0; // offset at zero to write from the beginning again
-    }
+            SessionId networkSID = htonl(sid);
+            std::memcpy(pkt.data() + sizeof(MessageType::SVR_EXTEND_STROKE), &networkSID, sizeof(networkSID));
+        });
 }
 
 // ============================================================
@@ -916,6 +844,7 @@ void Server::actualStartListening(std::stop_token st) noexcept
     while (!st.stop_requested())
     {
         tickPendingNtf(_pendingNtfClearCanvasMutex, _pendingNtfClearCanvases, "NTF_CLEAR_CANVAS");
+        tickPendingNtf(_pendingNtfMsgMutex, _pendingNtfMsg, "NTF_MSG");
 
         fd_set readSet;
         FD_ZERO(&readSet);
@@ -1114,27 +1043,7 @@ void Server::advanceDrawer()
             svrwrt.write(htonl(ssiho));
             //if (ssiho == sessionIdHostOrder) continue; // dont send back to itself
 
-            bool success = false;
-            for (int i = 0; i < _maxRetry; i++)
-            {
-                sockaddr_in clientSa = client.sa;
-                int sentBytes = sendto(_socket, svrmsg.data(), static_cast<int>(svrmsg.size()), 0,
-                    reinterpret_cast<sockaddr*>(&clientSa), sizeof(clientSa));
-                if (sentBytes == SOCKET_ERROR)
-                {
-                    if (isRecoverableWSAError(WSAGetLastError())) continue;
-                    else
-                    {
-                        success = false;
-                        break;
-                    }
-                }
-                else
-                {
-                    success = true;
-                    break;
-                }
-            }
+            bool success = sendWithRetry(svrmsg, client.sa);
 
             // if not able to send SVR_END_STROKE, its ok. wtv
             if (!success)
@@ -1199,4 +1108,33 @@ std::size_t Server::getNumberOfPlayers()
 {
     std::lock_guard lock(_gameMut);
     return _listOfPlayersAllowedToDraw.size();
+}
+
+// ============================================================
+// Helper - Send with retry
+// ============================================================
+
+bool Server::sendWithRetry(std::span<const char> data, const sockaddr_in& sa)
+{
+    bool success = false;
+    for (int i = 0; i < _maxRetry; i++)
+    {
+        int sentBytes = sendto(_socket, data.data(), static_cast<int>(data.size()), 0,
+            reinterpret_cast<const sockaddr*>(&sa), sizeof(sa));
+        if (sentBytes == SOCKET_ERROR)
+        {
+            if (isRecoverableWSAError(WSAGetLastError())) continue;
+            else
+            {
+                success = false;
+                break;
+            }
+        }
+        else
+        {
+            success = true;
+            break;
+        }
+    }
+    return success;
 }

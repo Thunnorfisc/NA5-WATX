@@ -104,9 +104,9 @@ namespace PacketSize
     // [SVR_EXTEND_STROKE][SESSION_ID][MOUSE_POS]
     constexpr inline std::size_t SVR_EXTEND_STROKE = 9;
 
-    //  1        4           4       1           VAR
-    // [NTF_MSG][SESSION_ID][MSG_ID][MSG_LENGTH][MSG_BUFFER]
-    constexpr inline std::size_t NTF_MSG_WITHOUT_BUFFER = 10;
+    //  1        4           4       1           VAR         1            VAR
+    // [NTF_MSG][SESSION_ID][MSG_ID][MSG_LENGTH][MSG_BUFFER][NAME_LENGTH][NAME_BUFFER]
+    constexpr inline std::size_t NTF_MSG_WITHOUT_BUFFER = 11;
 
     //  1            4           4
     // [NTF_RCV_MSG][SESSION_ID][MSG_ID]
@@ -244,6 +244,12 @@ struct ByteWriter
     std::vector<char>& buffer;
     std::size_t offset = 0;
 
+    void writeSpan(std::span<const char> data)
+    {
+        assert(offset + data.size() <= buffer.size() && "ByteWriter Overflow");
+        std::memcpy(buffer.data() + offset, data.data(), data.size());
+        offset += data.size();
+    }
     template <typename T>
     void write(T val)
     {
@@ -251,6 +257,7 @@ struct ByteWriter
         std::memcpy(buffer.data() + offset, &val, sizeof(T));
         offset += sizeof(T);
     }
+
 };
 
 struct ByteReader
@@ -267,6 +274,18 @@ struct ByteReader
         offset += sizeof(T);
         return val;
     }
+
+
+    std::vector<char> readBytes(std::size_t N)
+    {
+        assert(offset + N <= buffer.size() && "ByteReader Overflow");
+        std::vector<char> readBytes;
+        readBytes.resize(N);
+        std::memcpy(readBytes.data(), buffer.data() + offset, N);
+        offset += N;
+        return readBytes;
+    }
+
 };
 template <std::size_t N>
 struct ByteWriterN

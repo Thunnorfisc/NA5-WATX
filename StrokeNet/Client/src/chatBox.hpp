@@ -15,7 +15,7 @@
 #pragma once
 #include <SFML/Graphics.hpp>
 #include "Drawing.hpp"
-
+#include <cstdint>
 struct ChatBox
 {
 	sf::Font font;
@@ -27,6 +27,8 @@ struct ChatBox
 	sf::Text sampleText;
 	std::string currentInput;
 	std::vector<sf::Text> messagesReceivedFromServer;
+
+	std::uint32_t nextMessageId = 1;
 	
 	bool m_isTyping = false;
 

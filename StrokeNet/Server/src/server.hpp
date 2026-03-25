@@ -25,18 +25,23 @@
 #include <span>
 #include <deque>
 #include <mutex>
+#include <format>
 #include <string>
 #include <thread>
 #include <atomic>
 #include <vector>
 #include <utility>
 #include <cstdint>
+#include <ostream>
+#include <iostream>
 #include <optional>
 #include <stop_token>
 #include <functional>
+#include <string_view>
 #include <unordered_map>
 #include "login.hpp"
 
+void log(std::ostream& os, std::string_view msg);
 class Server
 {
 public:
@@ -73,12 +78,15 @@ private:
     std::size_t _currentAllowedToDrawIndex{};
     std::vector<SessionId> _listOfPlayersAllowedToDraw;
 
+    std::uint32_t _messageIdServer = 1;
+
     // ============================================================
     // Client storage
     // ============================================================
     struct Client
     {
         std::string ipPort;
+        std::string username;
         sockaddr_in sa;
 
         std::optional<std::uint32_t> currentStrokeId;
@@ -122,9 +130,17 @@ private:
         }
     };
 
+    // ============================================================
     // Check for pending NTFs for clear canvas
+    // ============================================================
     std::mutex _pendingNtfClearCanvasMutex;
     std::unordered_map<NtfKey, PendingNTF, NtfKeyHash> _pendingNtfClearCanvases;
+
+    // ============================================================
+    // Check for pending NTFs for msgs
+    // ============================================================
+    std::mutex _pendingNtfMsgMutex;
+    std::unordered_map<NtfKey, PendingNTF, NtfKeyHash> _pendingNtfMsg;
 
     // ============================================================
     // Socket / session
@@ -149,25 +165,30 @@ private:
     void handle_reqEndStroke        (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
     void handle_reqClearCanvas      (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
 
+    void handle_reqMsg              (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
+
     void handle_fafExtendStroke     (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
     void handle_fafDisconnect       (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
 
     void handle_ntfRcvClearCanvas   (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
+    void handle_ntfRcvMsg           (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
 
     using MessageFn = void(Server::*)(std::span<const char>, sockaddr_in*);
     const std::unordered_map<MessageType, MessageFn> _messageTypeFns
     {
-        std::make_pair(MessageType::REQ_LOGIN,           &Server::handle_reqLogin            ),
-        std::make_pair(MessageType::REQ_CREATE_ACCOUNT,  &Server::handle_reqCreateAccount    ),
-        std::make_pair(MessageType::FAF_DISCONNECT,      &Server::handle_fafDisconnect       ),
+        std::make_pair(MessageType::REQ_LOGIN,              &Server::handle_reqLogin            ),
+        std::make_pair(MessageType::REQ_CREATE_ACCOUNT,     &Server::handle_reqCreateAccount    ),
+        std::make_pair(MessageType::REQ_MSG,                &Server::handle_reqMsg              ),
+        
+        std::make_pair(MessageType::REQ_START_STROKE,       &Server::handle_reqStartStroke      ),
+        std::make_pair(MessageType::REQ_END_STROKE,         &Server::handle_reqEndStroke        ),
+        std::make_pair(MessageType::REQ_CLEAR_CANVAS,       &Server::handle_reqClearCanvas      ),
+        
+        std::make_pair(MessageType::FAF_EXTEND_STROKE,      &Server::handle_fafExtendStroke     ),
+        std::make_pair(MessageType::FAF_DISCONNECT,         &Server::handle_fafDisconnect       ),
 
-        std::make_pair(MessageType::REQ_START_STROKE,    &Server::handle_reqStartStroke      ),
-        std::make_pair(MessageType::REQ_END_STROKE,      &Server::handle_reqEndStroke        ),
-        std::make_pair(MessageType::REQ_CLEAR_CANVAS,    &Server::handle_reqClearCanvas      ),
-
-        std::make_pair(MessageType::FAF_EXTEND_STROKE,   &Server::handle_fafExtendStroke     ),
-
-        std::make_pair(MessageType::NTF_RCV_CLEAR_CANVAS,&Server::handle_ntfRcvClearCanvas   )
+        std::make_pair(MessageType::NTF_RCV_CLEAR_CANVAS,   &Server::handle_ntfRcvClearCanvas   ),
+        std::make_pair(MessageType::NTF_RCV_MSG,            &Server::handle_ntfRcvMsg           )
     };
 
     // ============================================================
@@ -176,5 +197,26 @@ private:
     void actualStartListening(std::stop_token st) noexcept;
     SessionId getNextSessionIdHostOrder();
     bool destroySessionIdHostOrder(SessionId id, std::string ipPort);
+
+    // ============================================================
+    // Helpers
+    // ============================================================
+    bool sendWithRetry(std::span<const char> data, const sockaddr_in& sa);
+
+    template <typename Packet, typename FillFn>
+    void broadcastPacket(Packet& pkt,FillFn fill)
+    {
+        for (auto& [sid, client] : _sessionIdToClient)
+        {
+            fill(pkt, sid);
+
+            bool success = sendWithRetry(pkt, client.sa);
+            if (!success)
+            {
+                log(std::cerr,
+                    std::format("[Server] Broadcast send failed for client session id: {}", sid));
+            }
+        }
+    }
     void tickPendingNtf(std::mutex& mut, std::unordered_map<NtfKey, PendingNTF, NtfKeyHash>& map, std::string_view name);
 };

@@ -13,6 +13,7 @@
 /* End Header
 ***********************************************************************/
 #include "chatBox.hpp"
+#include "client.hpp"
 #include <iostream>
 
 const float CHATBOX_WIDTH = 310.f;
@@ -94,7 +95,7 @@ void ChatBox::sendMessageToServer(const std::string& name, const std::string& me
 #endif
 
 	// temp for now till it can receive from server
-	receiveMessageFromServer("SnowPuppy", message);
+	//receiveMessageFromServer("SnowPuppy", message);
 }
 
 void ChatBox::receiveMessageFromServer(const std::string& name, const std::string& message)
@@ -151,7 +152,8 @@ void ChatBox::handleEvent(const sf::Event& event)
 		}
 		else if (ch == '\r' || ch == '\n') { // enter
 			if (!currentInput.empty()) {
-				sendMessageToServer("SnowPuppy", currentInput);
+			// dont bother network with empty msg, useless
+			if (!currentInput.empty()) Client::sendChatMessage(nextMessageId++, currentInput);
 				currentInput.clear();
 				text.setString("");
 			}

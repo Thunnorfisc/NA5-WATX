@@ -279,12 +279,12 @@ void Client::handle_NTF_Msg(std::span<const char> msg)
         return;
     }
     auto msgIdHost = ntohl(rdr.read<std::uint32_t>());
+
     auto msgLengthHost = rdr.read<std::uint8_t>();
+    auto actualMsg = rdr.readBytes(msgLengthHost);
     
-    std::vector<char> chatmsg;
-    chatmsg.resize(msgLengthHost);
-    assert(rdr.offset + msgLengthHost <= rdr.buffer.size() && "ByteReader Overflow");
-    std::memcpy(chatmsg.data(), rdr.buffer.data() + rdr.offset, msgLengthHost);
+    auto nameLengthHost = rdr.read<std::uint8_t>();
+    auto actualName = rdr.readBytes(nameLengthHost);
 
     // Prepare ack to send back to server
     std::array<char, PacketSize::NTF_RCV_MSG> ntfrcvmsg;
@@ -313,11 +313,16 @@ void Client::handle_NTF_Msg(std::span<const char> msg)
     }
     _seenMsgesId.insert(msgIdHost);
 
+    // limit it at max 100
+    while (_seenMsgesId.size() >= 100) _seenMsgesId.erase(_seenMsgesId.begin());
+
     // Write into queue
     ReceivedChatMessage rcm;
     rcm._message.resize(msgLengthHost);
-    assert(chatmsg.size() == rcm._message.size() && "Message length different!");
-    std::memcpy(rcm._message.data(), chatmsg.data(), chatmsg.size());
+    rcm._name.resize(nameLengthHost);
+
+    std::memcpy(rcm._message.data(), actualMsg.data(), msgLengthHost);
+    std::memcpy(rcm._name.data(), actualName.data(), nameLengthHost);
 
     std::lock_guard lock(_msgesReceivedMut);
     _msgesReceived.push(std::move(rcm));
@@ -518,6 +523,7 @@ LoginStatus Client::loginViaBroadcast(const std::string& username, const std::st
                     char ip[INET_ADDRSTRLEN]{};
                     inet_ntop(AF_INET, &from.sin_addr, ip, sizeof(ip));
                     _serverIpAndPort = std::format("{}:{}", ip, ntohs(from.sin_port));
+                    _seenMsgesId.clear();
                     //_nextSeq.store(0);
 
                     _stopSource = std::stop_source{};
@@ -631,6 +637,7 @@ void Client::disconnect()
 
     log(std::cout, std::format("[Client] Disconnected from {}", _serverIpAndPort));
     _serverIpAndPort.clear();
+    _seenMsgesId.clear();
     std::memset(&_serverAddr, 0, sizeof(_serverAddr));
     _sessionId = InvalidSessionId;
 
@@ -740,6 +747,12 @@ std::queue<Client::ReceivedStrokeCommand> Client::getReceivedStrokeCommands()
 
 void Client::sendChatMessage(std::uint32_t msgId, const std::string& message)
 {
+    if (message.empty())
+    {
+        log(std::cerr,
+            std::format("[Client] Can't send empty message!"));
+        return;
+    }
     if (message.length() > 255)
     {
         log(std::cerr,
@@ -753,7 +766,7 @@ void Client::sendChatMessage(std::uint32_t msgId, const std::string& message)
     wrt.write(htonl(_sessionId));
     wrt.write(htonl(msgId));
     wrt.write(static_cast<std::uint8_t>(message.length()));
-    wrt.write(message);
+    wrt.writeSpan(message);
     BufferedToSend buffered;
     buffered._data = std::move(msg);
     buffered._hostId = msgId;
