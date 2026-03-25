@@ -39,4 +39,5 @@ struct ChatBox
 	void setTyping(bool typing) { m_isTyping = typing; }
 	void handleEvent(const sf::Event& event);
 	std::string wrapText(const std::string& input);
+	void clearChatHistory();
 };
