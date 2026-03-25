@@ -98,6 +98,7 @@
     <ClCompile Include="src\mainmenu.cpp" />
     <ClCompile Include="src\state.cpp" />
     <ClCompile Include="src\state_machine.cpp" />
+    <ClCompile Include="src\ToolPicker.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\shared_protocol.hpp" />
@@ -112,6 +113,7 @@
     <ClInclude Include="src\mainmenu.hpp" />
     <ClInclude Include="src\state.hpp" />
     <ClInclude Include="src\state_machine.hpp" />
+    <ClInclude Include="src\ToolPicker.hpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

@@ -2,15 +2,18 @@
     "users": [
         {
             "username": "admin",
-            "password": "admin"
+            "password": "admin",
+            "score": 0
         },
         {
             "username": "hi",
-            "password": "fuck"
+            "password": "fuck",
+            "score": 0
         },
         {
             "username": "timothy",
-            "password": "timothy"
+            "password": "timothy",
+            "score": 0
         }
     ]
 }
