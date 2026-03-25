@@ -90,13 +90,18 @@ void CoreGameState::handleEvent(const sf::Event& event)
 			}
         }
     }
-
+    if (const auto* keyPressed = event.getIf<sf::Event::KeyPressed>()) {
+        if (keyPressed->code == sf::Keyboard::Key::Enter) {
+            m_chatBox.setTyping(true);
+            return;
+        }
+	}
+    m_chatBox.handleEvent(event);
 }
 
 void CoreGameState::update(sf::Time)
 {
     updateLayout();
-    m_chatBox.handleChatBox();
     
     sf::Vector2i mousePos = sf::Mouse::getPosition(context().window);
     sf::Vector2f pos(static_cast<float>(mousePos.x), static_cast<float>(mousePos.y));
