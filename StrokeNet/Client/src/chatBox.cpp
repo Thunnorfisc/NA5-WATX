@@ -39,11 +39,11 @@ ChatBox::ChatBox(const std::string& fontPath) : text(font), sampleText(font)
 	textTypingArea.setOutlineThickness(1.f);
 	textTypingArea.setOutlineColor(sf::Color(100, 100, 100));
 
-	text.setCharacterSize(16);
+	text.setCharacterSize(21);
 	text.setFillColor(sf::Color::Black);
 	text.setPosition({ CHATBOX_POSITION_X + TEXT_PADDING, CHATBOX_POSITION_Y + CHATBOX_HEIGHT - TYPING_AREA_HEIGHT });
 
-	sampleText.setCharacterSize(16);
+	sampleText.setCharacterSize(21);
 	sampleText.setFillColor(sf::Color::Black);
 	sampleText.setString("Click and type here...");
 	sampleText.setPosition({ CHATBOX_POSITION_X + TEXT_PADDING, CHATBOX_POSITION_Y + CHATBOX_HEIGHT - TYPING_AREA_HEIGHT });
@@ -131,7 +131,7 @@ bool ChatBox::handleChatBox()
 			}
 		}
 		for (int i = 0; i < 26; ++i) {
-			if (sf::Keyboard::isKeyPressed(static_cast<sf::Keyboard::Key>(i)) && currentInput.length() < 135) {
+			if (sf::Keyboard::isKeyPressed(static_cast<sf::Keyboard::Key>(i)) && currentInput.length() < 150) {
 				currentInput += static_cast<char>('a' + i);
 				text.setString(wrapText(currentInput));
 				std::cout << "Current input: " << currentInput << std::endl;
