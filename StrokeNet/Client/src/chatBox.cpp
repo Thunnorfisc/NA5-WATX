@@ -156,9 +156,13 @@ void ChatBox::handleEvent(const sf::Event& event)
 				text.setString("");
 			}
 		}
-		else if (ch >= 32 && ch < 127 && currentInput.size() < MAX_MESSAGE_LENGTH) {
+		else if ((ch == 32 || ch >= 65 && ch <= 90 || ch >= 97 && ch <= 122) && currentInput.size() < MAX_MESSAGE_LENGTH) {
 			currentInput += static_cast<char>(ch);
 			text.setString(wrapText(currentInput));
+		}
+		else if (ch == 126) {
+			// tilde or ~ to clear chat for testing clear all chat
+			messagesReceivedFromServer.clear();
 		}
 
 #if _DEBUG
@@ -166,4 +170,8 @@ void ChatBox::handleEvent(const sf::Event& event)
 #endif
 	}
 
+}
+
+void ChatBox::clearChatHistory() {
+	messagesReceivedFromServer.clear();
 }
