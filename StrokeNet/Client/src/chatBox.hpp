@@ -34,7 +34,7 @@ struct ChatBox
 
 	bool handleChatBox();
 	void draw(sf::RenderWindow& window);
-	void sendMessage(const std::string& name, const std::string& message);
+	void sendMessageToServer(const std::string& name, const std::string& message);
 	void receiveMessageFromServer(const std::string& name, const std::string& message);
 	void setTyping(bool typing) { m_isTyping = typing; }
 	std::string wrapText(const std::string& input);

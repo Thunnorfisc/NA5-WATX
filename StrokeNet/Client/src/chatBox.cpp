@@ -90,7 +90,7 @@ void ChatBox::draw(sf::RenderWindow& window)
 
 }
 
-void ChatBox::sendMessage(const std::string& name, const std::string& message)
+void ChatBox::sendMessageToServer(const std::string& name, const std::string& message)
 {
 	std::cout << "Sending message: " << name << ": " << message << std::endl;
 
@@ -138,7 +138,7 @@ bool ChatBox::handleChatBox()
 {
 	if (m_isTyping) {
 		if (sf::Keyboard::isKeyPressed(static_cast<sf::Keyboard::Key>(58))) {
-			sendMessage("SnowPuppy", currentInput);
+			sendMessageToServer("SnowPuppy", currentInput);
 			currentInput.clear();
 			text.setString("");
 			return true;
