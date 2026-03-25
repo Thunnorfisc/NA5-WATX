@@ -329,4 +329,34 @@ inline void hashbrown256(const std::string& str, unsigned char* digest) {
     EVP_DigestFinal_ex(ctx, digest, NULL);
     EVP_MD_CTX_free(ctx);
 }
+
+inline void Encode_sha_2_64(std::string const& data, unsigned char* ret_encoded){
+    //int encodedLen = 4 * ((len + 2) / 3);
+    //std::string ret(encodedLen, '\0');
+
+    EVP_EncodeBlock(ret_encoded, reinterpret_cast<unsigned char const *>(data.c_str()), static_cast<int>(data.size()));
+}
+
+inline std::string Decode_64_2_sha(const std::string& input){
+    int len = input.size();
+    std::string out(len, '\0');  // allocate properly
+
+    int decodedLen = EVP_DecodeBlock(
+        reinterpret_cast<unsigned char*>(&out[0]),
+        reinterpret_cast<const unsigned char*>(input.c_str()),
+        len
+    );
+
+    if (decodedLen < 0)
+        return {};
+
+    // handle padding
+    int padding = 0;
+    if (len >= 1 && input[len - 1] == '=') padding++;
+    if (len >= 2 && input[len - 2] == '=') padding++;
+
+    out.resize(decodedLen - padding);
+
+    return out;
+}
 // ========================================== NETWORKING SHARED UTILITIES END

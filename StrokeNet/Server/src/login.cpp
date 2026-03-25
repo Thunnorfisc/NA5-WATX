@@ -13,6 +13,7 @@
 /* End Header
 ***********************************************************************/
 #include "login.hpp"
+#include "shared_protocol.hpp"
 
 #include <rapidjson/document.h>
 #include <rapidjson/prettywriter.h>
@@ -39,7 +40,7 @@ void UserStore::load()
 
     for (auto& u : doc["users"].GetArray())
     {
-        _users[u["username"].GetString()] = u["password"].GetString();
+        _users[u["username"].GetString()] = Decode_64_2_sha(u["password"].GetString());
     }
 }
 
@@ -52,6 +53,9 @@ void UserStore::save()
     rapidjson::Value arr(rapidjson::kArrayType);
     for (auto& [user, pass] : _users)
     {
+        unsigned char encodedBase64[45]{};
+        Encode_sha_2_64(pass, encodedBase64);
+
         rapidjson::Value obj(rapidjson::kObjectType);
         obj.AddMember("username",
             rapidjson::Value(user.c_str(), alloc), alloc);
