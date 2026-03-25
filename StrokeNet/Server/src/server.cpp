@@ -621,7 +621,7 @@ void Server::handle_reqMsg(std::span<const char> udpPacketWithoutMID, sockaddr_i
         svrmsg.resize(PacketSize::NTF_MSG_WITHOUT_BUFFER + msgLength + nameLength);
         ByteWriter svrwrt{ .buffer = svrmsg };
         svrwrt.write(static_cast<char>(MessageType::NTF_MSG));
-        svrwrt.write(std::uint32_t{}); // dummy
+        svrwrt.write(htonl(ssiho));
         svrwrt.write(htonl(_messageIdServer));
         svrwrt.write(msgLength);
         svrwrt.writeSpan(actualmsg);
