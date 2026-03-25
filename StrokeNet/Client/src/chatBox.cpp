@@ -19,21 +19,22 @@ const float CHATBOX_WIDTH = 310.f;
 const float CHATBOX_HEIGHT = 700.f;
 const float CHATBOX_POSITION_X = 1270.f;
 const float CHATBOX_POSITION_Y = 120.f;
-const float TYPING_AREA_HEIGHT = 103.f;
-const float TEXT_PADDING = 3.f;
-const float MAX_TEXT_WIDTH = CHATBOX_WIDTH - (2.f * TEXT_PADDING);
+const float TYPING_AREA_HEIGHT = 50.f;
 
-ChatBox::ChatBox(const std::string& fontPath) : text(font), sampleText(font)
+ChatBox::ChatBox(const std::string& fontPath) : text(font)
 {
-	if (!font.openFromFile(fontPath)) throw std::runtime_error("Failed to load font from: " + fontPath);
+	if (!font.openFromFile(fontPath))
+	{
+		throw std::runtime_error("Failed to load font from: " + fontPath);
+	}
 
 	textBackground.setPosition({ CHATBOX_POSITION_X, CHATBOX_POSITION_Y });
 	textBackground.setSize(sf::Vector2f(CHATBOX_WIDTH, CHATBOX_HEIGHT));
-	textBackground.setFillColor(sf::Color(120, 120, 120));
+	textBackground.setFillColor(sf::Color(120,120,120));
 	textBackground.setOutlineThickness(2.f);
 	textBackground.setOutlineColor(sf::Color(80, 80, 80));
 
-	textTypingArea.setPosition({ CHATBOX_POSITION_X, CHATBOX_POSITION_Y + CHATBOX_HEIGHT - TYPING_AREA_HEIGHT });
+	textTypingArea.setPosition({ CHATBOX_POSITION_X, CHATBOX_POSITION_Y + CHATBOX_HEIGHT - TYPING_AREA_HEIGHT});
 	textTypingArea.setSize(sf::Vector2f(CHATBOX_WIDTH, TYPING_AREA_HEIGHT));
 	textTypingArea.setFillColor(sf::Color(200, 200, 240));
 	textTypingArea.setOutlineThickness(1.f);
@@ -41,12 +42,7 @@ ChatBox::ChatBox(const std::string& fontPath) : text(font), sampleText(font)
 
 	text.setCharacterSize(16);
 	text.setFillColor(sf::Color::Black);
-	text.setPosition({ CHATBOX_POSITION_X + TEXT_PADDING, CHATBOX_POSITION_Y + CHATBOX_HEIGHT - TYPING_AREA_HEIGHT });
-
-	sampleText.setCharacterSize(16);
-	sampleText.setFillColor(sf::Color::Black);
-	sampleText.setString("Click and type here...");
-	sampleText.setPosition({ CHATBOX_POSITION_X + TEXT_PADDING, CHATBOX_POSITION_Y + CHATBOX_HEIGHT - TYPING_AREA_HEIGHT });
+	text.setPosition({ CHATBOX_POSITION_X + 3, CHATBOX_POSITION_Y + CHATBOX_HEIGHT - TYPING_AREA_HEIGHT });
 }
 
 void ChatBox::draw(sf::RenderWindow& window)
@@ -54,32 +50,6 @@ void ChatBox::draw(sf::RenderWindow& window)
 	window.draw(textBackground);
 	window.draw(textTypingArea);
 	window.draw(text);
-
-	if (currentInput.empty() && !m_isTyping) window.draw(sampleText);
-
-	if (m_isTyping) {
-		sf::Text cursor(font, "|", text.getCharacterSize());
-		cursor.setFillColor(sf::Color::Black);
-
-		std::string wrappedStr = text.getString();
-		size_t lastNewline = wrappedStr.rfind('\n');
-		std::string lastLine = (lastNewline == std::string::npos) ? wrappedStr : wrappedStr.substr(lastNewline + 1);
-
-		sf::Text lastLineText(font, lastLine, text.getCharacterSize());
-		float lastLineWidth = lastLineText.getLocalBounds().size.x;
-
-		sf::FloatRect textBounds = text.getLocalBounds();
-		float textHeight = textBounds.size.y;
-
-		float cursorX = text.getPosition().x + lastLineWidth;
-		float cursorY;
-		// sum hack lmao
-		if (currentInput.empty()) cursorY = text.getPosition().y + textHeight;
-		else cursorY = (text.getPosition().y + textHeight) - 10;
-		cursor.setPosition({ cursorX, cursorY });
-		window.draw(cursor);
-	}
-
 }
 
 void ChatBox::sendMessage(const std::string& name, const std::string& message)
@@ -89,29 +59,8 @@ void ChatBox::sendMessage(const std::string& name, const std::string& message)
 
 void ChatBox::receiveMessageFromServer(const std::string& name, const std::string& message)
 {
+	
 
-
-}
-
-std::string ChatBox::wrapText(const std::string& input)
-{
-	std::string wrappedText;
-	std::string currentLine;
-
-	for (int i = 0; i < input.length(); ++i) {
-		currentLine += input[i];
-
-		sf::Text tempText(font, currentLine, text.getCharacterSize());
-		if (tempText.getLocalBounds().size.x > MAX_TEXT_WIDTH) {
-			currentLine.pop_back();
-			wrappedText += currentLine + "\n";
-			currentLine = "";
-			currentLine += input[i];
-		}
-	}
-
-	wrappedText += currentLine;
-	return wrappedText;
 }
 
 bool ChatBox::handleChatBox()
@@ -126,14 +75,14 @@ bool ChatBox::handleChatBox()
 		else if (sf::Keyboard::isKeyPressed(static_cast<sf::Keyboard::Key>(59))) {
 			if (!currentInput.empty()) {
 				currentInput.pop_back();
-				text.setString(wrapText(currentInput));
+				text.setString(currentInput);
 				std::cout << "Current input: " << currentInput << std::endl;
 			}
 		}
 		for (int i = 0; i < 26; ++i) {
-			if (sf::Keyboard::isKeyPressed(static_cast<sf::Keyboard::Key>(i)) && currentInput.length() < 135) {
+			if (sf::Keyboard::isKeyPressed(static_cast<sf::Keyboard::Key>(i)) && currentInput.length() < 254) {
 				currentInput += static_cast<char>('a' + i);
-				text.setString(wrapText(currentInput));
+				text.setString(currentInput);
 				std::cout << "Current input: " << currentInput << std::endl;
 			}
 		}

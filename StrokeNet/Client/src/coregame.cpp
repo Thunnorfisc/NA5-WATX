@@ -42,7 +42,7 @@ CoreGameState::CoreGameState(StateMachine& stateMachine, StateContext& context) 
     m_font("resources/Marvel-Bold.ttf"),
     m_titleText(m_font, "Core Game", 32),
     m_backText(m_font, "Main Menu", 34),
-    m_chatBox("resources/Marvel-Regular.ttf")
+    m_chatBox("resources/Cinzel-Regular.ttf")
 {
     m_backButton.setRadius(110.0f);
     m_backButton.setOrigin({ 110.0f, 110.0f });

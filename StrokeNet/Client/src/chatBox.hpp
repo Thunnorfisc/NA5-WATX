@@ -24,7 +24,6 @@ struct ChatBox
 	sf::RectangleShape textTypingArea;
 
 	sf::Text text;
-	sf::Text sampleText;
 	std::string currentInput;
 	
 	bool m_isTyping = false;
@@ -36,6 +35,5 @@ struct ChatBox
 	void sendMessage(const std::string& name, const std::string& message);
 	void receiveMessageFromServer(const std::string& name, const std::string& message);
 	void setTyping(bool typing) { m_isTyping = typing; }
-	std::string wrapText(const std::string& input);
 };
 
