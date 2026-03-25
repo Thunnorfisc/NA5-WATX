@@ -92,7 +92,9 @@ void ChatBox::draw(sf::RenderWindow& window)
 
 void ChatBox::sendMessageToServer(const std::string& name, const std::string& message)
 {
+#if _DEBUG
 	std::cout << "Sending message: " << name << ": " << message << std::endl;
+#endif
 
 	// temp for now till it can receive from server
 	receiveMessageFromServer("SnowPuppy", message);
@@ -134,30 +136,37 @@ std::string ChatBox::wrapText(const std::string& input)
 	return wrappedText;
 }
 
-bool ChatBox::handleChatBox()
+void ChatBox::handleEvent(const sf::Event& event)
 {
-	if (m_isTyping) {
-		if (sf::Keyboard::isKeyPressed(static_cast<sf::Keyboard::Key>(58))) {
-			sendMessageToServer("SnowPuppy", currentInput);
-			currentInput.clear();
-			text.setString("");
-			return true;
-		}
-		else if (sf::Keyboard::isKeyPressed(static_cast<sf::Keyboard::Key>(59))) {
+	if (!m_isTyping) return;
+
+	// ty william
+	if (const auto* textEntered = event.getIf<sf::Event::TextEntered>()) {
+		std::uint32_t ch = textEntered->unicode;
+
+		if (ch == ' ' && text.getString() == "") return;
+
+		if (ch == '\b') { // bckspace
 			if (!currentInput.empty()) {
 				currentInput.pop_back();
 				text.setString(wrapText(currentInput));
-				std::cout << "Current input: " << currentInput << std::endl;
 			}
 		}
-		for (int i = 0; i < 26; ++i) {
-			if (sf::Keyboard::isKeyPressed(static_cast<sf::Keyboard::Key>(i)) && currentInput.length() < MAX_MESSAGE_LENGTH) {
-				currentInput += static_cast<char>('a' + i);
-				text.setString(wrapText(currentInput));
-				std::cout << "Current input: " << currentInput << std::endl;
+		else if (ch == '\r' || ch == '\n') { // enter
+			if (!currentInput.empty()) {
+				sendMessageToServer("SnowPuppy", currentInput);
+				currentInput.clear();
+				text.setString("");
 			}
 		}
-		return true;
+		else if (ch >= 32 && ch < 127 && currentInput.size() < MAX_MESSAGE_LENGTH) {
+			currentInput += static_cast<char>(ch);
+			text.setString(wrapText(currentInput));
+		}
+
+#if _DEBUG
+		std::cout << "Current input: " << currentInput << std::endl;
+#endif
 	}
-	return false;
+
 }
