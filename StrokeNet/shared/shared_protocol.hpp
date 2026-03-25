@@ -72,6 +72,14 @@ namespace PacketSize
     // [RSP_START_STROKE][SESSION_ID][STROKE_ID]
     constexpr inline std::size_t RSP_END_STROKE = 9;
 
+    //  1        4           4       1           VAR
+    // [REQ_MSG][SESSION_ID][MSG_ID][MSG_LENGTH][MSG_BUFFER]
+    constexpr inline std::size_t REQ_MSG_WITHOUT_BUFFER = 10;
+    
+    //  1        4           4
+    // [RSP_MSG][SESSION_ID][MSG_ID]
+    constexpr inline std::size_t RSP_MSG = 9;
+
     //  1                  4           4          4
     // [FAF_EXTEND_STROKE][SESSION_ID][STROKE_ID][MOUSE_POS]
     constexpr inline std::size_t FAF_EXTEND_STROKE = 13;
@@ -87,6 +95,10 @@ namespace PacketSize
     //  1                  4           4
     // [SVR_EXTEND_STROKE][SESSION_ID][MOUSE_POS]
     constexpr inline std::size_t SVR_EXTEND_STROKE = 9;
+
+    //  1        4           1           VAR
+    // [SVR_MSG][SESSION_ID][MSG_LENGTH][MSG_BUFFER]
+    constexpr inline std::size_t SVR_MSG_WITHOUT_BUFFER = 6;
 }
 // ============================================================
 // REQ_ / RSP_ pairs means that an ack must be received
@@ -97,24 +109,29 @@ enum class MessageType: std::uint8_t
 {
     // Require Ack
     REQ_LOGIN = 1,
-    RSP_LOGIN = 2,
-    REQ_CREATE_ACCOUNT = 3,
-    REQ_UNREGISTER = 4,
+    RSP_LOGIN,
+    REQ_CREATE_ACCOUNT,
+    REQ_UNREGISTER,
 
     // Require Ack
-    REQ_START_STROKE = 5,
-    RSP_START_STROKE = 6,
+    REQ_START_STROKE,
+    RSP_START_STROKE,
 
-    REQ_END_STROKE = 7,
-    RSP_END_STROKE = 8,
+    REQ_END_STROKE,
+    RSP_END_STROKE,
+
+    REQ_MSG,
+    RSP_MSG,
 
     // Best effort
-    FAF_EXTEND_STROKE = 9,
+    FAF_EXTEND_STROKE,
 
     // Best effort
-    SVR_START_STROKE = 10,
-    SVR_END_STROKE = 11,
-    SVR_EXTEND_STROKE = 12
+    SVR_START_STROKE,
+    SVR_END_STROKE,
+    SVR_EXTEND_STROKE,
+
+    SVR_MSG
 };
 
 enum class LoginStatus: std::uint8_t
