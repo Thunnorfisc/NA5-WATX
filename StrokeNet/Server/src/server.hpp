@@ -54,9 +54,9 @@ private:
     {
         std::string ipPort;
         sockaddr_in sa;
-    };
 
-    UserStore _userStore;
+        std::optional<std::uint32_t> currentStrokeId;
+    };
 
     SOCKET _socket = INVALID_SOCKET;
     unsigned _portHostOrder = 0;
@@ -64,17 +64,23 @@ private:
     std::thread _thread;
     std::atomic<bool> _threadFinished = false;
     std::stop_source _stopSource;
-
     const int _maxRetry = 5;
     const double _recvTimeOut = 0.1;
-
     SessionId _nextSessionIdHostOrder = InvalidSessionId + 1;
 
-    std::mutex _clientStorageMutex;
+    // Game stuff
+    std::atomic<SessionId> _currentAllowedToDraw = InvalidSessionId;
+    UserStore _userStore;
 
+    // Handling messages
     void handle_reqLogin(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
     void handle_reqCreateAccount(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
     void handle_reqUnregister(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
+
+    void handle_reqStartStroke(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
+    void handle_reqEndStroke(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
+
+    void handle_fafExtendStroke(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
 
     using MessageFn = void(Server::*)(std::span<const char>, sockaddr_in*);
     const std::unordered_map<MessageType, MessageFn> _messageTypeFns
@@ -82,12 +88,18 @@ private:
         std::make_pair(MessageType::REQ_LOGIN, &Server::handle_reqLogin),
         std::make_pair(MessageType::REQ_CREATE_ACCOUNT, &Server::handle_reqCreateAccount),
         std::make_pair(MessageType::REQ_UNREGISTER,&Server::handle_reqUnregister),
+
+        std::make_pair(MessageType::REQ_START_STROKE, &Server::handle_reqStartStroke),
+        std::make_pair(MessageType::REQ_END_STROKE, &Server::handle_reqEndStroke),
+
+        std::make_pair(MessageType::FAF_EXTEND_STROKE, &Server::handle_fafExtendStroke),
     };
 
     // right now, if client misbehaves and keeps sending
     // registeration after registration without deregistering
     // then we have a leak
     std::unordered_map<SessionId, Client> _sessionIdToClient;
+    std::mutex _clientStorageMutex;
     // ========================= runs on a different thread
     void actualStartListening(std::stop_token st) noexcept;
     // ========================= all called by the receiving thread start

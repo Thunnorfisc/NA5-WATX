@@ -44,9 +44,9 @@ namespace PacketSize
     // [REQ_START_STROKE][SESSION_ID][STROKE_ID][MOUSE_POS][RGBAT]
     constexpr inline std::size_t REQ_START_STROKE = 18;
     
-    //  1                 4           4          4          5
-    // [RSP_START_STROKE][SESSION_ID][STROKE_ID][MOUSE_POS][RGBAT]
-    constexpr inline std::size_t RSP_START_STROKE = 18;
+    //  1                 4           4
+    // [RSP_START_STROKE][SESSION_ID][STROKE_ID]
+    constexpr inline std::size_t RSP_START_STROKE = 9;
 
     //  1               4           4
     // [REQ_END_STROKE][SESSION_ID][STROKE_ID]
@@ -79,19 +79,23 @@ namespace PacketSize
 // ============================================================
 enum class MessageType: std::uint8_t
 {
+    // Require Ack
     REQ_LOGIN = 1,
     RSP_LOGIN = 2,
     REQ_CREATE_ACCOUNT = 3,
     REQ_UNREGISTER = 4,
 
+    // Require Ack
     REQ_START_STROKE = 5,
     RSP_START_STROKE = 6,
 
     REQ_END_STROKE = 7,
     RSP_END_STROKE = 8,
 
+    // Best effort
     FAF_EXTEND_STROKE = 9,
 
+    // Best effort
     SVR_START_STROKE = 10,
     SVR_END_STROKE = 11,
     SVR_EXTEND_STROKE = 12
@@ -163,6 +167,11 @@ inline bool isRecoverableWSAError(int err)
     default:
         return false;
     }
+}
+
+inline bool isRetryableSelectError(int err)
+{
+    return err == WSAEINTR;
 }
 // ========================================== WIN SOCK STUFF END
 

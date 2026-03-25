@@ -203,7 +203,7 @@ void Client::startListening(std::stop_token st)
 {
     std::vector<char> buf(MaxUdpPacketBytes);
 
-    while(!st.stop_requested())
+    while (!st.stop_requested())
     {
         // send any commands
         auto now = std::chrono::steady_clock::now();
@@ -279,17 +279,26 @@ void Client::startListening(std::stop_token st)
         fd_set rs;
         FD_ZERO(&rs);
         FD_SET(_socket, &rs);
-        timeval tv{0, static_cast<long>(_recvTimeOut * 1'000'000.0)};
+        timeval tv{ 0, static_cast<long>(_recvTimeOut * 1'000'000.0) };
 
         int ready = select(0, &rs, nullptr, nullptr, &tv);
-        if(ready == SOCKET_ERROR) { log(std::cerr, "[Client] listen select() failed"); return; }
+        if (ready == SOCKET_ERROR)
+        {
+            if (!isRetryableSelectError(WSAGetLastError()))
+            {
+                log(std::cerr, "[Client] listen select() failed");
+                return;
+            }
+            else continue;
+        }
+
         if(ready == 0) continue;
 
-        sockaddr_in from{};
-        int fromLen = sizeof(from);
         // drain all the recvfrom
         while (true)
         {
+            sockaddr_in from{};
+            int fromLen = sizeof(from);
             int n = recvfrom(_socket, buf.data(), static_cast<int>(buf.size()),
                 0, reinterpret_cast<sockaddr*>(&from), &fromLen);
             if (n == SOCKET_ERROR)
@@ -298,6 +307,7 @@ void Client::startListening(std::stop_token st)
                 log(std::cerr, "[Client] recvfrom error");
                 break;
             }
+            else if (n == 0) continue; // move on with our lives
 
             auto mid = static_cast<MessageType>(buf[0]);
             auto it = _listenMsgFns.find(mid);
@@ -508,7 +518,7 @@ void Client::sendStartStroke(
     std::array<std::uint8_t, 5> rgbat)
 {
     std::vector<char> msg;
-    msg.resize(PacketSize::RSP_START_STROKE);
+    msg.resize(PacketSize::REQ_START_STROKE);
     ByteWriter wrt{ .buffer = msg };
     wrt.write(static_cast<char>(MessageType::REQ_START_STROKE));
     wrt.write(htonl(_sessionId));
@@ -572,7 +582,7 @@ void Client::sendEndStroke(std::uint32_t strokeid)
 std::queue<Client::ReceivedStrokeCommand> Client::getReceivedStrokeCommands()
 {
     if (!_strokeCommandsReceivedMut.try_lock()) return {};
-    std::queue<Client::ReceivedStrokeCommand> cpy;
+    std::queue<ReceivedStrokeCommand> cpy;
     cpy.swap(_strokeCommandsReceived);
     _strokeCommandsReceivedMut.unlock();
     return cpy;

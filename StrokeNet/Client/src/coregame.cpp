@@ -104,6 +104,7 @@ void CoreGameState::update(sf::Time)
                     clr.g,
                     clr.b,
                     clr.a,
+                    6
             });
         }
     }
@@ -144,9 +145,12 @@ void CoreGameState::update(sf::Time)
                     static_cast<float>(mousePos[1])
                 },
                 sf::Color{
-                    rgbat[0],rgbat[1],rgbat[2],rgbat[3]
+                    static_cast<std::uint8_t>(rgbat[0]),
+                    static_cast<std::uint8_t>(rgbat[1]),
+                    static_cast<std::uint8_t>(rgbat[2]),
+                    static_cast<std::uint8_t>(rgbat[3])
                 },
-                rgbat[4]
+                static_cast<float>(rgbat[4])
             );
             break;
         }
