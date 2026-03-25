@@ -25,11 +25,15 @@
 #include <thread>
 #include <vector>
 #include <chrono>
+#include <ostream>
+#include <iostream>
 #include <optional>
 #include <stop_token>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 
+void log(std::ostream& os, std::string_view msg);
 class Client
 {
 public:
@@ -40,14 +44,15 @@ public:
     static LoginStatus createAccountViaBroadcast(const std::string& username, const std::string& password);
     static void        disconnect();
 
-    // ============================================================
-    // Drawing canvas thingies
-    // ============================================================
     struct ReceivedStrokeCommand
     {
         enum class Type : std::uint8_t { START_STROKE, EXTEND_STROKE, END_STROKE };
         std::vector<char> _data;
         Type _type;
+    };
+    struct ReceivedChatMessage
+    {
+        std::string _message;
     };
     // ============================================================
     // Drawing canvas thingies - send
@@ -71,6 +76,11 @@ public:
     // ============================================================
     static void sendChatMessage(std::uint32_t msgId,const std::string& message);
 
+    // ============================================================
+    // Chat message thingies - receive
+    // ============================================================
+    static std::queue<ReceivedChatMessage> getReceivedChatMessages();
+
 private:
     // ============================================================
     // Socket / session
@@ -88,20 +98,37 @@ private:
     static inline const double _recvTimeOut = 0.05;
     static inline const int    _maxRetries = 3;
 
-    //static inline std::atomic<SequenceNumber> _nextSeq = 0; // this one idk use for what, nid to evaluate again
+    // ============================================================
+    // Chat messages thingies - Seen msges id
+    // ============================================================
+    static inline std::unordered_set<std::uint32_t> _seenMsgesId;
+
+    struct BufferedToSend
+    {
+        std::vector<char> _data;
+        std::uint32_t _hostId;
+    };
+    // ============================================================
+    // Drawing canvas thingies - BSSTS
+    // ============================================================
+    static inline std::mutex _bufferedStartStrokeMutex;
+    static inline std::queue<BufferedToSend> _bufferedStartStrokeQueue;
 
     // ============================================================
-    // Drawing canvas thingies
+    // Drawing canvas thingies - BESTS
     // ============================================================
-    struct BufferedStartEndStrokeToSend
-    {
-        enum class Type : uint8_t { START_STROKE, END_STROKE };
-        std::vector<char> _data;
-        std::uint32_t _hostStrokeId;
-        Type _type;
-    };
-    static inline std::mutex _bsestsMutex;
-    static inline std::queue<BufferedStartEndStrokeToSend> _bsestsQueue;
+    static inline std::mutex _bufferEndStrokeMutex;
+    static inline std::queue<BufferedToSend> _bufferedEndStrokeQueue;
+
+    // ============================================================
+    // Chat messages thingies - BMTS
+    // ============================================================
+    static inline std::mutex _bmtsMsgesMutex;
+    static inline std::queue<BufferedToSend> _bufferedMsgesQueue;
+
+    // ============================================================
+    // Pending acks
+    // ============================================================
 
     struct PendingBSESTS
     {
@@ -112,15 +139,17 @@ private:
     };
 
     // ============================================================
-    // Keys are stroke ids.
+    // Keys are ids.
     // Pending unordered maps are basically a staging area until
-    // the respective rsp's arrive and the listening thread 
-    // erases them and pushes data into _strokeCommandsReceived OR
+    // the respective rsps's arrive and the listening thread 
+    // erases them and pushes data into their respective queues OR
     // it times out and the listening thread erases them or retries sending
     // depending on which time timed out.
     // ============================================================
     static inline std::unordered_map<std::uint32_t, PendingBSESTS> _pendingStartStrokes;
     static inline std::unordered_map<std::uint32_t, PendingBSESTS> _pendingEndStrokes;
+
+    static inline std::unordered_map<std::uint32_t, PendingBSESTS> _pendingMsges;
 
     // ============================================================
     // Used for the game to check if there are any stroke commands
@@ -129,14 +158,23 @@ private:
     static inline std::queue<ReceivedStrokeCommand> _strokeCommandsReceived;
 
     // ============================================================
+    // Used for the game to check if there are any messages
+    // ============================================================
+    static inline std::mutex _msgesReceivedMut;
+    static inline std::queue<ReceivedChatMessage> _msgesReceived;
+
+    // ============================================================
     // Listening thread
     // ============================================================
-    static void handle_RSP_StartStroke(std::span<const char> msg); // < drain from _pending
-    static void handle_RSP_EndStroke(std::span<const char> msg); // < drain from _pending
+    static void handle_RSP_StartStroke(std::span<const char> msg); // < drain from respective _pending
+    static void handle_RSP_EndStroke(std::span<const char> msg); // < drain from respective _pending
+    static void handle_RSP_Msg(std::span<const char> msg); // < drain from respective _pending
 
     static void handle_SVR_StartStroke(std::span<const char> msg); // < push into _strokeCommandsRecv
     static void handle_SVR_EndStroke(std::span<const char> msg); // < push into _strokeCommandsRecv
     static void handle_SVR_ExtendStroke(std::span<const char> msg); // < push into _strokeCommandsRecv
+
+    static void handle_NTF_Msg(std::span<const char> msg); // < send back ack to server
 
     static void startListening(std::stop_token st);
 
@@ -145,9 +183,68 @@ private:
     {
         { MessageType::RSP_START_STROKE, &Client::handle_RSP_StartStroke },
         { MessageType::RSP_END_STROKE, &Client::handle_RSP_EndStroke },
+        { MessageType::RSP_MSG, &Client::handle_RSP_Msg },
 
         { MessageType::SVR_START_STROKE, &Client::handle_SVR_StartStroke },
         { MessageType::SVR_END_STROKE, &Client::handle_SVR_EndStroke },
         { MessageType::SVR_EXTEND_STROKE, &Client::handle_SVR_ExtendStroke },
+
+        { MessageType::NTF_MSG, &Client::handle_NTF_Msg },
     };
+
+    // ============================================================
+    // Helpers
+    // ============================================================
+    template <typename BufferedT>
+    static void tickBuffered(std::mutex& mut,
+        std::unordered_map<std::uint32_t, PendingBSESTS>& map,
+        std::queue<BufferedT>& queue,
+        std::chrono::steady_clock::time_point& now,
+        std::string_view name)
+    {
+        if (auto lk = std::unique_lock(mut, std::try_to_lock); lk.owns_lock() && !queue.empty())
+        {
+            std::queue<BufferedT> cpyQueue;
+            cpyQueue.swap(queue);
+            lk.unlock();
+            while (!cpyQueue.empty())
+            {
+                auto buffered = cpyQueue.front();
+                cpyQueue.pop();
+                sendto(_socket, buffered._data.data(), static_cast<int>(buffered._data.size()),
+                    0, reinterpret_cast<sockaddr*>(&_serverAddr), sizeof(_serverAddr));
+
+                // Add to pending with deadlines
+                PendingBSESTS pending{
+                    ._data = buffered._data,
+                    ._nextSendTime = now + std::chrono::milliseconds(100),  // retry interval
+                    ._giveUpTime = now + std::chrono::seconds(1),           // total wait
+                };
+                map[buffered._hostId] = std::move(pending);
+            }
+        }
+
+        for (auto it = map.begin(); it != map.end();)
+        {
+            if (now >= it->second._giveUpTime) // no more retries, just give up
+            {
+                log(std::cerr, std::format("[Client] {} {} timed out",name, it->first));
+                it = map.erase(it);
+                continue;
+            }
+
+            // didnt get back an ack, but exceed attempt time
+            // so, send data again, and reset the attempt timer
+            if (now >= it->second._nextSendTime)
+            {
+                sendto(_socket, it->second._data.data(), static_cast<int>(it->second._data.size()),
+                    0, reinterpret_cast<sockaddr*>(&_serverAddr), sizeof(_serverAddr));
+                it->second._nextSendTime = now + std::chrono::milliseconds(100);
+            }
+            // move on to the next pending
+            ++it;
+        }
+    }
+
+    static bool sendWithRetry(std::span<const char> data);
 };

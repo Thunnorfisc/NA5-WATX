@@ -31,14 +31,11 @@
 #include <iphlpapi.h>
 #pragma comment(lib, "Ws2_32.lib")
 
-namespace
+static std::mutex s_logMutex;
+void log(std::ostream& os, std::string_view msg)
 {
-    std::mutex s_logMutex;
-    void log(std::ostream& os, std::string_view msg)
-    {
-        std::lock_guard lock(s_logMutex);
-        os << msg << '\n';
-    }
+    std::lock_guard lock(s_logMutex);
+    os << msg << '\n';
 }
 
 // ============================================================
@@ -142,6 +139,26 @@ void Client::handle_RSP_EndStroke(std::span<const char> msg)
 }
 
 // ============================================================
+// RSP_MSG
+// ============================================================
+
+void Client::handle_RSP_Msg(std::span<const char> msg)
+{
+    assert(msg.size() == (PacketSize::RSP_MSG - 1) && "Size of rsp_msg is wrong");
+    ByteReader rdr{ .buffer = msg };
+    auto sessionIdHost = ntohl(rdr.read<SessionId>());
+    if (sessionIdHost != _sessionId)
+    {
+        log(std::cerr,
+            std::format("[Client] Received an invalid session id [{}] from the server, ignoring packet", sessionIdHost));
+        return;
+    }
+    auto msgIdHost = ntohl(rdr.read<std::uint32_t>());
+    // simply erase, might or might not succeed its ok.
+    _pendingMsges.erase(msgIdHost);
+}
+
+// ============================================================
 // SVR_START_STROKE
 // ============================================================
 
@@ -228,6 +245,65 @@ void Client::handle_SVR_ExtendStroke(std::span<const char> msg)
 }
 
 // ============================================================
+// NTF_MSG
+// ============================================================
+
+void Client::handle_NTF_Msg(std::span<const char> msg)
+{
+    ByteReader rdr{ .buffer = msg };
+    auto sessionIdHost = ntohl(rdr.read<SessionId>());
+    if (sessionIdHost != _sessionId)
+    {
+        log(std::cerr,
+            std::format("[Client] Received an invalid session id [{}] from the server, ignoring packet", sessionIdHost));
+        return;
+    }
+    auto msgIdHost = ntohl(rdr.read<std::uint32_t>());
+    auto msgLengthHost = rdr.read<std::uint8_t>();
+    
+    std::vector<char> chatmsg;
+    chatmsg.resize(msgLengthHost);
+    assert(rdr.offset + msgLengthHost <= rdr.buffer.size() && "ByteReader Overflow");
+    std::memcpy(chatmsg.data(), rdr.buffer.data() + rdr.offset, msgLengthHost);
+
+    // Prepare ack to send back to server
+    std::array<char, PacketSize::NTF_RCV_MSG> ntfrcvmsg;
+    ByteWriterN wrt{ .buffer = ntfrcvmsg };
+    wrt.write(static_cast<char>(MessageType::NTF_RCV_MSG));
+    wrt.write(htonl(_sessionId));
+    wrt.write(htonl(msgIdHost));
+
+    // if not able to send back ntf_rcv_msg,
+    // log, and continue pushing the message
+    // into the recvQueue
+    if (!sendWithRetry(ntfrcvmsg))
+    {
+        log(std::cerr, "[Client] Unable to send NTF_RCV_MSG back to server");
+    }
+
+    // we only check here if we have already seen this
+    // because we want the server to stop sending regardless if
+    // we already seen the message. its like letting a worried parent
+    // know that ure ok without them worrying and constantly pinging you
+    if (_seenMsgesId.contains(msgIdHost))
+    {
+        log(std::cerr,
+            std::format("[Client] Received an already seen message, discarding message"));
+        return;
+    }
+    _seenMsgesId.insert(msgIdHost);
+
+    // Write into queue
+    ReceivedChatMessage rcm;
+    rcm._message.resize(msgLengthHost);
+    assert(chatmsg.size() == rcm._message.size() && "Message length different!");
+    std::memcpy(rcm._message.data(), chatmsg.data(), chatmsg.size());
+
+    std::lock_guard lock(_msgesReceivedMut);
+    _msgesReceived.push(std::move(rcm));
+}
+
+// ============================================================
 // startListening
 // ============================================================
 
@@ -239,73 +315,9 @@ void Client::startListening(std::stop_token st)
     {
         // send any commands
         auto now = std::chrono::steady_clock::now();
-        if (auto lk = std::unique_lock(_bsestsMutex, std::try_to_lock); lk.owns_lock() && !_bsestsQueue.empty())
-        {
-            std::queue<BufferedStartEndStrokeToSend> cpyBsestsQueue;
-            cpyBsestsQueue.swap(_bsestsQueue);
-            lk.unlock();
-            while (!cpyBsestsQueue.empty())
-            {
-                auto bsests = cpyBsestsQueue.front();
-                cpyBsestsQueue.pop();
-                sendto(_socket, bsests._data.data(), static_cast<int>(bsests._data.size()),
-                    0, reinterpret_cast<sockaddr*>(&_serverAddr), sizeof(_serverAddr));
-
-                // Add to pending with deadlines
-                PendingBSESTS pending{
-                    ._data = bsests._data,
-                    ._nextSendTime = now + std::chrono::milliseconds(100),  // retry interval
-                    ._giveUpTime = now + std::chrono::seconds(1),           // total wait
-                };
-                if (bsests._type == BufferedStartEndStrokeToSend::Type::START_STROKE)
-                    _pendingStartStrokes[bsests._hostStrokeId] = std::move(pending);
-                else if (bsests._type == BufferedStartEndStrokeToSend::Type::END_STROKE)
-                    _pendingEndStrokes[bsests._hostStrokeId] = std::move(pending);
-                else assert(false && "Unhandled BufferedStartEndStrokeToSend::Type in Client::startListening()");
-            }
-        }
-
-        for (auto it = _pendingStartStrokes.begin(); it != _pendingStartStrokes.end();)
-        {
-            if (now >= it->second._giveUpTime) // no more retries, just give up
-            {
-                log(std::cerr, std::format("[Client] Start Stroke {} timed out", it->first));
-                it = _pendingStartStrokes.erase(it);
-                continue;
-            }
-
-            // didnt get back an ack, but exceed attempt time
-            // so, send data again, and reset the attempt timer
-            if (now >= it->second._nextSendTime)
-            {
-                sendto(_socket, it->second._data.data(), static_cast<int>(it->second._data.size()),
-                    0, reinterpret_cast<sockaddr*>(&_serverAddr), sizeof(_serverAddr));
-                it->second._nextSendTime = now + std::chrono::milliseconds(100);
-            }
-            // move on to the next pending
-            ++it;
-        }
-
-        for (auto it = _pendingEndStrokes.begin(); it != _pendingEndStrokes.end();)
-        {
-            if (now >= it->second._giveUpTime) // no more retries, just give up
-            {
-                log(std::cerr, std::format("[Client] End Stroke {} timed out", it->first));
-                it = _pendingEndStrokes.erase(it);
-                continue;
-            }
-
-            // didnt get back an ack, but exceed attempt time
-            // so, send data again, and reset the attempt timer
-            if (now >= it->second._nextSendTime)
-            {
-                sendto(_socket, it->second._data.data(), static_cast<int>(it->second._data.size()),
-                    0, reinterpret_cast<sockaddr*>(&_serverAddr), sizeof(_serverAddr));
-                it->second._nextSendTime = now + std::chrono::milliseconds(100);
-            }
-            // move on to the next pending
-            ++it;
-        }
+        tickBuffered(_bufferedStartStrokeMutex, _pendingStartStrokes, _bufferedStartStrokeQueue, now, "Start Stroke");
+        tickBuffered(_bufferEndStrokeMutex, _pendingEndStrokes, _bufferedEndStrokeQueue, now, "End Stroke");
+        tickBuffered(_bmtsMsgesMutex, _pendingMsges, _bufferedMsgesQueue, now, "Chat Message");
 
         // listen for commands
         fd_set rs;
@@ -347,6 +359,37 @@ void Client::startListening(std::stop_token st)
                 (it->second)(std::span<const char>(buf).subspan(1, n - 1));
         }
     }
+}
+
+// ============================================================
+// Helper - Send with retry
+// ============================================================
+
+bool Client::sendWithRetry(std::span<const char> data)
+{
+    bool success = false;
+    int svrAddrLen = sizeof(_serverAddr);
+    for (int i = 0; i < _maxRetries; i++)
+    {
+        int sentBytes = sendto(_socket, data.data(), static_cast<int>(data.size()),
+            0, reinterpret_cast<sockaddr*>(&_serverAddr),
+            svrAddrLen);
+        if (sentBytes == SOCKET_ERROR)
+        {
+            if (isRecoverableWSAError(WSAGetLastError())) continue;
+            else
+            {
+                success = false;
+                break;
+            }
+        }
+        else
+        {
+            success = true;
+            break;
+        }
+    }
+    return success;
 }
 
 // ============================================================
@@ -558,12 +601,11 @@ void Client::sendStartStroke(
     wrt.write(htons(mousePos[0]));
     wrt.write(htons(mousePos[1]));
     wrt.write(rgbat);
-    BufferedStartEndStrokeToSend bsests;
-    bsests._type = BufferedStartEndStrokeToSend::Type::START_STROKE;
-    bsests._data = std::move(msg);
-    bsests._hostStrokeId = strokeid;
-    std::lock_guard lock(_bsestsMutex);
-    _bsestsQueue.push(std::move(bsests));
+    BufferedToSend buffered;
+    buffered._data = std::move(msg);
+    buffered._hostId = strokeid;
+    std::lock_guard lock(_bufferedStartStrokeMutex);
+    _bufferedStartStrokeQueue.push(std::move(buffered));
 }
 
 // ============================================================
@@ -597,12 +639,11 @@ void Client::sendEndStroke(std::uint32_t strokeid)
     wrt.write(static_cast<char>(MessageType::REQ_END_STROKE));
     wrt.write(htonl(_sessionId));
     wrt.write(htonl(strokeid));
-    BufferedStartEndStrokeToSend bsests;
-    bsests._type = BufferedStartEndStrokeToSend::Type::END_STROKE;
-    bsests._data = std::move(msg);
-    bsests._hostStrokeId = strokeid;
-    std::lock_guard lock(_bsestsMutex);
-    _bsestsQueue.push(std::move(bsests));
+    BufferedToSend buffered;
+    buffered._data = std::move(msg);
+    buffered._hostId = strokeid;
+    std::lock_guard lock(_bufferEndStrokeMutex);
+    _bufferedEndStrokeQueue.push(std::move(buffered));
 }
 
 // ============================================================
@@ -617,5 +658,47 @@ std::queue<Client::ReceivedStrokeCommand> Client::getReceivedStrokeCommands()
     std::queue<ReceivedStrokeCommand> cpy;
     cpy.swap(_strokeCommandsReceived);
     _strokeCommandsReceivedMut.unlock();
+    return cpy;
+}
+
+// ============================================================
+// send req msg
+// ============================================================
+
+void Client::sendChatMessage(std::uint32_t msgId, const std::string& message)
+{
+    if (message.length() > 255)
+    {
+        log(std::cerr,
+            std::format("[Client] Message must be less than 256 characters, message received had {} characters", message.length()));
+        return;
+    }
+    std::vector<char> msg;
+    msg.resize(PacketSize::REQ_MSG_WITHOUT_BUFFER + message.length());
+    ByteWriter wrt{ .buffer = msg };
+    wrt.write(static_cast<char>(MessageType::REQ_MSG));
+    wrt.write(htonl(_sessionId));
+    wrt.write(htonl(msgId));
+    wrt.write(static_cast<std::uint8_t>(message.length()));
+    wrt.write(message);
+    BufferedToSend buffered;
+    buffered._data = std::move(msg);
+    buffered._hostId = msgId;
+    std::lock_guard lock(_bmtsMsgesMutex);
+    _bufferedMsgesQueue.push(std::move(buffered));
+}
+
+// ============================================================
+// for game to retrieve chat msges
+// 
+// only try_lock, if not move on
+// ============================================================
+
+std::queue<Client::ReceivedChatMessage> Client::getReceivedChatMessages()
+{
+    if (!_msgesReceivedMut.try_lock()) return {};
+    std::queue<ReceivedChatMessage> cpy;
+    cpy.swap(_msgesReceived);
+    _msgesReceivedMut.unlock();
     return cpy;
 }
