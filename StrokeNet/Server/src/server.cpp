@@ -356,7 +356,25 @@ void Server::handle_fafDisconnect(std::span<const char> udpPacketWithoutMID, soc
     return;
 }
 
+// ============================================================
+// NTF_RCV_CLEAR_CANVAS
+// ============================================================
+
 void Server::handle_ntfRcvClearCanvas(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
+{
+    ByteReader rdr{ .buffer = udpPacketWithoutMID };
+    auto sessionIdHostOrder = ntohl(rdr.read<SessionId>());
+    auto msgIdHostOrder = ntohl(rdr.read<std::uint32_t>());
+
+    std::lock_guard lock(_pendingNtfMsgMutex);
+    _pendingNtfMsg.erase(NtfKey{ sessionIdHostOrder, msgIdHostOrder });
+}
+
+// ============================================================
+// NTF_RCV_MSG
+// ============================================================
+
+void Server::handle_ntfRcvMsg(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
 {
     ByteReader rdr{ .buffer = udpPacketWithoutMID };
     auto sessionIdHostOrder = ntohl(rdr.read<SessionId>());
@@ -594,23 +612,38 @@ void Server::handle_reqMsg(std::span<const char> udpPacketWithoutMID, sockaddr_i
         nameLength = 15;
     }
 
-    // just send back to all clients TEMPORARY UNTIL WILLIAM FINISHES SERVER SIDE NTF_RCV IMPLEMENTATION!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-    std::vector<char> svrmsg;
-    svrmsg.resize(PacketSize::NTF_MSG_WITHOUT_BUFFER + msgLength + nameLength);
-    ByteWriter svrwrt{ .buffer = svrmsg };
-    svrwrt.write(static_cast<char>(MessageType::NTF_MSG));
-    svrwrt.write(std::uint32_t{}); // dummy
-    svrwrt.write(htonl(_messageIdServer++));
-    svrwrt.write(msgLength);
-    svrwrt.writeSpan(actualmsg);
-    svrwrt.write(nameLength);
-    svrwrt.writeSpan(name);
-    broadcastPacket(svrmsg,
-        [&](auto& pkt, SessionId sid)
-        {
-            SessionId networkSID = htonl(sid);
-            std::memcpy(pkt.data() + sizeof(MessageType::NTF_MSG), &networkSID, sizeof(networkSID));
-        });
+    // Now NTF all clients for msg
+    auto now = std::chrono::steady_clock::now();
+    std::lock_guard ntfLock(_pendingNtfClearCanvasMutex);
+    for (const auto& [ssiho, client] : _sessionIdToClient)
+    {
+        std::vector<char> svrmsg;
+        svrmsg.resize(PacketSize::NTF_MSG_WITHOUT_BUFFER + msgLength + nameLength);
+        ByteWriter svrwrt{ .buffer = svrmsg };
+        svrwrt.write(static_cast<char>(MessageType::NTF_MSG));
+        svrwrt.write(std::uint32_t{}); // dummy
+        svrwrt.write(htonl(_messageIdServer));
+        svrwrt.write(msgLength);
+        svrwrt.writeSpan(actualmsg);
+        svrwrt.write(nameLength);
+        svrwrt.writeSpan(name);
+
+        // Send immediately once
+        sockaddr_in clientSa = client.sa;
+        sendto(_socket, svrmsg.data(), static_cast<int>(svrmsg.size()), 0,
+            reinterpret_cast<sockaddr*>(&clientSa), sizeof(clientSa));
+
+        // Add to pending for retry
+        _pendingNtfClearCanvases[NtfKey{ ssiho, _messageIdServer }] = PendingNTF{
+            ._data = std::move(svrmsg),
+            ._clientAddr = client.sa,
+            ._targetSessionId = ssiho,
+            ._ntfId = _messageIdServer,
+            ._nextSendTime = now + std::chrono::milliseconds(100),
+            ._giveUpTime = now + std::chrono::seconds(2),
+        };
+    }
+    _messageIdServer++;
 }
 
 // ============================================================
@@ -805,6 +838,7 @@ void Server::actualStartListening(std::stop_token st) noexcept
     while (!st.stop_requested())
     {
         tickPendingNtf(_pendingNtfClearCanvasMutex, _pendingNtfClearCanvases, "NTF_CLEAR_CANVAS");
+        tickPendingNtf(_pendingNtfMsgMutex, _pendingNtfMsg, "NTF_MSG");
 
         fd_set readSet;
         FD_ZERO(&readSet);

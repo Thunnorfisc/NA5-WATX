@@ -130,9 +130,17 @@ private:
         }
     };
 
+    // ============================================================
     // Check for pending NTFs for clear canvas
+    // ============================================================
     std::mutex _pendingNtfClearCanvasMutex;
     std::unordered_map<NtfKey, PendingNTF, NtfKeyHash> _pendingNtfClearCanvases;
+
+    // ============================================================
+    // Check for pending NTFs for msgs
+    // ============================================================
+    std::mutex _pendingNtfMsgMutex;
+    std::unordered_map<NtfKey, PendingNTF, NtfKeyHash> _pendingNtfMsg;
 
     // ============================================================
     // Socket / session
@@ -163,22 +171,24 @@ private:
     void handle_fafDisconnect       (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
 
     void handle_ntfRcvClearCanvas   (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
+    void handle_ntfRcvMsg           (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
 
     using MessageFn = void(Server::*)(std::span<const char>, sockaddr_in*);
     const std::unordered_map<MessageType, MessageFn> _messageTypeFns
     {
-        std::make_pair(MessageType::REQ_LOGIN,           &Server::handle_reqLogin            ),
-        std::make_pair(MessageType::REQ_CREATE_ACCOUNT,  &Server::handle_reqCreateAccount    ),
-        std::make_pair(MessageType::REQ_MSG,            &Server::handle_reqMsg              ),
+        std::make_pair(MessageType::REQ_LOGIN,              &Server::handle_reqLogin            ),
+        std::make_pair(MessageType::REQ_CREATE_ACCOUNT,     &Server::handle_reqCreateAccount    ),
+        std::make_pair(MessageType::REQ_MSG,                &Server::handle_reqMsg              ),
         
-        std::make_pair(MessageType::REQ_START_STROKE,    &Server::handle_reqStartStroke      ),
-        std::make_pair(MessageType::REQ_END_STROKE,      &Server::handle_reqEndStroke        ),
-        std::make_pair(MessageType::REQ_CLEAR_CANVAS,    &Server::handle_reqClearCanvas      ),
+        std::make_pair(MessageType::REQ_START_STROKE,       &Server::handle_reqStartStroke      ),
+        std::make_pair(MessageType::REQ_END_STROKE,         &Server::handle_reqEndStroke        ),
+        std::make_pair(MessageType::REQ_CLEAR_CANVAS,       &Server::handle_reqClearCanvas      ),
         
-        std::make_pair(MessageType::FAF_EXTEND_STROKE,   &Server::handle_fafExtendStroke     ),
-        std::make_pair(MessageType::FAF_DISCONNECT,      &Server::handle_fafDisconnect       ),
+        std::make_pair(MessageType::FAF_EXTEND_STROKE,      &Server::handle_fafExtendStroke     ),
+        std::make_pair(MessageType::FAF_DISCONNECT,         &Server::handle_fafDisconnect       ),
 
-        std::make_pair(MessageType::NTF_RCV_CLEAR_CANVAS,&Server::handle_ntfRcvClearCanvas   )
+        std::make_pair(MessageType::NTF_RCV_CLEAR_CANVAS,   &Server::handle_ntfRcvClearCanvas   ),
+        std::make_pair(MessageType::NTF_RCV_MSG,            &Server::handle_ntfRcvMsg           )
     };
 
     // ============================================================
