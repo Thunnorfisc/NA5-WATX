@@ -80,7 +80,7 @@ bool ChatBox::handleChatBox()
 			}
 		}
 		for (int i = 0; i < 26; ++i) {
-			if (sf::Keyboard::isKeyPressed(static_cast<sf::Keyboard::Key>(i))) {
+			if (sf::Keyboard::isKeyPressed(static_cast<sf::Keyboard::Key>(i)) && currentInput.length() < 254) {
 				currentInput += static_cast<char>('a' + i);
 				text.setString(currentInput);
 				std::cout << "Current input: " << currentInput << std::endl;
