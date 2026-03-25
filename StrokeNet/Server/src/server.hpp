@@ -25,17 +25,23 @@
 #include <span>
 #include <deque>
 #include <mutex>
+#include <format>
 #include <string>
 #include <thread>
 #include <atomic>
 #include <vector>
 #include <utility>
 #include <cstdint>
+#include <ostream>
+#include <iostream>
 #include <optional>
 #include <stop_token>
 #include <functional>
+#include <string_view>
 #include <unordered_map>
 #include "login.hpp"
+
+void log(std::ostream& os, std::string_view msg);
 class Server
 {
 public:
@@ -110,6 +116,8 @@ private:
     void handle_reqStartStroke      (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
     void handle_reqEndStroke        (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
 
+    void handle_reqMsg              (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
+
     void handle_fafExtendStroke     (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
     void handle_fafDisconnect       (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
 
@@ -132,4 +140,25 @@ private:
     void actualStartListening(std::stop_token st) noexcept;
     SessionId getNextSessionIdHostOrder();
     bool destroySessionIdHostOrder(SessionId id, std::string ipPort);
+
+    // ============================================================
+    // Helpers
+    // ============================================================
+    bool sendWithRetry(std::span<const char> data, const sockaddr_in& sa);
+
+    template <typename Packet, typename FillFn>
+    void broadcastPacket(Packet& pkt,FillFn fill)
+    {
+        for (auto& [sid, client] : _sessionIdToClient)
+        {
+            fill(pkt, sid);
+
+            bool success = sendWithRetry(pkt, client.sa);
+            if (!success)
+            {
+                log(std::cerr,
+                    std::format("[Server] Broadcast send failed for client session id: {}", sid));
+            }
+        }
+    }
 };
