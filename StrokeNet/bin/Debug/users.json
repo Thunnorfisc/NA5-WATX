@@ -2,10 +2,20 @@
     "users": [
         {
             "username": "admin",
+            "password": "ï¿½ivï¿½A\u0004\u0015ï¿½ï¿½\bï¿½Mï¿½\u0015ß±gï¿½ï¿½sï¿½Kï¿½ï¿½\u001Fo*ï¿½Hï¿½\u0018",
+            "score": 0
             "password": "admin",
             "highscore": 0
         },
         {
+            "username": "timothy",
+            "password": "\u0019=0Cà)©ùû¬OJªÔ7íÂÅƒw\u0019ÅÌ_I“•sº÷‡`",
+            "score": 0
+        },
+        {
+            "username": "test",
+            "password": "ï¿½ï¿½Ğï¿½L}eï¿½/ï¿½ï¿½Zï¿½\u0015ï¿½ï¿½O\u001B+\u000Bï¿½,ï¿½]l\u0015ï¿½ï¿½\n\b",
+            "score": 0
             "username": "hi",
             "password": "fuck",
             "highscore": 0
@@ -16,6 +26,9 @@
             "highscore": 0
         },
         {
+            "username": "hi",
+            "password": "jÃÃ6ä\tH5):?íŠK_íŞ\u001B^&&ÙƒíPi;º",
+            "score": 0
             "username": "timothy",
             "password": "timothy",
             "highscore": 0

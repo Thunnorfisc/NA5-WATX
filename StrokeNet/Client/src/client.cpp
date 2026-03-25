@@ -464,8 +464,22 @@ LoginStatus Client::loginViaBroadcast(const std::string& username, const std::st
     bcast.sin_port = htons(ServerUdpPort);
     bcast.sin_addr.S_un.S_addr = INADDR_BROADCAST;
 
+    unsigned char hashed_pass[MAX_PASSWORD_LEN]{};
+    hashbrown256(password, hashed_pass);
+
     std::vector<char> sendPkt(PacketSize::REQ_LOGIN, '\0');
     {
+        ByteWriter wrt{ .buffer = sendPkt };
+        wrt.write(static_cast<char>(MessageType::REQ_LOGIN));
+        std::array<char, MAX_USERNAME_LEN> u{};
+        std::memcpy(u.data(), username.c_str(), username.size());
+        wrt.write(u);
+        std::array<char, MAX_PASSWORD_LEN> p{};
+        std::memcpy(p.data(), hashed_pass, sizeof(hashed_pass));
+        wrt.write(p);
+    }
+    
+    /* {
         ByteWriter wrt{.buffer = sendPkt};
         wrt.write(static_cast<char>(MessageType::REQ_LOGIN));
         std::array<char, MAX_USERNAME_LEN> u{};
@@ -474,7 +488,7 @@ LoginStatus Client::loginViaBroadcast(const std::string& username, const std::st
         std::array<char, MAX_PASSWORD_LEN> p{};
         std::memcpy(p.data(), password.c_str(), password.size());
         wrt.write(p);
-    }
+    }*/
 
     std::vector<char> recvBuf(MaxUdpPacketBytes);
 
@@ -552,17 +566,32 @@ LoginStatus Client::createAccountViaBroadcast(const std::string& username, const
     bcast.sin_port = htons(ServerUdpPort);
     bcast.sin_addr.S_un.S_addr = INADDR_BROADCAST;
 
+    unsigned char hashed_pass[MAX_PASSWORD_LEN]{};
+    hashbrown256(password, hashed_pass);
+
     std::vector<char> sendPkt(PacketSize::REQ_CREATE_ACCOUNT, '\0');
     {
-        ByteWriter wrt{.buffer = sendPkt};
+        ByteWriter wrt{ .buffer = sendPkt };
         wrt.write(static_cast<char>(MessageType::REQ_CREATE_ACCOUNT));
         std::array<char, MAX_USERNAME_LEN> u{};
         std::memcpy(u.data(), username.c_str(), username.size());
         wrt.write(u);
         std::array<char, MAX_PASSWORD_LEN> p{};
-        std::memcpy(p.data(), password.c_str(), password.size());
+        std::memcpy(p.data(), hashed_pass, sizeof(hashed_pass));
         wrt.write(p);
     }
+
+    //std::vector<char> sendPkt(PacketSize::REQ_CREATE_ACCOUNT, '\0');
+    //{
+    //    ByteWriter wrt{.buffer = sendPkt};
+    //    wrt.write(static_cast<char>(MessageType::REQ_CREATE_ACCOUNT));
+    //    std::array<char, MAX_USERNAME_LEN> u{};
+    //    std::memcpy(u.data(), username.c_str(), username.size());
+    //    wrt.write(u);
+    //    std::array<char, MAX_PASSWORD_LEN> p{};
+    //    std::memcpy(p.data(), password.c_str(), password.size());
+    //    wrt.write(p);
+    //}
 
     std::vector<char> recvBuf(MaxUdpPacketBytes);
 

@@ -79,6 +79,7 @@ bool UserStore::authenticate(const std::string& user, const std::string& pass) c
 bool UserStore::createAccount(const std::string& user, const std::string& pass)
 {
     if (_users.contains(user)) return false;
+    
     _users[user] = pass;
     save();
     return true;

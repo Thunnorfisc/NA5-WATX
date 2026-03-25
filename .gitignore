@@ -5,3 +5,6 @@
 *.ilk
 *.obj
 *x64
+*.vcxproj
+*.pdb
+*.exe

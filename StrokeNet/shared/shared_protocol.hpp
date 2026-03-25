@@ -26,6 +26,8 @@
 #include <cstddef>
 #include <optional>
 
+#include <openssl/evp.h>
+
 // ========================================== PROTOCOL STUFF START
 using SessionId = std::uint32_t;
 using SequenceNumber = std::uint32_t;
@@ -318,4 +320,13 @@ struct ByteReaderN
         return val;
     }
 };
+
+// SHA 256 encryption using openssl for password hashing
+inline void hashbrown256(const std::string& str, unsigned char* digest) {
+    EVP_MD_CTX* ctx = EVP_MD_CTX_new();
+    EVP_DigestInit_ex(ctx, EVP_sha256(), NULL);
+    EVP_DigestUpdate(ctx, str.c_str(), str.length());
+    EVP_DigestFinal_ex(ctx, digest, NULL);
+    EVP_MD_CTX_free(ctx);
+}
 // ========================================== NETWORKING SHARED UTILITIES END
