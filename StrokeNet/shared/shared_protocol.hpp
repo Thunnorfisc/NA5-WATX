@@ -48,9 +48,9 @@ namespace PacketSize
     // [REQ_CREATE_ACCOUNT][USERNAME][PASSWORD]
     constexpr inline std::size_t REQ_CREATE_ACCOUNT = 1 + MAX_USERNAME_LEN + MAX_PASSWORD_LEN;
 
-    //  1         4           1
-    // [RSP_LOGIN][SESSION_ID][STATUS]
-    constexpr inline std::size_t RSP_LOGIN = 6;
+    //  1                             4           1
+    // [RSP_LOGIN_AND_CREATE_ACCOUNT][SESSION_ID][STATUS]
+    constexpr inline std::size_t RSP_LOGIN_AND_CREATE_ACCOUNT = 6;
 
     //  1                 4           4          4          5
     // [REQ_START_STROKE][SESSION_ID][STROKE_ID][MOUSE_POS][RGBAT]
@@ -110,9 +110,9 @@ enum class MessageType: std::uint8_t
     // ===================================
     // Require ack
     // ===================================
-    REQ_LOGIN = 1,      // < Sent by client
-    RSP_LOGIN,          // < Ack by server
-    REQ_CREATE_ACCOUNT, // < Sent by client
+    REQ_LOGIN = 1,                          // < Sent by client
+    REQ_CREATE_ACCOUNT,                     // < Sent by client
+    RSP_LOGIN_AND_CREATE_ACCOUNT,           // < Ack by server
 
     REQ_START_STROKE,
     RSP_START_STROKE,
