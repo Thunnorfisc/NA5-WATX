@@ -26,6 +26,7 @@ struct ChatBox
 	sf::Text text;
 	sf::Text sampleText;
 	std::string currentInput;
+	std::vector<sf::Text> messagesReceivedFromServer;
 	
 	bool m_isTyping = false;
 
@@ -38,4 +39,3 @@ struct ChatBox
 	void setTyping(bool typing) { m_isTyping = typing; }
 	std::string wrapText(const std::string& input);
 };
-
