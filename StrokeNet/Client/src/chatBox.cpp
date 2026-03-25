@@ -23,6 +23,8 @@ const float TYPING_AREA_HEIGHT = 103.f;
 const float TEXT_PADDING = 3.f;
 const float MAX_TEXT_WIDTH = CHATBOX_WIDTH - (2.f * TEXT_PADDING);
 
+const uint8_t MAX_MESSAGE_LENGTH = 84;
+
 ChatBox::ChatBox(const std::string& fontPath) : text(font), sampleText(font)
 {
 	if (!font.openFromFile(fontPath)) throw std::runtime_error("Failed to load font from: " + fontPath);
@@ -131,7 +133,7 @@ bool ChatBox::handleChatBox()
 			}
 		}
 		for (int i = 0; i < 26; ++i) {
-			if (sf::Keyboard::isKeyPressed(static_cast<sf::Keyboard::Key>(i)) && currentInput.length() < 150) {
+			if (sf::Keyboard::isKeyPressed(static_cast<sf::Keyboard::Key>(i)) && currentInput.length() < MAX_MESSAGE_LENGTH) {
 				currentInput += static_cast<char>('a' + i);
 				text.setString(wrapText(currentInput));
 				std::cout << "Current input: " << currentInput << std::endl;
