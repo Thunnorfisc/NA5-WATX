@@ -17,6 +17,8 @@
 #pragma once
 #include "shared_protocol.hpp"
 #include <winsock2.h>
+
+#include <set>
 #include <span>
 #include <queue>
 #include <mutex>
@@ -102,7 +104,7 @@ private:
     // ============================================================
     // Chat messages thingies - Seen msges id
     // ============================================================
-    static inline std::unordered_set<std::uint32_t> _seenMsgesId;
+    static inline std::set<std::uint32_t> _seenMsgesId;
 
     struct BufferedToSend
     {

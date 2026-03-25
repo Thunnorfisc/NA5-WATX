@@ -590,7 +590,7 @@ void Server::handle_reqMsg(std::span<const char> udpPacketWithoutMID, sockaddr_i
     ByteWriter svrwrt{ .buffer = svrmsg };
     svrwrt.write(static_cast<char>(MessageType::NTF_MSG));
     svrwrt.write(std::uint32_t{}); // dummy
-    svrwrt.write(htonl(msgIdHostOrder));
+    svrwrt.write(htonl(_messageIdServer++));
     svrwrt.write(msgLength);
     svrwrt.writeSpan(actualmsg);
     svrwrt.write(nameLength);

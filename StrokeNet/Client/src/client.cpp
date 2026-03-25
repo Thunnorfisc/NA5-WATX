@@ -293,6 +293,9 @@ void Client::handle_NTF_Msg(std::span<const char> msg)
     }
     _seenMsgesId.insert(msgIdHost);
 
+    // limit it at max 100
+    while (_seenMsgesId.size() >= 100) _seenMsgesId.erase(_seenMsgesId.begin());
+
     // Write into queue
     ReceivedChatMessage rcm;
     rcm._message.resize(msgLengthHost);

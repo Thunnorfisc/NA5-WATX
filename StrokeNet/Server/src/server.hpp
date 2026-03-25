@@ -78,6 +78,8 @@ private:
     std::size_t _currentAllowedToDrawIndex{};
     std::vector<SessionId> _listOfPlayersAllowedToDraw;
 
+    std::uint32_t _messageIdServer = 1;
+
     // ============================================================
     // Client storage
     // ============================================================
