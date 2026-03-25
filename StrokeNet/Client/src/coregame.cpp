@@ -84,26 +84,20 @@ void CoreGameState::handleEvent(const sf::Event& event)
                 m_shouldReturnToMenu = true;
                 return;
             }
-        }
-    }
-
-    for (int i = 0; i < 26; ++i) {
-        if (const auto* keyboardPressed = event.getIf<sf::Event::KeyPressed>()) {
-            if (keyboardPressed->code == sf::Keyboard::Key(i)) {
-                std::cout << "Key " << char(i + 65) << " pressed" << std::endl;
-
+            else if (isMouseOverTextBox()) {
+                m_chatBox.setTyping(true);
                 return;
 			}
         }
-	}
-
+    }
 
 }
 
 void CoreGameState::update(sf::Time)
 {
     updateLayout();
-
+    m_chatBox.handleChatBox();
+    
     sf::Vector2i mousePos = sf::Mouse::getPosition(context().window);
     sf::Vector2f pos(static_cast<float>(mousePos.x), static_cast<float>(mousePos.y));
     bool leftDown = sf::Mouse::isButtonPressed(sf::Mouse::Button::Left);
@@ -214,6 +208,13 @@ bool CoreGameState::isMouseOverBackButton() const
     const sf::Vector2i pixelPosition = sf::Mouse::getPosition(context().window);
     const sf::Vector2f worldPosition = context().window.mapPixelToCoords(pixelPosition);
     return m_backButton.getGlobalBounds().contains(worldPosition);
+}
+
+bool CoreGameState::isMouseOverTextBox() const 
+{
+    const sf::Vector2i pixelPosition = sf::Mouse::getPosition(context().window);
+    const sf::Vector2f worldPosition = context().window.mapPixelToCoords(pixelPosition);
+    return m_chatBox.textTypingArea.getGlobalBounds().contains(worldPosition);
 }
 
 void CoreGameState::updateLayout()

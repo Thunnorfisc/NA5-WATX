@@ -40,6 +40,7 @@ public:
     void render() override;
 private:
     [[nodiscard]] bool isMouseOverBackButton() const;
+	[[nodiscard]] bool isMouseOverTextBox() const;
     void updateLayout();
 
     sf::CircleShape m_backButton;
