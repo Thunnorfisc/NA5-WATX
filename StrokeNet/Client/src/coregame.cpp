@@ -91,6 +91,11 @@ void CoreGameState::handleEvent(const sf::Event& event)
         }
     }
 
+    if (const auto* keyPressed = event.getIf<sf::Event::KeyPressed>()) {
+        if (keyPressed->code == sf::Keyboard::Key::C) {
+            Client::sendClearCanvas(m_canvas.clearId);
+        }
+    }
 }
 
 void CoreGameState::update(sf::Time)
@@ -179,6 +184,11 @@ void CoreGameState::update(sf::Time)
         case END_STROKE:
         {
             m_canvas.endStroke();
+            break;
+        }
+        case CLEAR_CANVAS: 
+        {
+            m_canvas.clear();
             break;
         }
         }

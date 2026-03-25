@@ -68,6 +68,14 @@ namespace PacketSize
     // [RSP_START_STROKE][SESSION_ID][STROKE_ID]
     constexpr inline std::size_t RSP_END_STROKE = 9;
 
+    //  1               4           4
+    // [REQ_END_STROKE][SESSION_ID][CLEAR_ID]
+    constexpr inline std::size_t REQ_CLEAR_CANVAS = 9;
+
+    //  1                 4           4         
+    // [RSP_START_STROKE][SESSION_ID][CLEAR_ID]
+    constexpr inline std::size_t RSP_CLEAR_CANVAS = 9;
+
     //  1        4           4       1           VAR
     // [REQ_MSG][SESSION_ID][MSG_ID][MSG_LENGTH][MSG_BUFFER]
     constexpr inline std::size_t REQ_MSG_WITHOUT_BUFFER = 10;
@@ -103,6 +111,14 @@ namespace PacketSize
     //  1            4           4
     // [NTF_RCV_MSG][SESSION_ID][MSG_ID]
     constexpr inline std::size_t NTF_RCV_MSG = 9;
+
+    //  1                 4          4
+    // [NTF_CLEAR_CANVAS][SESSION_ID][CLEAR_ID]
+    constexpr inline std::size_t NTF_CLEAR_CANVAS = 9;
+
+    //  1                    4           4
+    // [NTF_RCV_CLEAR_CANVAS][SESSION_ID][CLEAR_ID]
+    constexpr inline std::size_t NTF_RCV_CLEAR_CANVAS = 9;
 }
 enum class MessageType: std::uint8_t
 {
@@ -119,6 +135,9 @@ enum class MessageType: std::uint8_t
     REQ_END_STROKE,                         // < Sent by client
     RSP_END_STROKE,                         // < Ack by server
 
+    REQ_CLEAR_CANVAS,                       // < Sent by client
+    RSP_CLEAR_CANVAS,                       // < Ack by server
+
     REQ_MSG,                                // < Sent by client
     RSP_MSG,                                // < Ack by server
 
@@ -127,6 +146,8 @@ enum class MessageType: std::uint8_t
     // ===================================
     NTF_MSG,                                // < Sent by server
     NTF_RCV_MSG,                            // < Ack by client
+    NTF_CLEAR_CANVAS,                       // < Sent by server
+    NTF_RCV_CLEAR_CANVAS,                   // < Ack by client
 
     // ===================================
     // Best effort - client -> server

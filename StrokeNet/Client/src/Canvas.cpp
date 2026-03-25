@@ -99,4 +99,5 @@ void Canvas::clear()
 {
 	endStroke();
 	drawing.strokes.clear();
+	clearId++;
 }

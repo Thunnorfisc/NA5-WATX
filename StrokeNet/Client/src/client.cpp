@@ -139,6 +139,26 @@ void Client::handle_RSP_EndStroke(std::span<const char> msg)
 }
 
 // ============================================================
+// RSP_CLEAR_CANVAS
+// ============================================================
+
+void Client::handle_RSP_ClearCanvas(std::span<const char> msg)
+{
+    assert(msg.size() == (PacketSize::RSP_CLEAR_CANVAS - 1) && "Size of rsp_clear_canvas is wrong");
+    ByteReader rdr{ .buffer = msg };
+    auto sessionIdHost = ntohl(rdr.read<SessionId>());
+    if (sessionIdHost != _sessionId)
+    {
+        log(std::cerr,
+            std::format("[Client] Received an invalid session id [{}] from the server, ignoring packet", sessionIdHost));
+        return;
+    }
+    auto clearIdHost = ntohl(rdr.read<std::uint32_t>());
+    // simply erase, might or might not succeed its ok.
+    _pendingClearCanvas.erase(clearIdHost);
+}
+
+// ============================================================
 // RSP_MSG
 // ============================================================
 
@@ -303,6 +323,39 @@ void Client::handle_NTF_Msg(std::span<const char> msg)
     _msgesReceived.push(std::move(rcm));
 }
 
+void Client::handle_NTF_ClearCanvas(std::span<const char> msg)
+{
+    ByteReader rdr{ .buffer = msg };
+    auto sessionIdHost = ntohl(rdr.read<SessionId>());
+    if (sessionIdHost != _sessionId)
+    {
+        log(std::cerr,
+            std::format("[Client] Received an invalid session id [{}] from the server, ignoring packet", sessionIdHost));
+        return;
+    }
+    auto clearIdHost = ntohl(rdr.read<std::uint32_t>());
+
+    // Prepare ack to send back to server
+    std::array<char, PacketSize::NTF_RCV_CLEAR_CANVAS> ntfclrcvs;
+    ByteWriterN wrt{ .buffer = ntfclrcvs };
+    wrt.write(static_cast<char>(MessageType::NTF_RCV_CLEAR_CANVAS));
+    wrt.write(htonl(_sessionId));
+    wrt.write(htonl(clearIdHost));
+
+    // if not able to send back ntf_clear_canvas,
+    // log, and continue pushing the message
+    // into the recvQueue
+    if (!sendWithRetry(ntfclrcvs))
+    {
+        log(std::cerr, "[Client] Unable to send NTF_CLEAR_CANVAS back to server");
+    }
+
+    ReceivedStrokeCommand rcs;
+    rcs._type = ReceivedStrokeCommand::Type::CLEAR_CANVAS;
+    std::lock_guard lock(_strokeCommandsReceivedMut);
+    _strokeCommandsReceived.push(std::move(rcs));
+}
+
 // ============================================================
 // startListening
 // ============================================================
@@ -318,6 +371,7 @@ void Client::startListening(std::stop_token st)
         tickBuffered(_bufferedStartStrokeMutex, _pendingStartStrokes, _bufferedStartStrokeQueue, now, "Start Stroke");
         tickBuffered(_bufferEndStrokeMutex, _pendingEndStrokes, _bufferedEndStrokeQueue, now, "End Stroke");
         tickBuffered(_bmtsMsgesMutex, _pendingMsges, _bufferedMsgesQueue, now, "Chat Message");
+        tickBuffered(_bufferClearCanvasMutex, _pendingClearCanvas, _bufferedClearCanvasQueue, now, "Clear Canvas");
 
         // listen for commands
         fd_set rs;
@@ -644,6 +698,25 @@ void Client::sendEndStroke(std::uint32_t strokeid)
     buffered._hostId = strokeid;
     std::lock_guard lock(_bufferEndStrokeMutex);
     _bufferedEndStrokeQueue.push(std::move(buffered));
+}
+
+// ============================================================
+// send clear canvas
+// ============================================================
+
+void Client::sendClearCanvas(std::uint32_t clearid)
+{
+    std::vector<char> msg;
+    msg.resize(PacketSize::REQ_CLEAR_CANVAS);
+    ByteWriter wrt{ .buffer = msg };
+    wrt.write(static_cast<char>(MessageType::REQ_CLEAR_CANVAS));
+    wrt.write(htonl(_sessionId));
+    wrt.write(htonl(clearid));
+    BufferedToSend buffered;
+    buffered._data = std::move(msg);
+    buffered._hostId = clearid;
+    std::lock_guard lock(_bufferClearCanvasMutex);
+    _bufferedClearCanvasQueue.push(std::move(buffered));
 }
 
 // ============================================================
