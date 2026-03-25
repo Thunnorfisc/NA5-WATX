@@ -1,3 +1,19 @@
+/* Start Header
+***********************************************************************/
+
+/*! \file   shared_protocol.hpp
+    \author Loh Boon Cheong, Timothy
+    \par    email: loh.b@digipen.edu
+    \co-author William Wibisana Dumanauw
+    \par    email: williamwibisana.d@digipen.edu
+    \date   20th March, 2026
+    \brief  Copyright (C) 2026 DigiPen Institute of Technology
+
+    Reproduction or diclosure of this file or its contents without the prior
+    written consent of DigiPen Institute of Technology is prohibited. */
+
+/* End Header
+***********************************************************************/
 #pragma once
 #include <span>
 #include <array>

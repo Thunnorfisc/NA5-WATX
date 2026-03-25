@@ -1,3 +1,19 @@
+/* Start Header
+***********************************************************************/
+
+/*! \file   client.cpp
+    \author Loh Boon Cheong, Timothy
+    \par    email: loh.b@digipen.edu
+    \co-author William Wibisana Dumanauw
+    \par    email: williamwibisana.d@digipen.edu
+    \date   20th March, 2026
+    \brief  Copyright (C) 2026 DigiPen Institute of Technology
+
+    Reproduction or diclosure of this file or its contents without the prior
+    written consent of DigiPen Institute of Technology is prohibited. */
+
+/* End Header
+***********************************************************************/
 #include "client.hpp"
 
 #include <array>
@@ -26,7 +42,7 @@ namespace
 }
 
 // ============================================================
-// initalize / terminate
+// initalize
 // ============================================================
 
 void Client::initalize()
@@ -75,6 +91,10 @@ void Client::initalize()
     log(std::cout, std::format("[Client] Ready at {}:{}", _ip, _portHostOrder));
 }
 
+// ============================================================
+// terminate
+// ============================================================
+
 void Client::terminate()
 {
     if(_socket != INVALID_SOCKET) closesocket(_socket);
@@ -121,6 +141,10 @@ void Client::handle_RSP_EndStroke(std::span<const char> msg)
     _pendingEndStrokes.erase(strokeIdHost);
 }
 
+// ============================================================
+// SVR_START_STROKE
+// ============================================================
+
 void Client::handle_SVR_StartStroke(std::span<const char> msg)
 {
     assert(msg.size() == (PacketSize::SVR_START_STROKE - 1) && "Size of svr_start_stroke is wrong");
@@ -151,6 +175,10 @@ void Client::handle_SVR_StartStroke(std::span<const char> msg)
     _strokeCommandsReceived.push(std::move(rcs));
 }
 
+// ============================================================
+// SVR_END_STROKE
+// ============================================================
+
 void Client::handle_SVR_EndStroke(std::span<const char> msg)
 {
     assert(msg.size() == (PacketSize::SVR_END_STROKE - 1) && "Size of svr_end_stroke is wrong");
@@ -167,6 +195,10 @@ void Client::handle_SVR_EndStroke(std::span<const char> msg)
     std::lock_guard lock(_strokeCommandsReceivedMut);
     _strokeCommandsReceived.push(std::move(rcs));
 }
+
+// ============================================================
+// SVR_EXTEND_STROKE
+// ============================================================
 
 void Client::handle_SVR_ExtendStroke(std::span<const char> msg)
 {

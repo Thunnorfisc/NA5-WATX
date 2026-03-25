@@ -4,6 +4,10 @@
 /*! \file   server.cpp
     \author Loh Boon Cheong, Timothy
     \par    email: loh.b@digipen.edu
+    \co-author Xavier Koh Zhi Kuang
+    \par    email: z.koh@digipen.edu
+    \co-author William Wibisana Dumanauw
+    \par    email: williamwibisana.d@digipen.edu
     \date   20th March, 2026
     \brief  Copyright (C) 2026 DigiPen Institute of Technology
 
@@ -58,6 +62,10 @@ namespace
         os << msg << '\n';
     }
 }
+
+// ============================================================
+// Constructor
+// ============================================================
 
 Server::Server()
 {
@@ -123,6 +131,11 @@ Server::Server()
 
     log(std::cout, std::format("[Server]: {}:{}", _ip, _portHostOrder));
 }
+
+// ============================================================
+// Destructor
+// ============================================================
+
 Server::~Server() 
 {
     _stopSource.request_stop();
@@ -131,6 +144,10 @@ Server::~Server()
     if (_socket != INVALID_SOCKET) closesocket(_socket);
     WSACleanup();
 }
+
+// ============================================================
+// Start listening
+// ============================================================
 
 void Server::startListening()
 {
@@ -141,10 +158,18 @@ void Server::startListening()
         });
 }
 
+// ============================================================
+// Is listening thread finished
+// ============================================================
+
 bool Server::isListeningThreadFinished() noexcept
 {
     return _threadFinished;
 }
+
+// ============================================================
+// REQ_LOGIN
+// ============================================================
 
 void Server::handle_reqLogin(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
 {
@@ -245,6 +270,10 @@ void Server::handle_reqLogin(std::span<const char> udpPacketWithoutMID, sockaddr
     }
 }
 
+// ============================================================
+// REQ_CREATE_ACCOUNT
+// ============================================================
+
 void Server::handle_reqCreateAccount(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
 {
     assert((udpPacketWithoutMID.size() == PacketSize::REQ_CREATE_ACCOUNT - 1) &&
@@ -320,6 +349,10 @@ void Server::handle_reqCreateAccount(std::span<const char> udpPacketWithoutMID, 
     }
 }
 
+// ============================================================
+// REQ_UNREGISTER
+// ============================================================
+
 void Server::handle_reqUnregister(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
 {
     assert((udpPacketWithoutMID.size() == PacketSize::REQ_UNREGISTER - 1) &&
@@ -341,6 +374,10 @@ void Server::handle_reqUnregister(std::span<const char> udpPacketWithoutMID, soc
     log(std::cout, std::format("[Server] Client: {} disconnected", ipStrAndPort));
     return;
 }
+
+// ============================================================
+// REQ_START_STROKE
+// ============================================================
 
 void Server::handle_reqStartStroke(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
 {
@@ -463,6 +500,10 @@ void Server::handle_reqStartStroke(std::span<const char> udpPacketWithoutMID, so
     }
 }
 
+// ============================================================
+// REQ_END_STROKE
+// ============================================================
+
 void Server::handle_reqEndStroke(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
 {
     assert((udpPacketWithoutMID.size() == PacketSize::REQ_END_STROKE - 1) &&
@@ -579,6 +620,10 @@ void Server::handle_reqEndStroke(std::span<const char> udpPacketWithoutMID, sock
     }
 }
 
+// ============================================================
+// FAF_EXTEND_STROKE
+// ============================================================
+
 void Server::handle_fafExtendStroke(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
 {
     assert((udpPacketWithoutMID.size() == PacketSize::FAF_EXTEND_STROKE - 1) &&
@@ -660,6 +705,10 @@ void Server::handle_fafExtendStroke(std::span<const char> udpPacketWithoutMID, s
     }
 }
 
+// ============================================================
+// Start listening
+// ============================================================
+
 void Server::actualStartListening(std::stop_token st) noexcept
 {
     std::vector<char> udpPacket;
@@ -718,12 +767,20 @@ void Server::actualStartListening(std::stop_token st) noexcept
     _threadFinished = true;
 }
 
+// ============================================================
+// Get next session id
+// ============================================================
+
 SessionId Server::getNextSessionIdHostOrder()
 {
     assert(_nextSessionIdHostOrder != InvalidSessionId && "Ran out of session ids!");
     std::lock_guard lock(_clientStorageMutex);
     return _nextSessionIdHostOrder++;
 }
+
+// ============================================================
+// Destroy session id
+// ============================================================
 
 bool Server::destroySessionIdHostOrder(SessionId id, std::string ipPort)
 {
@@ -745,10 +802,9 @@ bool Server::destroySessionIdHostOrder(SessionId id, std::string ipPort)
     return true;
 }
 
-
-/*--------------------------------------
-GAME LOGIC FNS
----------------------------------------*/
+// ============================================================
+// Load word list
+// ============================================================
 void Server::load_wordlist() {
     //std::filesystem::path currentPath = std::filesystem::current_path();
 
@@ -780,6 +836,10 @@ void Server::load_wordlist() {
         max_len = static_cast<uint32_t>(it->size());
 }
 
+// ============================================================
+// Pick word
+// ============================================================
+
 void Server::pick_word() {
     std::srand(static_cast<unsigned int>(std::time(nullptr)));
     if (word_list.empty()) return;
@@ -793,6 +853,10 @@ void Server::pick_word() {
     std::cout << std::endl;
 
 }
+
+// ============================================================
+// Word heuristic
+// ============================================================
 
 int Server::word_heuristic() {
     return 0;

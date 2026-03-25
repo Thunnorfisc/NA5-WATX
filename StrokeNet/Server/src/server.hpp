@@ -4,6 +4,10 @@
 /*! \file   server.hpp
     \author Loh Boon Cheong, Timothy
     \par    email: loh.b@digipen.edu
+    \co-author Xavier Koh Zhi Kuang
+    \par    email: z.koh@digipen.edu
+    \co-author William Wibisana Dumanauw
+    \par    email: williamwibisana.d@digipen.edu
     \date   20th March, 2026
     \brief  Copyright (C) 2026 DigiPen Institute of Technology
 
