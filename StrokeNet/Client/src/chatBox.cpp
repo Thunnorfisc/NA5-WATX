@@ -27,7 +27,7 @@ const float MAX_TEXT_WIDTH = CHATBOX_WIDTH - (2.f * TEXT_PADDING);
 
 const uint8_t MAX_MESSAGE_LENGTH = 84;
 
-ChatBox::ChatBox(const std::string& fontPath) : text(font), sampleText(font)
+ChatBox::ChatBox(const std::string& fontPath) : text(font), sampleText(font), timerText(font)
 {
 	if (!font.openFromFile(fontPath)) throw std::runtime_error("Failed to load font from: " + fontPath);
 
@@ -51,6 +51,14 @@ ChatBox::ChatBox(const std::string& fontPath) : text(font), sampleText(font)
 	sampleText.setFillColor(sf::Color::Black);
 	sampleText.setString("Press 'Enter' or Click here to type...");
 	sampleText.setPosition({ CHATBOX_POSITION_X + TEXT_PADDING, CHATBOX_POSITION_Y + CHATBOX_HEIGHT - TYPING_AREA_HEIGHT });
+
+	timerText.setString("");
+	timerText.setCharacterSize(64);
+	timerText.setFillColor(sf::Color::Red);
+	timerText.setStyle(sf::Text::Bold);
+	timerText.setOutlineThickness(2.f);
+	timerText.setOutlineColor(sf::Color::White);
+	timerText.setPosition({ 400.f, 100.f });
 }
 
 void ChatBox::draw(sf::RenderWindow& window)
@@ -58,6 +66,7 @@ void ChatBox::draw(sf::RenderWindow& window)
 	window.draw(textBackground);
 	window.draw(textTypingArea);
 	window.draw(text);
+	window.draw(timerText);
 
 	if (currentInput.empty() && !m_isTyping) window.draw(sampleText);
 
@@ -86,16 +95,6 @@ void ChatBox::draw(sf::RenderWindow& window)
 	}
 
 
-}
-
-void ChatBox::sendMessageToServer(const std::string& name, const std::string& message)
-{
-#if _DEBUG
-	std::cout << "Sending message: " << name << ": " << message << std::endl;
-#endif
-
-	// temp for now till it can receive from server
-	//receiveMessageFromServer("SnowPuppy", message);
 }
 
 void ChatBox::receiveMessageFromServer(const std::string& name, const std::string& message)
@@ -152,8 +151,7 @@ void ChatBox::handleEvent(const sf::Event& event)
 		}
 		else if (ch == '\r' || ch == '\n') { // enter
 			if (!currentInput.empty()) {
-			// dont bother network with empty msg, useless
-			if (!currentInput.empty()) Client::sendChatMessage(nextMessageId++, currentInput);
+				if (!currentInput.empty()) Client::sendChatMessage(nextMessageId++, currentInput);
 				currentInput.clear();
 				text.setString("");
 			}
@@ -176,4 +174,8 @@ void ChatBox::handleEvent(const sf::Event& event)
 
 void ChatBox::clearChatHistory() {
 	messagesReceivedFromServer.clear();
+}
+
+void ChatBox::displayTimer(uint8_t seconds) {
+	timerText.setString(std::to_string(seconds) + "s");
 }

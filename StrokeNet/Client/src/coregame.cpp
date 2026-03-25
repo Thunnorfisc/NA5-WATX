@@ -108,7 +108,7 @@ void CoreGameState::handleEvent(const sf::Event& event)
 void CoreGameState::update(sf::Time)
 {
     updateLayout();
-    
+
     sf::Vector2i mousePos = sf::Mouse::getPosition(context().window);
     sf::Vector2f pos(static_cast<float>(mousePos.x), static_cast<float>(mousePos.y));
     bool leftDown = sf::Mouse::isButtonPressed(sf::Mouse::Button::Left);
