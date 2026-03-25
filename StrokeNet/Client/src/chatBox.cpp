@@ -13,6 +13,7 @@
 /* End Header
 ***********************************************************************/
 #include "chatBox.hpp"
+#include <iostream>
 
 const float CHATBOX_WIDTH = 310.f;
 const float CHATBOX_HEIGHT = 700.f;
@@ -41,7 +42,7 @@ ChatBox::ChatBox(const std::string& fontPath) : text(font)
 
 	text.setCharacterSize(16);
 	text.setFillColor(sf::Color::Black);
-	text.setPosition({ 10, 10 });
+	text.setPosition({ CHATBOX_POSITION_X + 3, CHATBOX_POSITION_Y + CHATBOX_HEIGHT - TYPING_AREA_HEIGHT });
 }
 
 void ChatBox::draw(sf::RenderWindow& window)
@@ -51,14 +52,41 @@ void ChatBox::draw(sf::RenderWindow& window)
 	window.draw(text);
 }
 
-void ChatBox::sendMessageToServer(const std::string& id, const std::string& message)
+void ChatBox::sendMessage(const std::string& name, const std::string& message)
 {
-	
+	std::cout << "Sending message: " << name << ": " << message << std::endl;
 }
 
 void ChatBox::receiveMessageFromServer(const std::string& name, const std::string& message)
 {
 	
-	currentInput = name + ": " + message;
-	text.setString(currentInput);
+
+}
+
+bool ChatBox::handleChatBox()
+{
+	if (m_isTyping) {
+		if (sf::Keyboard::isKeyPressed(static_cast<sf::Keyboard::Key>(58))) {
+			sendMessage("SnowPuppy", currentInput);
+			currentInput.clear();
+			text.setString("");
+			return true;
+		}
+		else if (sf::Keyboard::isKeyPressed(static_cast<sf::Keyboard::Key>(59))) {
+			if (!currentInput.empty()) {
+				currentInput.pop_back();
+				text.setString(currentInput);
+				std::cout << "Current input: " << currentInput << std::endl;
+			}
+		}
+		for (int i = 0; i < 26; ++i) {
+			if (sf::Keyboard::isKeyPressed(static_cast<sf::Keyboard::Key>(i)) && currentInput.length() < 254) {
+				currentInput += static_cast<char>('a' + i);
+				text.setString(currentInput);
+				std::cout << "Current input: " << currentInput << std::endl;
+			}
+		}
+		return true;
+	}
+	return false;
 }

@@ -26,10 +26,14 @@ struct ChatBox
 	sf::Text text;
 	std::string currentInput;
 	
+	bool m_isTyping = false;
+
 	ChatBox(const std::string& fontPath);
 
+	bool handleChatBox();
 	void draw(sf::RenderWindow& window);
-	void sendMessageToServer(const std::string& id, const std::string& message);
+	void sendMessage(const std::string& name, const std::string& message);
 	void receiveMessageFromServer(const std::string& name, const std::string& message);
+	void setTyping(bool typing) { m_isTyping = typing; }
 };
 
