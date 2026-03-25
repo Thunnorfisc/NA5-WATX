@@ -21,6 +21,7 @@ const float CHATBOX_POSITION_X = 1270.f;
 const float CHATBOX_POSITION_Y = 120.f;
 const float TYPING_AREA_HEIGHT = 103.f;
 const float TEXT_PADDING = 3.f;
+const float MESSAGE_RECEIVED_SPACING = 5.f;
 const float MAX_TEXT_WIDTH = CHATBOX_WIDTH - (2.f * TEXT_PADDING);
 
 const uint8_t MAX_MESSAGE_LENGTH = 84;
@@ -82,17 +83,34 @@ void ChatBox::draw(sf::RenderWindow& window)
 		window.draw(cursor);
 	}
 
+	for (auto& message : messagesReceivedFromServer) {
+		window.draw(message);
+	}
+
+
 }
 
 void ChatBox::sendMessage(const std::string& name, const std::string& message)
 {
 	std::cout << "Sending message: " << name << ": " << message << std::endl;
+
+	// temp for now till it can receive from server
+	receiveMessageFromServer("SnowPuppy", message);
 }
 
 void ChatBox::receiveMessageFromServer(const std::string& name, const std::string& message)
 {
+	sf::Text newMessage(font, wrapText("[" + name + "]: " + message), text.getCharacterSize());
+	newMessage.setFillColor(sf::Color::Black);
 
+	float messageHeight = newMessage.getLocalBounds().size.y;
+	for (auto& msg : messagesReceivedFromServer) {
+		msg.setPosition({ msg.getPosition().x, msg.getPosition().y - messageHeight - MESSAGE_RECEIVED_SPACING });
+	}
 
+	float messageY = CHATBOX_POSITION_Y + CHATBOX_HEIGHT - TYPING_AREA_HEIGHT - MESSAGE_RECEIVED_SPACING - messageHeight;
+	newMessage.setPosition({ CHATBOX_POSITION_X + MESSAGE_RECEIVED_SPACING, messageY });
+	messagesReceivedFromServer.push_back(newMessage);
 }
 
 std::string ChatBox::wrapText(const std::string& input)
