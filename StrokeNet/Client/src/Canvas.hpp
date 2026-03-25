@@ -25,6 +25,7 @@ struct Canvas {
 	RenderStroke currentRender;
 	bool isDrawing = false;
 	uint32_t nextId = 1;
+	uint32_t clearId = 0;
 
 	Canvas() = default;
 	Canvas(sf::FloatRect rect);

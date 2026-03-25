@@ -356,6 +356,16 @@ void Server::handle_fafDisconnect(std::span<const char> udpPacketWithoutMID, soc
     return;
 }
 
+void Server::handle_ntfRcvClearCanvas(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
+{
+    ByteReader rdr{ .buffer = udpPacketWithoutMID };
+    auto sessionIdHostOrder = ntohl(rdr.read<SessionId>());
+    auto clearIdHostOrder = ntohl(rdr.read<std::uint32_t>());
+
+    std::lock_guard lock(_pendingNtfClearCanvasMutex);
+    _pendingNtfClearCanvases.erase(NtfKey{ sessionIdHostOrder, clearIdHostOrder });
+}
+
 // ============================================================
 // REQ_START_STROKE
 // ============================================================
@@ -604,6 +614,111 @@ void Server::handle_reqMsg(std::span<const char> udpPacketWithoutMID, sockaddr_i
 }
 
 // ============================================================
+// REQ_CLEAR_CANVAS
+// ============================================================
+
+void Server::handle_reqClearCanvas(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
+{
+    assert(udpPacketWithoutMID.size() == PacketSize::REQ_CLEAR_CANVAS - 1);
+
+    std::unique_lock lock(_gameMut);
+    if (!_gameRunning) return;
+    if (_listOfPlayersAllowedToDraw.empty())
+    {
+        log(std::cerr,
+            std::format("[Server] Received REQ_CLEAR_CANVAS but list of allowed players to draw is empty"));
+        return;
+    }
+    if (_currentAllowedToDrawIndex >= _listOfPlayersAllowedToDraw.size())
+    {
+        _currentAllowedToDrawIndex = 0;
+    }
+    ByteReader rdr{ .buffer = udpPacketWithoutMID };
+    auto sessionIdHostOrder = ntohl(rdr.read<SessionId>());
+
+    auto it = _sessionIdToClient.find(sessionIdHostOrder);
+    if (it == _sessionIdToClient.end()) { lock.unlock(); return; }
+
+    // Only the current drawer can clear
+    if (_listOfPlayersAllowedToDraw[_currentAllowedToDrawIndex] != sessionIdHostOrder)
+    {
+        log(std::cerr,
+            std::format("[Server] Received REQ_CLEAR_CANVAS from client session id {} but not allowed to draw", sessionIdHostOrder));
+        lock.unlock(); return;
+    }
+    lock.unlock();
+
+    auto clearIdHostOrder = ntohl(rdr.read<std::uint32_t>());
+
+    // Send RSP_CLEAR_CANVAS back to the requester
+    std::array<char, PacketSize::RSP_CLEAR_CANVAS> rspmsg;
+    ByteWriterN rspwrt{ .buffer = rspmsg };
+    rspwrt.write(static_cast<char>(MessageType::RSP_CLEAR_CANVAS));
+    rspwrt.write(htonl(sessionIdHostOrder));
+    rspwrt.write(htonl(clearIdHostOrder));
+
+    bool success = false;
+    for (int i = 0; i < _maxRetry; i++)
+    {
+        int sentBytes = sendto(_socket, rspmsg.data(), static_cast<int>(rspmsg.size()), 0,
+            reinterpret_cast<sockaddr*>(sa), sizeof(*sa));
+        if (sentBytes == SOCKET_ERROR)
+        {
+            if (isRecoverableWSAError(WSAGetLastError())) continue;
+            else
+            {
+                success = false;
+                break;
+            }
+        }
+        else
+        {
+            success = true;
+            break;
+        }
+    }
+
+    // if not able to send REQ_CLEAR_CANVAS, just return, its ok. wtv
+    if (!success)
+    {
+        log(std::cerr,
+            std::format("[Server] Unable to send REQ_CLEAR_CANVAS for client session id {}", sessionIdHostOrder));
+        return;
+    }
+
+    // End any active stroke first
+    if (it->second.currentStrokeId.has_value())
+        it->second.currentStrokeId = std::nullopt;
+
+    // Now NTF all clients to clear their canvas
+    auto now = std::chrono::steady_clock::now();
+    std::lock_guard ntfLock(_pendingNtfClearCanvasMutex);
+    for (const auto& [ssiho, client] : _sessionIdToClient)
+    {
+        std::vector<char> ntfPkt(PacketSize::NTF_CLEAR_CANVAS);
+        ByteWriter ntfWrt{ .buffer = ntfPkt };
+        ntfWrt.write(static_cast<char>(MessageType::NTF_CLEAR_CANVAS));
+        ntfWrt.write(htonl(ssiho));       // target's session ID
+        ntfWrt.write(htonl(clearIdHostOrder));
+
+        // Send immediately once
+        sockaddr_in clientSa = client.sa;
+        sendto(_socket, ntfPkt.data(), static_cast<int>(ntfPkt.size()), 0,
+            reinterpret_cast<sockaddr*>(&clientSa), sizeof(clientSa));
+
+        // Add to pending for retry
+        _pendingNtfClearCanvases[NtfKey{ ssiho, clearIdHostOrder }] = PendingNTF{
+            ._data = std::move(ntfPkt),
+            ._clientAddr = client.sa,
+            ._targetSessionId = ssiho,
+            ._ntfId = clearIdHostOrder,
+            ._nextSendTime = now + std::chrono::milliseconds(100),
+            ._giveUpTime = now + std::chrono::seconds(2),
+        };
+    }
+}
+
+// ============================================================
 // FAF_EXTEND_STROKE
 // ============================================================
 
@@ -689,6 +804,8 @@ void Server::actualStartListening(std::stop_token st) noexcept
     udpPacket.resize(MaxUdpPacketBytes);
     while (!st.stop_requested())
     {
+        tickPendingNtf(_pendingNtfClearCanvasMutex, _pendingNtfClearCanvases, "NTF_CLEAR_CANVAS");
+
         fd_set readSet;
         FD_ZERO(&readSet);
         FD_SET(_socket, &readSet);
@@ -774,6 +891,29 @@ bool Server::destroySessionIdHostOrder(SessionId id, std::string ipPort)
     }
     _sessionIdToClient.erase(it3);
     return true;
+}
+
+void Server::tickPendingNtf(std::mutex& mut, std::unordered_map<NtfKey, PendingNTF, NtfKeyHash>& map, std::string_view name)
+{
+    auto now = std::chrono::steady_clock::now();
+    std::lock_guard lock(mut);
+    for (auto it = map.begin(); it != map.end();)
+    {
+        if (now >= it->second._giveUpTime)
+        {
+            log(std::cerr, std::format("[Server] {} to session {} timed out", name, it->first.sessionId));
+            it = map.erase(it);
+            continue;
+        }
+        if (now >= it->second._nextSendTime)
+        {
+            sockaddr_in sa = it->second._clientAddr;
+            sendto(_socket, it->second._data.data(), static_cast<int>(it->second._data.size()), 0,
+                reinterpret_cast<sockaddr*>(&sa), sizeof(sa));
+            it->second._nextSendTime = now + std::chrono::milliseconds(100);
+        }
+        ++it;
+    }
 }
 
 // ============================================================

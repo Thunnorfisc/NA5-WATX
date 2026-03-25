@@ -48,7 +48,7 @@ public:
 
     struct ReceivedStrokeCommand
     {
-        enum class Type : std::uint8_t { START_STROKE, EXTEND_STROKE, END_STROKE };
+        enum class Type : std::uint8_t { START_STROKE, EXTEND_STROKE, END_STROKE, CLEAR_CANVAS };
         std::vector<char> _data;
         Type _type;
     };
@@ -69,6 +69,7 @@ public:
         std::array<std::uint16_t, 2> mousePos
     );
     static void sendEndStroke(std::uint32_t strokeid);
+    static void sendClearCanvas(std::uint32_t clearid);
     // ============================================================
     // Drawing canvas thingies - receive
     // ============================================================
@@ -124,6 +125,12 @@ private:
     static inline std::queue<BufferedToSend> _bufferedEndStrokeQueue;
 
     // ============================================================
+    // Drawing canvas thingies - BCCTS
+    // ============================================================
+    static inline std::mutex _bufferClearCanvasMutex;
+    static inline std::queue<BufferedToSend> _bufferedClearCanvasQueue;
+
+    // ============================================================
     // Chat messages thingies - BMTS
     // ============================================================
     static inline std::mutex _bmtsMsgesMutex;
@@ -151,7 +158,7 @@ private:
     // ============================================================
     static inline std::unordered_map<std::uint32_t, PendingBSESTS> _pendingStartStrokes;
     static inline std::unordered_map<std::uint32_t, PendingBSESTS> _pendingEndStrokes;
-
+    static inline std::unordered_map<std::uint32_t, PendingBSESTS> _pendingClearCanvas;
     static inline std::unordered_map<std::uint32_t, PendingBSESTS> _pendingMsges;
 
     // ============================================================
@@ -169,15 +176,17 @@ private:
     // ============================================================
     // Listening thread
     // ============================================================
-    static void handle_RSP_StartStroke(std::span<const char> msg); // < drain from respective _pending
-    static void handle_RSP_EndStroke(std::span<const char> msg); // < drain from respective _pending
-    static void handle_RSP_Msg(std::span<const char> msg); // < drain from respective _pending
+    static void handle_RSP_StartStroke(std::span<const char> msg);  // < drain from respective _pending
+    static void handle_RSP_EndStroke(std::span<const char> msg);    // < drain from respective _pending
+    static void handle_RSP_ClearCanvas(std::span<const char> msg);  // < drain from respective _pending
+    static void handle_RSP_Msg(std::span<const char> msg);          // < drain from respective _pending
 
-    static void handle_SVR_StartStroke(std::span<const char> msg); // < push into _strokeCommandsRecv
-    static void handle_SVR_EndStroke(std::span<const char> msg); // < push into _strokeCommandsRecv
+    static void handle_SVR_StartStroke(std::span<const char> msg);  // < push into _strokeCommandsRecv
+    static void handle_SVR_EndStroke(std::span<const char> msg);    // < push into _strokeCommandsRecv
     static void handle_SVR_ExtendStroke(std::span<const char> msg); // < push into _strokeCommandsRecv
 
-    static void handle_NTF_Msg(std::span<const char> msg); // < send back ack to server
+    static void handle_NTF_Msg(std::span<const char> msg);         // < send back ack to server
+    static void handle_NTF_ClearCanvas(std::span<const char> msg); // < send back ack to server
 
     static void startListening(std::stop_token st);
 
@@ -186,6 +195,7 @@ private:
     {
         { MessageType::RSP_START_STROKE, &Client::handle_RSP_StartStroke },
         { MessageType::RSP_END_STROKE, &Client::handle_RSP_EndStroke },
+        { MessageType::RSP_CLEAR_CANVAS, &Client::handle_RSP_ClearCanvas },
         { MessageType::RSP_MSG, &Client::handle_RSP_Msg },
 
         { MessageType::SVR_START_STROKE, &Client::handle_SVR_StartStroke },
@@ -193,6 +203,7 @@ private:
         { MessageType::SVR_EXTEND_STROKE, &Client::handle_SVR_ExtendStroke },
 
         { MessageType::NTF_MSG, &Client::handle_NTF_Msg },
+        { MessageType::NTF_CLEAR_CANVAS, &Client::handle_NTF_ClearCanvas }
     };
 
     // ============================================================

@@ -98,6 +98,43 @@ private:
     std::unordered_map<SessionId, Client> _sessionIdToClient;
 
     // ============================================================
+    // NTF Handling
+    // ============================================================
+    struct PendingNTF
+    {
+        std::vector<char> _data;
+        sockaddr_in _clientAddr;
+        SessionId _targetSessionId;
+        std::uint32_t _ntfId;
+
+        std::chrono::steady_clock::time_point _nextSendTime;
+        std::chrono::steady_clock::time_point _giveUpTime;
+    };
+
+    // Unordered map bs, since 1:N for ntdId:client, so need to composite
+    struct NtfKey
+    {
+        SessionId sessionId;
+        std::uint32_t ntfId;
+
+        bool operator==(const NtfKey&) const = default;
+    };
+
+    struct NtfKeyHash
+    {
+        std::size_t operator()(const NtfKey& k) const
+        {
+            return std::hash<std::uint64_t>{}(
+                (static_cast<std::uint64_t>(k.sessionId) << 32) | k.ntfId
+                );
+        }
+    };
+
+    // Check for pending NTFs for clear canvas
+    std::mutex _pendingNtfClearCanvasMutex;
+    std::unordered_map<NtfKey, PendingNTF, NtfKeyHash> _pendingNtfClearCanvases;
+
+    // ============================================================
     // Socket / session
     // ============================================================
     std::string _ip;
@@ -118,24 +155,30 @@ private:
 
     void handle_reqStartStroke      (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
     void handle_reqEndStroke        (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
+    void handle_reqClearCanvas      (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
 
     void handle_reqMsg              (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
 
     void handle_fafExtendStroke     (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
     void handle_fafDisconnect       (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
 
+    void handle_ntfRcvClearCanvas   (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
+
     using MessageFn = void(Server::*)(std::span<const char>, sockaddr_in*);
     const std::unordered_map<MessageType, MessageFn> _messageTypeFns
     {
-        std::make_pair(MessageType::REQ_LOGIN,          &Server::handle_reqLogin            ),
-        std::make_pair(MessageType::REQ_CREATE_ACCOUNT, &Server::handle_reqCreateAccount    ),
-
-        std::make_pair(MessageType::REQ_START_STROKE,   &Server::handle_reqStartStroke      ),
-        std::make_pair(MessageType::REQ_END_STROKE,     &Server::handle_reqEndStroke        ),
+        std::make_pair(MessageType::REQ_LOGIN,           &Server::handle_reqLogin            ),
+        std::make_pair(MessageType::REQ_CREATE_ACCOUNT,  &Server::handle_reqCreateAccount    ),
         std::make_pair(MessageType::REQ_MSG,            &Server::handle_reqMsg              ),
+        
+        std::make_pair(MessageType::REQ_START_STROKE,    &Server::handle_reqStartStroke      ),
+        std::make_pair(MessageType::REQ_END_STROKE,      &Server::handle_reqEndStroke        ),
+        std::make_pair(MessageType::REQ_CLEAR_CANVAS,    &Server::handle_reqClearCanvas      ),
+        
+        std::make_pair(MessageType::FAF_EXTEND_STROKE,   &Server::handle_fafExtendStroke     ),
+        std::make_pair(MessageType::FAF_DISCONNECT,      &Server::handle_fafDisconnect       ),
 
-        std::make_pair(MessageType::FAF_EXTEND_STROKE,  &Server::handle_fafExtendStroke     ),
-        std::make_pair(MessageType::FAF_DISCONNECT,     &Server::handle_fafDisconnect       ),
+        std::make_pair(MessageType::NTF_RCV_CLEAR_CANVAS,&Server::handle_ntfRcvClearCanvas   )
     };
 
     // ============================================================
@@ -165,4 +208,5 @@ private:
             }
         }
     }
+    void tickPendingNtf(std::mutex& mut, std::unordered_map<NtfKey, PendingNTF, NtfKeyHash>& map, std::string_view name);
 };
