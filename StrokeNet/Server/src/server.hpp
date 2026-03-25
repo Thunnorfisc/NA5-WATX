@@ -21,6 +21,7 @@
 
 #include <winsock2.h>
 
+#include <list>
 #include <span>
 #include <deque>
 #include <mutex>
@@ -53,6 +54,13 @@ public: //GMAE
     void load_wordlist();
     void pick_word();
     int word_heuristic();
+
+    void advanceDrawer();
+    void startGame();
+    void stopGame();
+    bool gameStarted();
+
+    std::size_t getNumberOfPlayers();
 private:
     struct Client
     {
@@ -73,7 +81,10 @@ private:
     SessionId _nextSessionIdHostOrder = InvalidSessionId + 1;
 
     // Game stuff
-    std::atomic<SessionId> _currentAllowedToDraw = InvalidSessionId;
+    std::mutex _gameMut;
+    bool _gameRunning = false;
+    std::size_t _currentAllowedToDrawIndex{};
+    std::vector<SessionId> _listOfPlayersAllowedToDraw;
     UserStore _userStore;
 
     // Handling messages
@@ -103,6 +114,8 @@ private:
     // registeration after registration without deregistering
     // then we have a leak
     std::unordered_map<SessionId, Client> _sessionIdToClient;
+
+
     std::mutex _clientStorageMutex;
     // ========================= runs on a different thread
     void actualStartListening(std::stop_token st) noexcept;

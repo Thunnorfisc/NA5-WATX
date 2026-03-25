@@ -12,8 +12,8 @@
     Reproduction or diclosure of this file or its contents without the prior
     written consent of DigiPen Institute of Technology is prohibited. */
 
-    /* End Header
-    ***********************************************************************/
+/* End Header
+***********************************************************************/
 #include "server.hpp"
 #include "shared_protocol.hpp"
 
@@ -22,6 +22,7 @@
 #pragma comment(lib, "Kernel32.lib")
 #pragma comment(lib, "shlwapi.lib")
 
+#include <chrono>
 #include <string>
 #include <fstream>
 #include <iostream>
@@ -49,13 +50,43 @@ int main()
         Server server;
         server.startListening();
         server.load_wordlist();
+
+        const double fixedFps = 60.0;
+        const double budget = 1.0 / 60.0;
+
+
+        const double budgetAdvanceTurn = 5.0; // advance turn every 5 seconds, just for testing
+        auto advanceTurnNow = std::chrono::steady_clock::now();
+
         while (!server.isListeningThreadFinished())
         {
+            auto now = std::chrono::steady_clock::now();
+
+            if (!server.gameStarted() && server.getNumberOfPlayers() >= 2)
+            {
+                server.startGame();
+            }
+            if (!server.gameStarted()) continue;
+
             if (server.word.first) {
                 server.pick_word();
                 //server.word.first = false;
             }
+
+            if (std::chrono::duration<double>(std::chrono::steady_clock::now() - advanceTurnNow).count() >= budgetAdvanceTurn)
+            {
+                server.advanceDrawer();
+                advanceTurnNow = std::chrono::steady_clock::now();
+            }
+
+            // don't sleep here, sleep is inaccurate for very small time frames. just busy wait here
+            while (true)
+            {
+                double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - now).count();
+                if (seconds >= budget) break;
+            }
         }
+        server.stopGame();
     }
     catch (const std::exception& e)
     {
