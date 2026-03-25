@@ -49,7 +49,7 @@ ChatBox::ChatBox(const std::string& fontPath) : text(font), sampleText(font)
 
 	sampleText.setCharacterSize(21);
 	sampleText.setFillColor(sf::Color::Black);
-	sampleText.setString("Click and type here...");
+	sampleText.setString("Press 'Enter' or Click here to type...");
 	sampleText.setPosition({ CHATBOX_POSITION_X + TEXT_PADDING, CHATBOX_POSITION_Y + CHATBOX_HEIGHT - TYPING_AREA_HEIGHT });
 }
 
@@ -72,14 +72,11 @@ void ChatBox::draw(sf::RenderWindow& window)
 		sf::Text lastLineText(font, lastLine, text.getCharacterSize());
 		float lastLineWidth = lastLineText.getLocalBounds().size.x;
 
-		sf::FloatRect textBounds = text.getLocalBounds();
-		float textHeight = textBounds.size.y;
+		float lineHeight = font.getLineSpacing(text.getCharacterSize());
+		int lineCount = static_cast<int>(std::count(wrappedStr.begin(), wrappedStr.end(), '\n'));
 
 		float cursorX = text.getPosition().x + lastLineWidth;
-		float cursorY;
-		// sum hack lmao
-		if (currentInput.empty()) cursorY = text.getPosition().y + textHeight;
-		else cursorY = (text.getPosition().y + textHeight) - 10;
+		float cursorY = text.getPosition().y + lineCount * lineHeight;
 		cursor.setPosition({ cursorX, cursorY });
 		window.draw(cursor);
 	}
@@ -91,9 +88,11 @@ void ChatBox::draw(sf::RenderWindow& window)
 
 }
 
-void ChatBox::sendMessage(const std::string& name, const std::string& message)
+void ChatBox::sendMessageToServer(const std::string& name, const std::string& message)
 {
+#if _DEBUG
 	std::cout << "Sending message: " << name << ": " << message << std::endl;
+#endif
 
 	// temp for now till it can receive from server
 	//receiveMessageFromServer("SnowPuppy", message);
@@ -135,35 +134,46 @@ std::string ChatBox::wrapText(const std::string& input)
 	return wrappedText;
 }
 
-bool ChatBox::handleChatBox()
+void ChatBox::handleEvent(const sf::Event& event)
 {
-	if (m_isTyping) {
-		if (sf::Keyboard::isKeyPressed(static_cast<sf::Keyboard::Key>(58))) {
-			//sendMessage("SnowPuppy", currentInput);
+	if (!m_isTyping) return;
 
-			// dont bother network with empty msg, useless
-			if (!currentInput.empty()) 
-				Client::sendChatMessage(nextMessageId++, currentInput);
+	// ty william
+	if (const auto* textEntered = event.getIf<sf::Event::TextEntered>()) {
+		std::uint32_t ch = textEntered->unicode;
 
-			currentInput.clear();
-			text.setString("");
-			return true;
-		}
-		else if (sf::Keyboard::isKeyPressed(static_cast<sf::Keyboard::Key>(59))) {
+		if (ch == ' ' && text.getString() == "") return;
+
+		if (ch == '\b') { // bckspace
 			if (!currentInput.empty()) {
 				currentInput.pop_back();
 				text.setString(wrapText(currentInput));
-				std::cout << "Current input: " << currentInput << std::endl;
 			}
 		}
-		for (int i = 0; i < 26; ++i) {
-			if (sf::Keyboard::isKeyPressed(static_cast<sf::Keyboard::Key>(i)) && currentInput.length() < MAX_MESSAGE_LENGTH) {
-				currentInput += static_cast<char>('a' + i);
-				text.setString(wrapText(currentInput));
-				std::cout << "Current input: " << currentInput << std::endl;
+		else if (ch == '\r' || ch == '\n') { // enter
+			if (!currentInput.empty()) {
+			// dont bother network with empty msg, useless
+			if (!currentInput.empty()) Client::sendChatMessage(nextMessageId++, currentInput);
+				currentInput.clear();
+				text.setString("");
 			}
 		}
-		return true;
+		else if ((ch == 32 || ch >= 65 && ch <= 90 || ch >= 97 && ch <= 122) && currentInput.size() < MAX_MESSAGE_LENGTH) {
+			currentInput += static_cast<char>(ch);
+			text.setString(wrapText(currentInput));
+		}
+		else if (ch == 126) {
+			// tilde or ~ to clear chat for testing clear all chat
+			messagesReceivedFromServer.clear();
+		}
+
+#if _DEBUG
+		std::cout << "Current input: " << currentInput << std::endl;
+#endif
 	}
-	return false;
+
+}
+
+void ChatBox::clearChatHistory() {
+	messagesReceivedFromServer.clear();
 }
