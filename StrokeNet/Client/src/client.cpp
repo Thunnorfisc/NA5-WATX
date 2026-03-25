@@ -407,8 +407,8 @@ LoginStatus Client::loginViaBroadcast(const std::string& username, const std::st
                     if (WSAGetLastError() == WSAEWOULDBLOCK) break;
                     break;
                 }
-                if (n != static_cast<int>(PacketSize::RSP_LOGIN)) continue;
-                if (static_cast<MessageType>(recvBuf[0]) != MessageType::RSP_LOGIN) continue;
+                if (n != static_cast<int>(PacketSize::RSP_LOGIN_AND_CREATE_ACCOUNT)) continue;
+                if (static_cast<MessageType>(recvBuf[0]) != MessageType::RSP_LOGIN_AND_CREATE_ACCOUNT) continue;
 
                 ByteReader rdr{ .buffer = std::span<const char>(recvBuf).subspan(1, n - 1) };
                 SessionId   sid = ntohl(rdr.read<SessionId>());
@@ -493,8 +493,8 @@ LoginStatus Client::createAccountViaBroadcast(const std::string& username, const
                     if (WSAGetLastError() == WSAEWOULDBLOCK) break;
                     break;
                 }
-                if(n != static_cast<int>(PacketSize::RSP_LOGIN)) continue;
-                if(static_cast<MessageType>(recvBuf[0]) != MessageType::RSP_LOGIN) continue;
+                if(n != static_cast<int>(PacketSize::RSP_LOGIN_AND_CREATE_ACCOUNT)) continue;
+                if(static_cast<MessageType>(recvBuf[0]) != MessageType::RSP_LOGIN_AND_CREATE_ACCOUNT) continue;
 
                 ByteReader rdr{.buffer = std::span<const char>(recvBuf).subspan(1, n - 1)};
                 [[maybe_unused]] SessionId sid = ntohl(rdr.read<SessionId>());
@@ -524,9 +524,9 @@ void Client::disconnect()
 
     if(_sessionId == InvalidSessionId) { stopThreads(); return; }
 
-    std::vector<char> pkt(PacketSize::REQ_UNREGISTER);
+    std::vector<char> pkt(PacketSize::FAF_DISCONNECT);
     ByteWriter wrt{.buffer = pkt};
-    wrt.write(static_cast<char>(MessageType::REQ_UNREGISTER));
+    wrt.write(static_cast<char>(MessageType::FAF_DISCONNECT));
     wrt.write(htonl(_sessionId));
 
     sendto(_socket, pkt.data(), static_cast<int>(pkt.size()),

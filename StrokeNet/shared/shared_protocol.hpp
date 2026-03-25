@@ -48,13 +48,9 @@ namespace PacketSize
     // [REQ_CREATE_ACCOUNT][USERNAME][PASSWORD]
     constexpr inline std::size_t REQ_CREATE_ACCOUNT = 1 + MAX_USERNAME_LEN + MAX_PASSWORD_LEN;
 
-    //  1         4           1
-    // [RSP_LOGIN][SESSION_ID][STATUS]
-    constexpr inline std::size_t RSP_LOGIN = 6;
-
-    //  1               4
-    // [REQ_UNREGISTER][SESSION_ID]
-    constexpr inline std::size_t REQ_UNREGISTER = 5;
+    //  1                             4           1
+    // [RSP_LOGIN_AND_CREATE_ACCOUNT][SESSION_ID][STATUS]
+    constexpr inline std::size_t RSP_LOGIN_AND_CREATE_ACCOUNT = 6;
 
     //  1                 4           4          4          5
     // [REQ_START_STROKE][SESSION_ID][STROKE_ID][MOUSE_POS][RGBAT]
@@ -72,9 +68,21 @@ namespace PacketSize
     // [RSP_START_STROKE][SESSION_ID][STROKE_ID]
     constexpr inline std::size_t RSP_END_STROKE = 9;
 
+    //  1        4           4       1           VAR
+    // [REQ_MSG][SESSION_ID][MSG_ID][MSG_LENGTH][MSG_BUFFER]
+    constexpr inline std::size_t REQ_MSG_WITHOUT_BUFFER = 10;
+    
+    //  1        4           4
+    // [RSP_MSG][SESSION_ID][MSG_ID]
+    constexpr inline std::size_t RSP_MSG = 9;
+
     //  1                  4           4          4
     // [FAF_EXTEND_STROKE][SESSION_ID][STROKE_ID][MOUSE_POS]
     constexpr inline std::size_t FAF_EXTEND_STROKE = 13;
+
+    //  1               4
+    // [FAF_DISCONNECT][SESSION_ID]
+    constexpr inline std::size_t FAF_DISCONNECT = 5;
 
     //  1                 4           4          5
     // [SVR_START_STROKE][SESSION_ID][MOUSE_POS][RGBAT]
@@ -87,34 +95,52 @@ namespace PacketSize
     //  1                  4           4
     // [SVR_EXTEND_STROKE][SESSION_ID][MOUSE_POS]
     constexpr inline std::size_t SVR_EXTEND_STROKE = 9;
+
+    //  1        4           4       1           VAR
+    // [NTF_MSG][SESSION_ID][MSG_ID][MSG_LENGTH][MSG_BUFFER]
+    constexpr inline std::size_t NTF_MSG_WITHOUT_BUFFER = 10;
+
+    //  1            4           4
+    // [NTF_RCV_MSG][SESSION_ID][MSG_ID]
+    constexpr inline std::size_t NTF_RCV_MSG = 9;
 }
-// ============================================================
-// REQ_ / RSP_ pairs means that an ack must be received
-// FAF_ means "Fire and Forget" < its ok to be unreliable
-// SVR_ means server telling client to do something with the data
-// ============================================================
 enum class MessageType: std::uint8_t
 {
-    // Require Ack
-    REQ_LOGIN = 1,
-    RSP_LOGIN = 2,
-    REQ_CREATE_ACCOUNT = 3,
-    REQ_UNREGISTER = 4,
+    // ===================================
+    // Require ack - client -> server
+    // ===================================
+    REQ_LOGIN = 1,                          // < Sent by client
+    REQ_CREATE_ACCOUNT,                     // < Sent by client
+    RSP_LOGIN_AND_CREATE_ACCOUNT,           // < Ack by server
 
-    // Require Ack
-    REQ_START_STROKE = 5,
-    RSP_START_STROKE = 6,
+    REQ_START_STROKE,                       // < Sent by client
+    RSP_START_STROKE,                       // < Ack by server
 
-    REQ_END_STROKE = 7,
-    RSP_END_STROKE = 8,
+    REQ_END_STROKE,                         // < Sent by client
+    RSP_END_STROKE,                         // < Ack by server
 
-    // Best effort
-    FAF_EXTEND_STROKE = 9,
+    REQ_MSG,                                // < Sent by client
+    RSP_MSG,                                // < Ack by server
 
-    // Best effort
-    SVR_START_STROKE = 10,
-    SVR_END_STROKE = 11,
-    SVR_EXTEND_STROKE = 12
+    // ===================================
+    // Require ack - server -> client
+    // ===================================
+    NTF_MSG,                                // < Sent by server
+    NTF_RCV_MSG,                            // < Ack by client
+
+    // ===================================
+    // Best effort - client -> server
+    // ===================================
+    FAF_EXTEND_STROKE,                      // < Sent by client
+    FAF_DISCONNECT,                         // < Sent by client
+
+    // ===================================
+    // Best effort server -> client(s)
+    // ===================================
+
+    SVR_START_STROKE,                       // < Sent by server
+    SVR_END_STROKE,                         // < Sent by server
+    SVR_EXTEND_STROKE,                      // < Sent by server
 };
 
 enum class LoginStatus: std::uint8_t

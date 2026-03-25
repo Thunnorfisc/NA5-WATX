@@ -66,6 +66,11 @@ public:
     // ============================================================
     static std::queue<ReceivedStrokeCommand> getReceivedStrokeCommands();
 
+    // ============================================================
+    // Chat message thingies - send
+    // ============================================================
+    static void sendChatMessage(std::uint32_t msgId,const std::string& message);
+
 private:
     // ============================================================
     // Socket / session

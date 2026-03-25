@@ -223,12 +223,12 @@ void Server::handle_reqLogin(std::span<const char> udpPacketWithoutMID, sockaddr
             std::format("[Server] Client {}: Login failed for username '{}'", ipStrAndPort, username));
     }
 
-    // build RSP_LOGIN
+    // build RSP_LOGIN_AND_CREATE_ACCOUNT
     auto sessionIdNetworkOrder = htonl(sessionIdHostOrder);
     std::vector<char> sendPacket;
-    sendPacket.resize(PacketSize::RSP_LOGIN);
+    sendPacket.resize(PacketSize::RSP_LOGIN_AND_CREATE_ACCOUNT);
     ByteWriter wrt{ .buffer = sendPacket };
-    wrt.write(static_cast<char>(MessageType::RSP_LOGIN));
+    wrt.write(static_cast<char>(MessageType::RSP_LOGIN_AND_CREATE_ACCOUNT));
     wrt.write(sessionIdNetworkOrder);
     wrt.write(static_cast<char>(status));
 
@@ -270,7 +270,7 @@ void Server::handle_reqLogin(std::span<const char> udpPacketWithoutMID, sockaddr
     else if (!success)
     {
         log(std::cerr,
-            std::format("[Server] Client {}: Unable to send RSP_LOGIN", ipStrAndPort));
+            std::format("[Server] Client {}: Unable to send RSP_LOGIN_AND_CREATE_ACCOUNT", ipStrAndPort));
     }
 }
 
@@ -316,12 +316,12 @@ void Server::handle_reqCreateAccount(std::span<const char> udpPacketWithoutMID, 
             std::format("[Server] Client {}: Account creation failed, '{}' already exists", ipStrAndPort, username));
     }
 
-    // respond with RSP_LOGIN (session id is invalid — they still need to login after creating)
+    // respond with RSP_LOGIN_AND_CREATE_ACCOUNT (session id is invalid — they still need to login after creating)
     auto sessionIdNetworkOrder = htonl(InvalidSessionId);
     std::vector<char> sendPacket;
-    sendPacket.resize(PacketSize::RSP_LOGIN);
+    sendPacket.resize(PacketSize::RSP_LOGIN_AND_CREATE_ACCOUNT);
     ByteWriter wrt{ .buffer = sendPacket };
-    wrt.write(static_cast<char>(MessageType::RSP_LOGIN));
+    wrt.write(static_cast<char>(MessageType::RSP_LOGIN_AND_CREATE_ACCOUNT));
     wrt.write(sessionIdNetworkOrder);
     wrt.write(static_cast<char>(status));
 
@@ -349,18 +349,18 @@ void Server::handle_reqCreateAccount(std::span<const char> udpPacketWithoutMID, 
     if (!success)
     {
         log(std::cerr,
-            std::format("[Server] Client {}: Unable to send RSP_LOGIN for account creation", ipStrAndPort));
+            std::format("[Server] Client {}: Unable to send RSP_LOGIN_AND_CREATE_ACCOUNT for account creation", ipStrAndPort));
     }
 }
 
 // ============================================================
-// REQ_UNREGISTER
+// FAF_DISCONNECT
 // ============================================================
 
-void Server::handle_reqUnregister(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
+void Server::handle_fafDisconnect(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
 {
-    assert((udpPacketWithoutMID.size() == PacketSize::REQ_UNREGISTER - 1) &&
-        "Size of REQ_UNREGISTER packet received is wrong");
+    assert((udpPacketWithoutMID.size() == PacketSize::FAF_DISCONNECT - 1) &&
+        "Size of FAF_DISCONNECT packet received is wrong");
     char ipStr[INET_ADDRSTRLEN]{};
     inet_ntop(AF_INET, &sa->sin_addr, ipStr, INET_ADDRSTRLEN);
     auto port = ntohs(sa->sin_port);

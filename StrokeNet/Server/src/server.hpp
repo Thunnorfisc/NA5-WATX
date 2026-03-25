@@ -39,29 +39,42 @@
 class Server
 {
 public:
-    using RegCdsFnId = int;
-public:
     Server();
     ~Server();
 
     void startListening();
     bool isListeningThreadFinished() noexcept;
-public: //GMAE
+public:
+    // ============================================================
+    // Game
+    // ============================================================
+    uint32_t max_len{};
     std::vector<std::string> word_list{};
     std::pair<bool, std::string> word{ 1,{} };
-    uint32_t max_len{};
 
-    void load_wordlist();
     void pick_word();
+    void load_wordlist();
     int word_heuristic();
 
-    void advanceDrawer();
-    void startGame();
     void stopGame();
+    void startGame();
     bool gameStarted();
+    void advanceDrawer();
 
     std::size_t getNumberOfPlayers();
 private:
+    // ============================================================
+    // Game State
+    // ============================================================
+    std::mutex _gameMut;
+    UserStore _userStore;
+    bool _gameRunning = false;
+    std::size_t _currentAllowedToDrawIndex{};
+    std::vector<SessionId> _listOfPlayersAllowedToDraw;
+
+    // ============================================================
+    // Client storage
+    // ============================================================
     struct Client
     {
         std::string ipPort;
@@ -69,58 +82,54 @@ private:
 
         std::optional<std::uint32_t> currentStrokeId;
     };
+    // right now, if client misbehaves and keeps sending
+    // registeration after registration without deregistering
+    // then we have a leak
+    std::mutex _clientStorageMutex;
+    std::unordered_map<SessionId, Client> _sessionIdToClient;
 
-    SOCKET _socket = INVALID_SOCKET;
-    unsigned _portHostOrder = 0;
+    // ============================================================
+    // Socket / session
+    // ============================================================
     std::string _ip;
     std::thread _thread;
-    std::atomic<bool> _threadFinished = false;
-    std::stop_source _stopSource;
     const int _maxRetry = 5;
+    unsigned _portHostOrder = 0;
+    std::stop_source _stopSource;
     const double _recvTimeOut = 0.1;
+    SOCKET _socket = INVALID_SOCKET;
+    std::atomic<bool> _threadFinished = false;
     SessionId _nextSessionIdHostOrder = InvalidSessionId + 1;
 
-    // Game stuff
-    std::mutex _gameMut;
-    bool _gameRunning = false;
-    std::size_t _currentAllowedToDrawIndex{};
-    std::vector<SessionId> _listOfPlayersAllowedToDraw;
-    UserStore _userStore;
+    // ============================================================
+    // Message handlers
+    // ============================================================
+    void handle_reqLogin            (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
+    void handle_reqCreateAccount    (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
 
-    // Handling messages
-    void handle_reqLogin(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
-    void handle_reqCreateAccount(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
-    void handle_reqUnregister(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
+    void handle_reqStartStroke      (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
+    void handle_reqEndStroke        (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
 
-    void handle_reqStartStroke(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
-    void handle_reqEndStroke(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
-
-    void handle_fafExtendStroke(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
+    void handle_fafExtendStroke     (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
+    void handle_fafDisconnect       (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
 
     using MessageFn = void(Server::*)(std::span<const char>, sockaddr_in*);
     const std::unordered_map<MessageType, MessageFn> _messageTypeFns
     {
-        std::make_pair(MessageType::REQ_LOGIN, &Server::handle_reqLogin),
-        std::make_pair(MessageType::REQ_CREATE_ACCOUNT, &Server::handle_reqCreateAccount),
-        std::make_pair(MessageType::REQ_UNREGISTER,&Server::handle_reqUnregister),
+        std::make_pair(MessageType::REQ_LOGIN,          &Server::handle_reqLogin            ),
+        std::make_pair(MessageType::REQ_CREATE_ACCOUNT, &Server::handle_reqCreateAccount    ),
+        std::make_pair(MessageType::FAF_DISCONNECT,     &Server::handle_fafDisconnect),
 
-        std::make_pair(MessageType::REQ_START_STROKE, &Server::handle_reqStartStroke),
-        std::make_pair(MessageType::REQ_END_STROKE, &Server::handle_reqEndStroke),
+        std::make_pair(MessageType::REQ_START_STROKE,   &Server::handle_reqStartStroke      ),
+        std::make_pair(MessageType::REQ_END_STROKE,     &Server::handle_reqEndStroke        ),
 
-        std::make_pair(MessageType::FAF_EXTEND_STROKE, &Server::handle_fafExtendStroke),
+        std::make_pair(MessageType::FAF_EXTEND_STROKE,  &Server::handle_fafExtendStroke     ),
     };
 
-    // right now, if client misbehaves and keeps sending
-    // registeration after registration without deregistering
-    // then we have a leak
-    std::unordered_map<SessionId, Client> _sessionIdToClient;
-
-
-    std::mutex _clientStorageMutex;
-    // ========================= runs on a different thread
+    // ============================================================
+    // Listening thread
+    // ============================================================
     void actualStartListening(std::stop_token st) noexcept;
-    // ========================= all called by the receiving thread start
     SessionId getNextSessionIdHostOrder();
     bool destroySessionIdHostOrder(SessionId id, std::string ipPort);
-    // ========================= all called by the receiving thread end
 };
