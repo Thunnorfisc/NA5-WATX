@@ -466,6 +466,7 @@ LoginStatus Client::loginViaBroadcast(const std::string& username, const std::st
                     char ip[INET_ADDRSTRLEN]{};
                     inet_ntop(AF_INET, &from.sin_addr, ip, sizeof(ip));
                     _serverIpAndPort = std::format("{}:{}", ip, ntohs(from.sin_port));
+                    _seenMsgesId.clear();
                     //_nextSeq.store(0);
 
                     _stopSource = std::stop_source{};
@@ -579,6 +580,7 @@ void Client::disconnect()
 
     log(std::cout, std::format("[Client] Disconnected from {}", _serverIpAndPort));
     _serverIpAndPort.clear();
+    _seenMsgesId.clear();
     std::memset(&_serverAddr, 0, sizeof(_serverAddr));
     _sessionId = InvalidSessionId;
 
