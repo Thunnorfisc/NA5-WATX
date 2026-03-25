@@ -595,6 +595,12 @@ void Server::handle_reqMsg(std::span<const char> udpPacketWithoutMID, sockaddr_i
     auto msgLength = rdr.read<std::uint8_t>();
     auto actualmsg = rdr.readBytes(msgLength);
 
+    // CHECK IF ITS NOT CURRENT DRAWER + IF ACTUAL MSG IS THE GUESS, THEN SEND BACK
+    // "USER GUESSED THE WORD" @TODOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO
+
+
+
+
     // validated its good REQ_MSG packet, send back RSP_MSG
     std::array<char, PacketSize::RSP_MSG> rspmsg;
     ByteWriterN rspwrt{ .buffer = rspmsg };
