@@ -238,7 +238,7 @@ void Server::handle_reqLogin(std::span<const char> udpPacketWithoutMID, sockaddr
             auto [_ignore, succeed] = _sessionIdToClient.emplace(
                 std::make_pair(
                     sessionIdHostOrder,
-                    Client{ .ipPort = ipStrAndPort, .sa = *sa }
+                    Client{ .ipPort = ipStrAndPort,.username = username, .sa = *sa }
                 ));
             assert(succeed && "Session id registration has logic error");
         }
@@ -546,6 +546,60 @@ void Server::handle_reqEndStroke(std::span<const char> udpPacketWithoutMID, sock
         {
             SessionId networkSID = htonl(sid);
             std::memcpy(pkt.data() + sizeof(MessageType::SVR_END_STROKE), &networkSID, sizeof(networkSID));
+        });
+}
+
+void Server::handle_reqMsg(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
+{
+    ByteReader rdr{ .buffer = udpPacketWithoutMID };
+    auto sessionIdHostOrder = ntohl(rdr.read<SessionId>());
+    // check if session id exists
+    auto it = _sessionIdToClient.find(sessionIdHostOrder);
+    if (it == _sessionIdToClient.end())
+    {
+        // no session id exists, ignore
+        log(std::cerr,
+            std::format("[Server] Received REQ_MSG from unknown client session id: {}", sessionIdHostOrder));
+        return;
+    }
+
+    auto msgIdHostOrder = ntohl(rdr.read<std::uint32_t>());
+    auto msgLength = rdr.read<std::uint8_t>();
+    auto actualmsg = rdr.readBytes(msgLength);
+
+    // validated its good REQ_MSG packet, send back RSP_MSG
+    std::array<char, PacketSize::RSP_MSG> rspmsg;
+    ByteWriterN rspwrt{ .buffer = rspmsg };
+    rspwrt.write(static_cast<char>(MessageType::RSP_MSG));
+    rspwrt.write(htonl(sessionIdHostOrder));
+    rspwrt.write(htonl(msgIdHostOrder));
+    bool successRsp = sendWithRetry(rspmsg, *sa);
+
+    auto name = it->second.username;
+    auto nameLength = static_cast<std::uint8_t>(name.length());
+    if (nameLength > 15) // 15 is arbitrary here
+    {
+        name = name.substr(0, 12); // trunc it
+        name += "...";
+        nameLength = 15;
+    }
+
+    // just send back to all clients TEMPORARY UNTIL WILLIAM FINISHES SERVER SIDE NTF_RCV IMPLEMENTATION!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    std::vector<char> svrmsg;
+    svrmsg.resize(PacketSize::NTF_MSG_WITHOUT_BUFFER + msgLength + nameLength);
+    ByteWriter svrwrt{ .buffer = svrmsg };
+    svrwrt.write(static_cast<char>(MessageType::NTF_MSG));
+    svrwrt.write(std::uint32_t{}); // dummy
+    svrwrt.write(htonl(msgIdHostOrder));
+    svrwrt.write(msgLength);
+    svrwrt.writeSpan(actualmsg);
+    svrwrt.write(nameLength);
+    svrwrt.writeSpan(name);
+    broadcastPacket(svrmsg,
+        [&](auto& pkt, SessionId sid)
+        {
+            SessionId networkSID = htonl(sid);
+            std::memcpy(pkt.data() + sizeof(MessageType::NTF_MSG), &networkSID, sizeof(networkSID));
         });
 }
 

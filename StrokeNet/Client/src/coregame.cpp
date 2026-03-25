@@ -96,6 +96,7 @@ void CoreGameState::handleEvent(const sf::Event& event)
 void CoreGameState::update(sf::Time)
 {
     updateLayout();
+    
     m_chatBox.handleChatBox();
     
     sf::Vector2i mousePos = sf::Mouse::getPosition(context().window);
@@ -184,12 +185,19 @@ void CoreGameState::update(sf::Time)
         }
     }
 
+    auto chatMsges = Client::getReceivedChatMessages();
+    while (!chatMsges.empty())
+    {
+        auto chatmsg = chatMsges.front();
+        chatMsges.pop();
+        m_chatBox.receiveMessageFromServer(chatmsg._name, chatmsg._message);
+    }
+
     if (m_shouldReturnToMenu)
     {
         m_shouldReturnToMenu = false;
         requestStateChange(StateId::MainMenu);
     }
-    sequenceNumber++;
 }
 
 void CoreGameState::render()

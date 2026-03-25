@@ -84,6 +84,7 @@ private:
     struct Client
     {
         std::string ipPort;
+        std::string username;
         sockaddr_in sa;
 
         std::optional<std::uint32_t> currentStrokeId;
@@ -126,12 +127,13 @@ private:
     {
         std::make_pair(MessageType::REQ_LOGIN,          &Server::handle_reqLogin            ),
         std::make_pair(MessageType::REQ_CREATE_ACCOUNT, &Server::handle_reqCreateAccount    ),
-        std::make_pair(MessageType::FAF_DISCONNECT,     &Server::handle_fafDisconnect),
 
         std::make_pair(MessageType::REQ_START_STROKE,   &Server::handle_reqStartStroke      ),
         std::make_pair(MessageType::REQ_END_STROKE,     &Server::handle_reqEndStroke        ),
+        std::make_pair(MessageType::REQ_MSG,            &Server::handle_reqMsg              ),
 
         std::make_pair(MessageType::FAF_EXTEND_STROKE,  &Server::handle_fafExtendStroke     ),
+        std::make_pair(MessageType::FAF_DISCONNECT,     &Server::handle_fafDisconnect       ),
     };
 
     // ============================================================

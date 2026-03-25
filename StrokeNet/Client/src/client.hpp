@@ -52,6 +52,7 @@ public:
     };
     struct ReceivedChatMessage
     {
+        std::string _name;
         std::string _message;
     };
     // ============================================================
