@@ -1,3 +1,17 @@
+/* Start Header
+***********************************************************************/
+
+/*! \file   main.cpp
+    \author Loh Boon Cheong, Timothy
+    \par    email: loh.b@digipen.edu
+    \date   20th March, 2026
+    \brief  Copyright (C) 2026 DigiPen Institute of Technology
+
+    Reproduction or diclosure of this file or its contents without the prior
+    written consent of DigiPen Institute of Technology is prohibited. */
+
+/* End Header
+***********************************************************************/
 #include "game.hpp"
 #include "client.hpp"
 
@@ -24,8 +38,6 @@ int main()
     std::filesystem::current_path(buffer);
 
     Client::initalize();
-    //Client::connectViaBroadcast(); // auto check lan for connection via a fixed port
-    //Client::connectViaIpAndPort("192.168.68.54","49013"); // connect directly
     playGame();
     Client::disconnect();
     Client::terminate();

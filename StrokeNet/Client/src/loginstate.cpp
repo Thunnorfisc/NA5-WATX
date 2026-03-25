@@ -1,9 +1,21 @@
+/* Start Header
+***********************************************************************/
+
+/*! \file   loginstate.cpp
+    \author William Wibisana Dumanauw
+    \par    email: williamwibisana.d@digipen.edu
+    \date   20th March, 2026
+    \brief  Copyright (C) 2026 DigiPen Institute of Technology
+
+    Reproduction or diclosure of this file or its contents without the prior
+    written consent of DigiPen Institute of Technology is prohibited. */
+
+/* End Header
+***********************************************************************/
+#include "client.hpp"
 #include "loginstate.hpp"
 #include "state_machine.hpp"
-#include "client.hpp"
-
 #include <algorithm>
-
 namespace
 {
     void centerTextInBox(sf::Text& text, const sf::RectangleShape& box)
@@ -32,7 +44,7 @@ namespace
 
 LoginState::LoginState(StateMachine& stateMachine, StateContext& context) :
     State(stateMachine, context),
-    m_font("resources/Cinzel-Regular.ttf"),
+    m_font("resources/Marvel-Bold.ttf"),
     m_titleText(m_font, "Login", 48),
     m_statusText(m_font, "", 20),
     m_loginButtonText(m_font, "Login", 28),

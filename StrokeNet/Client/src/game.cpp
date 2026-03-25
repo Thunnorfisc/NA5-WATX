@@ -1,3 +1,17 @@
+/* Start Header
+***********************************************************************/
+
+/*! \file   game.cpp
+    \author Loh Boon Cheong, Timothy
+    \par    email: loh.b@digipen.edu
+    \date   20th March, 2026
+    \brief  Copyright (C) 2026 DigiPen Institute of Technology
+
+    Reproduction or diclosure of this file or its contents without the prior
+    written consent of DigiPen Institute of Technology is prohibited. */
+
+/* End Header
+***********************************************************************/
 #include "game.hpp"
 #include "loginstate.hpp"
 #include <optional>

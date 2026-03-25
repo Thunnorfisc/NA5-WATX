@@ -1,3 +1,17 @@
+/* Start Header
+***********************************************************************/
+
+/*! \file   mainmenu.cpp
+    \author Loh Boon Cheong, Timothy
+    \par    email: loh.b@digipen.edu
+    \date   20th March, 2026
+    \brief  Copyright (C) 2026 DigiPen Institute of Technology
+
+    Reproduction or diclosure of this file or its contents without the prior
+    written consent of DigiPen Institute of Technology is prohibited. */
+
+/* End Header
+***********************************************************************/
 #include "mainmenu.hpp"
 
 #include "state_machine.hpp"
@@ -19,7 +33,7 @@ namespace
 
 MainMenuState::MainMenuState(StateMachine& stateMachine, StateContext& context) :
     State(stateMachine, context),
-    m_font("resources/Cinzel-Regular.ttf"),
+    m_font("resources/Marvel-Bold.ttf"),
     m_playText(m_font, "Play Game", 52)
 {
     m_playButton.setRadius(180.0f);
