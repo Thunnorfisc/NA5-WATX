@@ -71,6 +71,7 @@ public:
     std::size_t getNumberOfPlayers();
 
     void sendNewRoundEndTime(std::int64_t time);
+    void sendClearCanvasCommand();
 private:
     // ============================================================
     // Game State
@@ -86,6 +87,7 @@ private:
     // ============================================================
     std::uint32_t _messageIdServer = 1;
     std::uint32_t _roundEndTimeIdServer = 1;
+    std::uint32_t _clearCanvasIdServer = 1;
 
     // ============================================================
     // Client storage

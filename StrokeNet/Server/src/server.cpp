@@ -755,31 +755,7 @@ void Server::handle_reqClearCanvas(std::span<const char> udpPacketWithoutMID, so
         it->second.currentStrokeId = std::nullopt;
 
     // Now NTF all clients to clear their canvas
-    auto now = std::chrono::steady_clock::now();
-    std::lock_guard ntfLock(_pendingNtfClearCanvasMutex);
-    for (const auto& [ssiho, client] : _sessionIdToClient)
-    {
-        std::vector<char> ntfPkt(PacketSize::NTF_CLEAR_CANVAS);
-        ByteWriter ntfWrt{ .buffer = ntfPkt };
-        ntfWrt.write(static_cast<char>(MessageType::NTF_CLEAR_CANVAS));
-        ntfWrt.write(htonl(ssiho));       // target's session ID
-        ntfWrt.write(htonl(clearIdHostOrder));
-
-        // Send immediately once
-        sockaddr_in clientSa = client.sa;
-        sendto(_socket, ntfPkt.data(), static_cast<int>(ntfPkt.size()), 0,
-            reinterpret_cast<sockaddr*>(&clientSa), sizeof(clientSa));
-
-        // Add to pending for retry
-        _pendingNtfClearCanvases[NtfKey{ ssiho, clearIdHostOrder }] = PendingNTF{
-            ._data = std::move(ntfPkt),
-            ._clientAddr = client.sa,
-            ._targetSessionId = ssiho,
-            ._ntfId = clearIdHostOrder,
-            ._nextSendTime = now + std::chrono::milliseconds(100),
-            ._giveUpTime = now + std::chrono::seconds(2),
-        };
-    }
+    sendClearCanvasCommand();
 }
 
 // ============================================================
@@ -1139,7 +1115,7 @@ void Server::resetRound(std::int64_t newEpoch)
 {
     // send client stuff
     sendNewRoundEndTime(newEpoch);
-
+    sendClearCanvasCommand();
 
     // local server stuff
     advanceDrawer();
@@ -1194,6 +1170,40 @@ void Server::sendNewRoundEndTime(std::int64_t time)
         };
     }
     _roundEndTimeIdServer++;
+}
+
+// ============================================================
+// Send clear canvas command
+// ============================================================
+
+void Server::sendClearCanvasCommand()
+{
+    auto now = std::chrono::steady_clock::now();
+    std::lock_guard ntfLock(_pendingNtfClearCanvasMutex);
+    for(const auto& [ssiho, client] : _sessionIdToClient)
+    {
+        std::vector<char> ntfPkt(PacketSize::NTF_CLEAR_CANVAS);
+        ByteWriter ntfWrt{.buffer = ntfPkt};
+        ntfWrt.write(static_cast<char>(MessageType::NTF_CLEAR_CANVAS));
+        ntfWrt.write(htonl(ssiho));       // target's session ID
+        ntfWrt.write(htonl(_clearCanvasIdServer));
+
+        // Send immediately once
+        sockaddr_in clientSa = client.sa;
+        sendto(_socket, ntfPkt.data(), static_cast<int>(ntfPkt.size()), 0,
+            reinterpret_cast<sockaddr*>(&clientSa), sizeof(clientSa));
+
+        // Add to pending for retry
+        _pendingNtfClearCanvases[NtfKey{ssiho, _clearCanvasIdServer}] = PendingNTF{
+            ._data = std::move(ntfPkt),
+            ._clientAddr = client.sa,
+            ._targetSessionId = ssiho,
+            ._ntfId = _clearCanvasIdServer,
+            ._nextSendTime = now + std::chrono::milliseconds(100),
+            ._giveUpTime = now + std::chrono::seconds(2),
+        };
+    }
+    _clearCanvasIdServer++;
 }
 
 // ============================================================
