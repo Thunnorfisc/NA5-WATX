@@ -138,9 +138,9 @@ namespace PacketSize
     // [NTF_RCV_CLEAR_CANVAS][SESSION_ID][CLEAR_ID]
     constexpr inline std::size_t NTF_RCV_CLEAR_CANVAS = 9;
 
-    // 1                 4           4         4            1            VAR          2
-    // [NTF_PLAYER_JOIN][SESSION_ID][SCORE_ID][NUM_PLAYERS][NAME_LENGTH][NAME_BUFFER][SCORE]
-    constexpr inline std::size_t NTF_UPDATE_SCOREBOARD = 16;
+    // 1                      4           4         4             N                                    1           VAR
+    // [NTF_UPDATE_SCOREBOARD][SESSION_ID][SCORE_ID][NUM_PLAYERS]{ NAME_LEN(1) | NAME(VAR) | SCORE(2) }[DRAWER_LEN][DRAWER_NAME]
+    constexpr inline std::size_t NTF_UPDATE_SCOREBOARD_BASE = 14;
 
     // 1                     4           4        
     // [NTF_RCV_PLAYER_JOIN][SESSION_ID][SCORE_ID]
@@ -379,7 +379,7 @@ inline void Encode_sha_2_64(std::string const& data, unsigned char* ret_encoded)
 }
 
 inline std::string Decode_64_2_sha(const std::string& input){
-    int len = input.size();
+    int len = static_cast<int>(input.size());
     std::string out(len, '\0');  // allocate properly
 
     int decodedLen = EVP_DecodeBlock(
