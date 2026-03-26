@@ -211,10 +211,10 @@ enum class MessageType: std::uint8_t
     NTF_RCV_UPDATE_SCOREBOARD,              // < Ack by client
     NTF_ROUND_END_TIME,                     // < Sent by server
     NTF_RCV_ROUND_END_TIME,                 // < Ack by client
-    NTF_SEND_WORD_LEN,                      // < Sent by client
-    NTF_RCV_SEND_WORD_LEN,                  // < Sent by client
-    NTF_SEND_WORD,                      // < Sent by client
-    NTF_RCV_SEND_WORD,                  // < Sent by client
+    NTF_SEND_WORD_LEN,                      // < Sent by server
+    NTF_RCV_SEND_WORD_LEN,                  // < Ack by client
+    NTF_SEND_WORD,                          // < Sent by server
+    NTF_RCV_SEND_WORD,                      // < Ack by client
 
     // ===================================
     // Best effort - client -> server
