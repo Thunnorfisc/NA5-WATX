@@ -60,7 +60,7 @@ void UserStore::save()
         obj.AddMember("username",
             rapidjson::Value(user.c_str(), alloc), alloc);
         obj.AddMember("password",
-            rapidjson::Value(pass.c_str(), alloc), alloc);
+            rapidjson::Value(reinterpret_cast<char*>(encodedBase64), alloc), alloc);
         obj.AddMember("highscore", rapidjson::Value(0), alloc);
         arr.PushBack(obj, alloc);
     }

@@ -3,22 +3,32 @@
         {
             "username": "admin",
             "password": "jGl25bVBBBW96Qi9Te4V37Fnqchz/Eu4qB9vKrRIqRg=",
-            "score": 0
+            "highscore": 0
         },
         {
-            "username": "test",
-            "password": "n4bQgYhMfWWaL+qgxVrQFaO/TxsrC4Is0V1sFbDwCgg=",
-            "score": 0
+            "username": "boy",
+            "password": "zGp3hATqVX2lVD18uhT3UDDdBp9WyAr2Kw1+GECh/2c=",
+            "highscore": 0
         },
         {
             "username": "timothy",
             "password": "GT0wQ+Apqfn7rE9KqtQ37cLFg3cZxcxfSZOVc7r3h2A=",
-            "score": 0
+            "highscore": 0
+        },
+        {
+            "username": "test",
+            "password": "n4bQgYhMfWWaL+qgxVrQFaO/TxsrC4Is0V1sFbDwCgg=",
+            "highscore": 0
         },
         {
             "username": "hi",
             "password": "asPDNuQJSDUpOj/tiktf7d4bXiYm2YOP7VBpO7o=",
-            "score": 0
+            "highscore": 0
+        },
+        {
+            "username": "snowpuppy",
+            "password": "pmWkWSBCL51Bfkhn79xPuKBKHz//H6B+mY6G9/eieuM=",
+            "highscore": 0
         }
     ]
 }
