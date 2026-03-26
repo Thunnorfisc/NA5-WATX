@@ -246,6 +246,7 @@ void Server::handle_reqLogin(std::span<const char> udpPacketWithoutMID, sockaddr
         }
         log(std::cout,
             std::format("[Server] Client {}: '{}' logged in successfully", ipStrAndPort, username));
+        broadcastScoreboard();
     }
     else if (!success)
     {
