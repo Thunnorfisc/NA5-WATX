@@ -897,13 +897,16 @@ std::queue<Client::ReceivedChatMessage> Client::getReceivedChatMessages()
     return cpy;
 }
 
-std::queue<Client::ScoreBoard> Client::getScoreboard()
+std::optional<Client::ScoreBoard> Client::getLatestScoreboard()
 {
-    if (!_scoreboardReceivedMut.try_lock()) return {};
-    std::queue<ScoreBoard> cpy;
-    cpy.swap(_scoreboardReceived);
-    _scoreboardReceivedMut.unlock();
-    return cpy;
+    std::unique_lock lock(_scoreboardReceivedMut, std::try_to_lock);
+    if (!lock.owns_lock() || _scoreboardReceived.empty())
+        return std::nullopt;
+
+    // Grab only the latest, discard older ones
+    ScoreBoard latest = std::move(_scoreboardReceived.back());
+    std::queue<ScoreBoard>().swap(_scoreboardReceived); // clear
+    return latest;
 }
 
 // ============================================================
