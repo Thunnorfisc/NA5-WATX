@@ -37,6 +37,7 @@ struct ChatBox
 	sf::Text playerScore;
 
 	std::string currentInput;
+	std::string currentDrawerName;
 
 	std::vector<sf::Text> messagesReceivedFromServer;
 	std::vector<std::pair<std::string, uint16_t>> scoreboardData;

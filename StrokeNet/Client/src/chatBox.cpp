@@ -103,14 +103,22 @@ void ChatBox::draw(sf::RenderWindow& window)
 		window.draw(message);
 	}
 
-	if (auto sb = Client::getLatestScoreboard()) scoreboardData = sb->_users;
+	if (auto sb = Client::getLatestScoreboard()) {
+		scoreboardData = sb->_users;
+		currentDrawerName = sb->_currentDrawer;
+	}
+
+	static float currentPosY = SCOREBOARD_BACKGROUND_POSITION_Y + 10.f;
+	static float toAddY = (CHATBOX_HEIGHT / 6.f) - 15.f;
 	for (const auto& [name, score] : scoreboardData) {
-		std::cout << "Drawing scoreboard entry: " << name << " with score: " << score << std::endl;
-		drawScoreboardOfPlayer(SCOREBOARD_BACKGROUND_POSITION_X + 10.f, SCOREBOARD_BACKGROUND_POSITION_Y + 10.f, CHATBOX_WIDTH - 20.f, (CHATBOX_HEIGHT / 6.f) - 20.f, name, score);
+		
+		drawScoreboardOfPlayer(SCOREBOARD_BACKGROUND_POSITION_X + 10.f, currentPosY, CHATBOX_WIDTH - 20.f, toAddY, name, score);
 		window.draw(playerScoreboard);
 		window.draw(playerName);
 		window.draw(playerScore);
+		currentPosY += toAddY + MESSAGE_RECEIVED_SPACING;
 	}
+	currentPosY = SCOREBOARD_BACKGROUND_POSITION_Y + 10.f;
 
 }
 
@@ -207,19 +215,24 @@ void ChatBox::drawScoreboardOfPlayer(float posX, float posY, float scaleX, float
 	playerName.setString(name);
 	playerName.setCharacterSize(32);
 	playerName.setPosition({ posX + TEXT_PADDING, posY + TEXT_PADDING });
-	/*if (name == Client::getCurrentDrawer()) {
+	if (name == currentDrawerName) {
 		playerName.setFillColor(sf::Color::Green);
 		playerName.setStyle(sf::Text::Bold);
-		playerName.setOutlineThickness(2.f);
-		playerName.setOutlineColor(sf::Color::Black);
+		playerName.setOutlineThickness(4.f);
+		playerName.setOutlineColor(sf::Color::Red);
 	}
 	else {
 		playerName.setFillColor(sf::Color::White);
 		playerName.setStyle(sf::Text::Regular);
-		playerName.setOutlineThickness(1.f);
-		playerName.setOutlineColor(sf::Color(80, 80, 80));
-	}*/
+		playerName.setOutlineThickness(1.5f);
+		playerName.setOutlineColor(sf::Color(96, 96, 96));
+	}
 
 	playerScore.setString(std::to_string(score));
-
+	playerScore.setStyle(sf::Text::Bold);
+	playerScore.setCharacterSize(30);
+	playerScore.setPosition({ posX + TEXT_PADDING, posY + TEXT_PADDING * 3 + playerName.getCharacterSize()});
+	playerScore.setFillColor(sf::Color::Yellow);
+	playerScore.setOutlineThickness(1.f);
+	playerScore.setOutlineColor(sf::Color::Blue);
 }
