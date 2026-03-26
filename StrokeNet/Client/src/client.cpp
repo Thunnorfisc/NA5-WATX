@@ -902,7 +902,7 @@ std::queue<Client::ScoreBoard> Client::getScoreboard()
     if (!_scoreboardReceivedMut.try_lock()) return {};
     std::queue<ScoreBoard> cpy;
     cpy.swap(_scoreboardReceived);
-    _msgesReceivedMut.unlock();
+    _scoreboardReceivedMut.unlock();
     return cpy;
 }
 
