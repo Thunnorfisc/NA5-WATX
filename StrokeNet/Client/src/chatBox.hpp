@@ -16,6 +16,9 @@
 #include <SFML/Graphics.hpp>
 #include "Drawing.hpp"
 #include <cstdint>
+#include <vector>
+#include <utility>
+
 struct ChatBox
 {
 	sf::Font font;
@@ -29,19 +32,21 @@ struct ChatBox
 	std::string currentInput;
 	std::vector<sf::Text> messagesReceivedFromServer;
 
+	std::vector<std::pair<std::string, uint16_t>> scoreboardData;
+
 	std::uint32_t nextMessageId = 1;
 	
 	bool m_isTyping = false;
 
 	ChatBox(const std::string& fontPath);
 
-	void handleChatBox();
 	void draw(sf::RenderWindow& window);
-	void sendMessageToServer(const std::string& name, const std::string& message);
 	void receiveMessageFromServer(const std::string& name, const std::string& message);
 	void setTyping(bool typing) { m_isTyping = typing; }
 	void handleEvent(const sf::Event& event);
 	std::string wrapText(const std::string& input);
 	void clearChatHistory();
 	void displayTimer(std::int64_t seconds);
+	void renderScoreboard();
+
 };

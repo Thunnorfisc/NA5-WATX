@@ -179,3 +179,8 @@ void ChatBox::clearChatHistory() {
 void ChatBox::displayTimer(std::int64_t seconds) {
 	timerText.setString(std::to_string(seconds) + "s");
 }
+
+void ChatBox::renderScoreboard() {
+
+	
+}
