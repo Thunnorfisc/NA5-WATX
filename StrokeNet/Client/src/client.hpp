@@ -90,6 +90,8 @@ public:
     // ============================================================
     static std::queue<ReceivedChatMessage> getReceivedChatMessages();
 
+    static std::queue<ScoreBoard> getScoreboard();
+
 private:
     // ============================================================
     // Socket / session

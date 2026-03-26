@@ -625,6 +625,7 @@ void Server::handle_reqMsg(std::span<const char> udpPacketWithoutMID, sockaddr_i
     if (std::find(_listOfPlayersToDraw.begin(), _listOfPlayersToDraw.end(), it->first) != _listOfPlayersToDraw.end() &&
         str_msg == word.second) {
         std::cout << str_msg << '\n';
+        broadcastScoreboard();
     }
 
 
@@ -1103,7 +1104,13 @@ void Server::broadcastScoreboard()
     for (const auto& [ssiho, client] : _sessionIdToClient)
     {
         auto name = client.username;
-        auto nameLength = static_cast<std::uint8_t>(std::min(name.size(), std::size_t(12)));
+        auto nameLength = static_cast<std::uint8_t>(std::min(name.size(), std::size_t(15)));
+        if (nameLength > 15) // 15 is arbitrary here
+        {
+            name = name.substr(0, 12); // trunc it
+            name += "...";
+            nameLength = 15;
+        }
 
         std::uint16_t score = client.score;
 

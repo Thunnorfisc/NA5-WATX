@@ -397,6 +397,7 @@ void Client::handle_NTF_UpdateScoreboard(std::span<const char> msg)
     }
 
     ScoreBoard sb;
+    sb._users.resize(num);
     for (std::size_t i{}; i < num; ++i) {
         sb._users[i].first.resize(nameLengthHost);
         std::memcpy(sb._users[i].first.data(), actualName.data(), nameLengthHost);
@@ -859,6 +860,15 @@ std::queue<Client::ReceivedChatMessage> Client::getReceivedChatMessages()
     if (!_msgesReceivedMut.try_lock()) return {};
     std::queue<ReceivedChatMessage> cpy;
     cpy.swap(_msgesReceived);
+    _msgesReceivedMut.unlock();
+    return cpy;
+}
+
+std::queue<Client::ScoreBoard> Client::getScoreboard()
+{
+    if (!_scoreboardReceivedMut.try_lock()) return {};
+    std::queue<ScoreBoard> cpy;
+    cpy.swap(_scoreboardReceived);
     _msgesReceivedMut.unlock();
     return cpy;
 }
