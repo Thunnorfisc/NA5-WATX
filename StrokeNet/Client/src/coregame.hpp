@@ -43,7 +43,7 @@ private:
 	[[nodiscard]] bool isMouseOverTextBox() const;
     void updateLayout();
 
-    sf::CircleShape m_backButton;
+    sf::RectangleShape m_backButton;
     sf::Font m_font;
     sf::Text m_titleText;
     sf::Text m_backText;

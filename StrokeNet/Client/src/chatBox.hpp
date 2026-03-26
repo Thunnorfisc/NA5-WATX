@@ -28,10 +28,13 @@ struct ChatBox
 	sf::RectangleShape textBackground;
 	sf::RectangleShape textTypingArea;
 	sf::RectangleShape scoreboardBackground;
+	sf::RectangleShape playerScoreboard;
 
 	sf::Text text;
 	sf::Text sampleText;
 	sf::Text timerText;
+	sf::Text playerName;
+	sf::Text playerScore;
 
 	std::string currentInput;
 
@@ -51,7 +54,6 @@ struct ChatBox
 	std::string wrapText(const std::string& input);
 	void clearChatHistory();
 	void displayTimer(std::int64_t seconds);
-	void renderScoreboard();
-	void drawUI(float posX, float posY, float scaleX, float scaleY);
+	void drawScoreboardOfPlayer(float posX, float posY, float scaleX, float scaleY, std::string name, uint16_t score);
 
 };

@@ -24,10 +24,12 @@ const float TYPING_AREA_HEIGHT = 103.f;
 const float TEXT_PADDING = 3.f;
 const float MESSAGE_RECEIVED_SPACING = 5.f;
 const float MAX_TEXT_WIDTH = CHATBOX_WIDTH - (2.f * TEXT_PADDING);
+const float SCOREBOARD_BACKGROUND_POSITION_X = 20.f;
+const float SCOREBOARD_BACKGROUND_POSITION_Y = CHATBOX_POSITION_Y;
 
 const uint8_t MAX_MESSAGE_LENGTH = 84;
 
-ChatBox::ChatBox(const std::string& fontPath) : text(font), sampleText(font), timerText(font)
+ChatBox::ChatBox(const std::string& fontPath) : text(font), sampleText(font), timerText(font), playerName(font), playerScore(font)
 {
 	if (!font.openFromFile(fontPath)) throw std::runtime_error("Failed to load font from: " + fontPath);
 
@@ -60,11 +62,11 @@ ChatBox::ChatBox(const std::string& fontPath) : text(font), sampleText(font), ti
 	timerText.setOutlineColor(sf::Color::White);
 	timerText.setPosition({ 400.f, 100.f });
 
-	scoreboardBackground.setPosition({ 10, 10 });
+	scoreboardBackground.setPosition({ SCOREBOARD_BACKGROUND_POSITION_X, SCOREBOARD_BACKGROUND_POSITION_Y });
 	scoreboardBackground.setSize(sf::Vector2f(CHATBOX_WIDTH, CHATBOX_HEIGHT));
-	scoreboardBackground.setFillColor(sf::Color(160, 160, 160, 255));
+	scoreboardBackground.setFillColor(sf::Color(120, 120, 120));
 	scoreboardBackground.setOutlineThickness(1.f);
-	scoreboardBackground.setOutlineColor(sf::Color(100, 100, 100));
+	scoreboardBackground.setOutlineColor(sf::Color(80, 80, 80));
 }
 
 void ChatBox::draw(sf::RenderWindow& window)
@@ -101,6 +103,14 @@ void ChatBox::draw(sf::RenderWindow& window)
 		window.draw(message);
 	}
 
+	if (auto sb = Client::getLatestScoreboard()) scoreboardData = sb->_users;
+	for (const auto& [name, score] : scoreboardData) {
+		std::cout << "Drawing scoreboard entry: " << name << " with score: " << score << std::endl;
+		drawScoreboardOfPlayer(SCOREBOARD_BACKGROUND_POSITION_X + 10.f, SCOREBOARD_BACKGROUND_POSITION_Y + 10.f, CHATBOX_WIDTH - 20.f, (CHATBOX_HEIGHT / 6.f) - 20.f, name, score);
+		window.draw(playerScoreboard);
+		window.draw(playerName);
+		window.draw(playerScore);
+	}
 
 }
 
@@ -187,20 +197,29 @@ void ChatBox::displayTimer(std::int64_t seconds) {
 	timerText.setString(std::to_string(seconds) + "s");
 }
 
-void ChatBox::renderScoreboard() {
+void ChatBox::drawScoreboardOfPlayer(float posX, float posY, float scaleX, float scaleY, std::string name, uint16_t score) {
+	playerScoreboard.setPosition({ posX, posY });
+	playerScoreboard.setSize(sf::Vector2f(scaleX, scaleY));
+	playerScoreboard.setFillColor(sf::Color(40, 40, 40));
+	playerScoreboard.setOutlineThickness(1.f);
+	playerScoreboard.setOutlineColor(sf::Color::Black);
 
-	if (auto sb = Client::getLatestScoreboard()) scoreboardData = sb->_users;
-	else return;
-
-	for (const auto& [name, score] : scoreboardData) {
-		std::cout << name << ": " << score << std::endl;
-
+	playerName.setString(name);
+	playerName.setCharacterSize(32);
+	playerName.setPosition({ posX + TEXT_PADDING, posY + TEXT_PADDING });
+	/*if (name == Client::getCurrentDrawer()) {
+		playerName.setFillColor(sf::Color::Green);
+		playerName.setStyle(sf::Text::Bold);
+		playerName.setOutlineThickness(2.f);
+		playerName.setOutlineColor(sf::Color::Black);
 	}
+	else {
+		playerName.setFillColor(sf::Color::White);
+		playerName.setStyle(sf::Text::Regular);
+		playerName.setOutlineThickness(1.f);
+		playerName.setOutlineColor(sf::Color(80, 80, 80));
+	}*/
 
+	playerScore.setString(std::to_string(score));
 
-
-}
-
-void ChatBox::drawUI(float posX, float posY, float scaleX, float scaleY) {
-	
 }
