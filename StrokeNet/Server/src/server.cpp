@@ -686,7 +686,7 @@ void Server::handle_reqMsg(std::span<const char> udpPacketWithoutMID, sockaddr_i
             reinterpret_cast<sockaddr*>(&clientSa), sizeof(clientSa));
 
         // Add to pending for retry
-        _pendingNtfClearCanvases[NtfKey{ ssiho, _messageIdServer }] = PendingNTF{
+        _pendingNtfMsg[NtfKey{ ssiho, _messageIdServer }] = PendingNTF{
             ._data = std::move(svrmsg),
             ._clientAddr = client.sa,
             ._targetSessionId = ssiho,
