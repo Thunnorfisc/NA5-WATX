@@ -22,16 +22,20 @@
 struct ChatBox
 {
 	sf::Font font;
+
 	sf::FloatRect textClickBounds;
+
 	sf::RectangleShape textBackground;
 	sf::RectangleShape textTypingArea;
+	sf::RectangleShape scoreboardBackground;
 
 	sf::Text text;
 	sf::Text sampleText;
 	sf::Text timerText;
-	std::string currentInput;
-	std::vector<sf::Text> messagesReceivedFromServer;
 
+	std::string currentInput;
+
+	std::vector<sf::Text> messagesReceivedFromServer;
 	std::vector<std::pair<std::string, uint16_t>> scoreboardData;
 
 	std::uint32_t nextMessageId = 1;
@@ -48,5 +52,6 @@ struct ChatBox
 	void clearChatHistory();
 	void displayTimer(std::int64_t seconds);
 	void renderScoreboard();
+	void drawUI(float posX, float posY, float scaleX, float scaleY);
 
 };

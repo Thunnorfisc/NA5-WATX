@@ -110,6 +110,8 @@ void CoreGameState::update(sf::Time)
 {
     updateLayout();
 
+    m_chatBox.renderScoreboard();
+
     sf::Vector2i mousePos = sf::Mouse::getPosition(context().window);
     sf::Vector2f pos(static_cast<float>(mousePos.x), static_cast<float>(mousePos.y));
     bool leftDown = sf::Mouse::isButtonPressed(sf::Mouse::Button::Left);

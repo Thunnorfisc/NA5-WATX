@@ -59,6 +59,12 @@ ChatBox::ChatBox(const std::string& fontPath) : text(font), sampleText(font), ti
 	timerText.setOutlineThickness(2.f);
 	timerText.setOutlineColor(sf::Color::White);
 	timerText.setPosition({ 400.f, 100.f });
+
+	scoreboardBackground.setPosition({ 10, 10 });
+	scoreboardBackground.setSize(sf::Vector2f(CHATBOX_WIDTH, CHATBOX_HEIGHT));
+	scoreboardBackground.setFillColor(sf::Color(160, 160, 160, 255));
+	scoreboardBackground.setOutlineThickness(1.f);
+	scoreboardBackground.setOutlineColor(sf::Color(100, 100, 100));
 }
 
 void ChatBox::draw(sf::RenderWindow& window)
@@ -67,6 +73,7 @@ void ChatBox::draw(sf::RenderWindow& window)
 	window.draw(textTypingArea);
 	window.draw(text);
 	window.draw(timerText);
+	window.draw(scoreboardBackground);
 
 	if (currentInput.empty() && !m_isTyping) window.draw(sampleText);
 
@@ -182,5 +189,18 @@ void ChatBox::displayTimer(std::int64_t seconds) {
 
 void ChatBox::renderScoreboard() {
 
+	if (auto sb = Client::getLatestScoreboard()) scoreboardData = sb->_users;
+	else return;
+
+	for (const auto& [name, score] : scoreboardData) {
+		std::cout << name << ": " << score << std::endl;
+
+	}
+
+
+
+}
+
+void ChatBox::drawUI(float posX, float posY, float scaleX, float scaleY) {
 	
 }
