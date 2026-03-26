@@ -45,20 +45,6 @@ CoreGameState::CoreGameState(StateMachine& stateMachine, StateContext& context) 
     m_backText(m_font, "Main Menu", 34),
     m_chatBox("resources/Marvel-Regular.ttf")
 {
-    if (!Client::getWord().empty()) {
-        std::cout << "Dreaw\n";
-		sf::Text wordText(m_font, Client::getWord(), 28);
-        wordText.setFillColor(sf::Color(230, 230, 230));
-        wordText.setOutlineThickness(2.0f);
-        wordText.setOutlineColor(sf::Color(220, 70, 70));
-        centerText(wordText, { 400.f, 20.f });
-    }
-    else {
-        std::cout << "No Dreaw\n";
-		sf::Text wordText(m_font, "No Dreaw", 28);
-
-    }
-
 	m_backButton.setPosition({ 10, 830 });
 	m_backButton.setSize({ 150, 50 });
     m_backButton.setFillColor(sf::Color(45, 45, 45));
@@ -256,6 +242,24 @@ void CoreGameState::render()
     if(timeRemainingMs < std::int64_t{0}) timeRemainingMs = std::int64_t{0};
 
     m_chatBox.displayTimer(timeRemainingMs / 1000);
+
+    if (!Client::getWord().empty()) {
+        sf::Text wordText(m_font, Client::getWord(), 28);
+        wordText.setFillColor(sf::Color(230, 230, 230));
+        wordText.setOutlineThickness(2.0f);
+        wordText.setOutlineColor(sf::Color(220, 70, 70));
+        centerText(wordText, { 400.f, 20.f });
+		window.draw(wordText);
+    }
+    else {
+		auto wordLen = Client::getWordLength();
+		sf::Text wordHintText(m_font, std::string(wordLen, '_'), 28);
+        wordHintText.setFillColor(sf::Color(230, 230, 230));
+        wordHintText.setOutlineThickness(2.0f);
+        wordHintText.setOutlineColor(sf::Color(220, 70, 70));
+		centerText(wordHintText, { 400.f, 20.f });
+		window.draw(wordHintText);
+    }
 }
 
 bool CoreGameState::isMouseOverBackButton() const
