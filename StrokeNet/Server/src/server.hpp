@@ -99,6 +99,7 @@ private:
     std::mutex _gameMut;
     UserStore _userStore;
     bool _gameRunning = false;
+    std::optional<SessionId> _currentDrawer = std::nullopt;
 
     // ============================================================
     // Ids for acks
@@ -106,6 +107,7 @@ private:
     std::uint32_t _messageIdServer = 1;
     std::uint32_t _roundEndTimeIdServer = 1;
     std::uint32_t _clearCanvasIdServer = 1;
+    std::uint32_t _scoreBoardIdServer = 1;
 
 
     // ============================================================
@@ -234,6 +236,7 @@ private:
     template <typename Packet, typename FillFn>
     void broadcastPacket(Packet& pkt,FillFn fill)
     {
+        std::lock_guard lock(_clientStorageMutex);
         for (auto& [sid, client] : _sessionIdToClient)
         {
             fill(pkt, sid);

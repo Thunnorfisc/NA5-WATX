@@ -320,11 +320,10 @@ void Server::handle_reqPlayGame(std::span<const char> udpPacketWithoutMID, socka
     ByteReader rdr{udpPacketWithoutMID};
     
     SessionId sessionIdHost = ntohl(rdr.read<SessionId>());
-    std::unique_lock lock(_clientStorageMutex);
+    std::lock_guard lock(_clientStorageMutex);
     auto it = _sessionIdToClient.find(sessionIdHost);
     if(it == _sessionIdToClient.end()) return; // ignore this, client is not even in our database
     it->second.inGame = true;
-    lock.unlock();
     
     // send back ack
     std::array<char, PacketSize::RSP_PLAY_GAME> msg;
@@ -354,8 +353,6 @@ void Server::handle_reqQuitGame(std::span<const char> udpPacketWithoutMID, socka
     std::unique_lock lock(_clientStorageMutex);
     auto it = _sessionIdToClient.find(sessionIdHost);
     if(it == _sessionIdToClient.end()) return; // ignore this, client is not even in our database
-    lock.unlock();
-
     it->second.inGame = false;
 
     // send back ack
@@ -369,6 +366,7 @@ void Server::handle_reqQuitGame(std::span<const char> udpPacketWithoutMID, socka
         log(std::cerr,
             std::format("[Server] Client {}: Unable to send RSP_PLAY_GAME for account creation", it->first));
     }
+    lock.unlock();
 }
 
 // ============================================================
@@ -477,10 +475,18 @@ void Server::handle_reqStartStroke(std::span<const char> udpPacketWithoutMID, so
             std::format("[Server] Received REQ_START_STROKE but game is not started"));
         return;
     }
-    gamelock.unlock();
 
     ByteReader rdr{ .buffer = udpPacketWithoutMID };
     auto sessionIdHostOrder = ntohl(rdr.read<SessionId>());
+    if (_currentDrawer == std::nullopt ||
+        *_currentDrawer != sessionIdHostOrder)
+    {
+        log(std::cerr,
+            std::format("[Server] Received REQ_START_STROKE but client is not the drawer: {}",
+                sessionIdHostOrder));
+        return;
+    }
+    gamelock.unlock();
     
     // check if session id exists
     std::unique_lock sessionIdLock(_clientStorageMutex);
@@ -490,6 +496,13 @@ void Server::handle_reqStartStroke(std::span<const char> udpPacketWithoutMID, so
         // no session id exists, ignore
         log(std::cerr,
             std::format("[Server] Received REQ_START_STROKE from unknown client session id: {}", sessionIdHostOrder));
+        return;
+    }
+    if (!it->second.inGame)
+    {
+        // not in game, ignore message
+        log(std::cerr,
+            std::format("[Server] Received REQ_MSG from client session not in game: {}", sessionIdHostOrder));
         return;
     }
 
@@ -557,13 +570,17 @@ void Server::handle_reqEndStroke(std::span<const char> udpPacketWithoutMID, sock
             std::format("[Server] Received REQ_END_STROKE but game is not started"));
         return;
     }
-    gamelock.unlock();
-
-
-
     ByteReader rdr{ .buffer = udpPacketWithoutMID };
     auto sessionIdHostOrder = ntohl(rdr.read<SessionId>());
-
+    if (_currentDrawer == std::nullopt ||
+        *_currentDrawer != sessionIdHostOrder)
+    {
+        log(std::cerr,
+            std::format("[Server] Received REQ_END_STROKE but client is not the drawer: {}",
+                sessionIdHostOrder));
+        return;
+    }
+    gamelock.unlock();
 
     std::unique_lock sessionIdLock(_clientStorageMutex);
     // check if session id exists
@@ -573,6 +590,13 @@ void Server::handle_reqEndStroke(std::span<const char> udpPacketWithoutMID, sock
         // no session id exists, ignore
         log(std::cerr,
             std::format("[Server] Received REQ_END_STROKE from unknown client session id: {}", sessionIdHostOrder));
+        return;
+    }
+    if (!it->second.inGame)
+    {
+        // not in game, ignore message
+        log(std::cerr,
+            std::format("[Server] Received REQ_MSG from client session not in game: {}", sessionIdHostOrder));
         return;
     }
 
@@ -624,12 +648,20 @@ void Server::handle_reqMsg(std::span<const char> udpPacketWithoutMID, sockaddr_i
     ByteReader rdr{ .buffer = udpPacketWithoutMID };
     auto sessionIdHostOrder = ntohl(rdr.read<SessionId>());
     // check if session id exists
+    std::unique_lock lock(_clientStorageMutex);
     auto it = _sessionIdToClient.find(sessionIdHostOrder);
     if (it == _sessionIdToClient.end())
     {
         // no session id exists, ignore
         log(std::cerr,
             std::format("[Server] Received REQ_MSG from unknown client session id: {}", sessionIdHostOrder));
+        return;
+    }
+    if (!it->second.inGame)
+    {
+        // not in game, ignore message
+        log(std::cerr,
+            std::format("[Server] Received REQ_MSG from client session not in game: {}", sessionIdHostOrder));
         return;
     }
 
@@ -647,7 +679,17 @@ void Server::handle_reqMsg(std::span<const char> udpPacketWithoutMID, sockaddr_i
 
     if (str_msg == word.second) {
         std::cout << str_msg << '\n';
+        lock.unlock();
         broadcastScoreboard();
+    }
+    lock.lock();
+    it = _sessionIdToClient.find(sessionIdHostOrder);
+    if (it == _sessionIdToClient.end())
+    {
+        // no session id exists, ignore
+        log(std::cerr,
+            std::format("[Server] Received REQ_MSG from unknown client session id: {}", sessionIdHostOrder));
+        return;
     }
 
     // validated its good REQ_MSG packet, send back RSP_MSG
@@ -668,9 +710,8 @@ void Server::handle_reqMsg(std::span<const char> udpPacketWithoutMID, sockaddr_i
     }
 
     // Now NTF all clients for msg
-    std::lock_guard lock(_clientStorageMutex);
     auto now = std::chrono::steady_clock::now();
-    std::lock_guard ntfLock(_pendingNtfClearCanvasMutex);
+    std::lock_guard ntfLock(_pendingNtfMsgMutex);
     for (const auto& [ssiho, client] : _sessionIdToClient)
     {
         if (!client.inGame) continue;
@@ -691,7 +732,7 @@ void Server::handle_reqMsg(std::span<const char> udpPacketWithoutMID, sockaddr_i
             reinterpret_cast<sockaddr*>(&clientSa), sizeof(clientSa));
 
         // Add to pending for retry
-        _pendingNtfClearCanvases[NtfKey{ ssiho, _messageIdServer }] = PendingNTF{
+        _pendingNtfMsg[NtfKey{ ssiho, _messageIdServer }] = PendingNTF{
             ._data = std::move(svrmsg),
             ._clientAddr = client.sa,
             ._targetSessionId = ssiho,
@@ -713,9 +754,17 @@ void Server::handle_reqClearCanvas(std::span<const char> udpPacketWithoutMID, so
 
     std::unique_lock lock(_gameMut);
     if (!_gameRunning) return;
-    lock.unlock();
     ByteReader rdr{ .buffer = udpPacketWithoutMID };
     auto sessionIdHostOrder = ntohl(rdr.read<SessionId>());
+    if (_currentDrawer != std::nullopt &&
+        sessionIdHostOrder != _currentDrawer)
+    {
+        log(std::cerr,
+            std::format("[Server] Received REQ_CLEAR_CANVAS but client is not the drawer: {}",
+                sessionIdHostOrder));
+        return;
+    }
+    lock.unlock();
     std::unique_lock sessionIdLock(_clientStorageMutex);
     auto it = _sessionIdToClient.find(sessionIdHostOrder);
     if (it == _sessionIdToClient.end()) { return; }
@@ -774,16 +823,24 @@ void Server::handle_fafExtendStroke(std::span<const char> udpPacketWithoutMID, s
 {
     assert((udpPacketWithoutMID.size() == PacketSize::FAF_EXTEND_STROKE - 1) &&
         "Size of FAF_EXTEND_STROKE packet received is wrong");
-    std::unique_lock lock(_gameMut);
+    std::unique_lock gamelock(_gameMut);
     if (!_gameRunning)
     {
         log(std::cerr,
             std::format("[Server] Received FAF_EXTEND_STROKE but game is not started"));
         return;
     }
-    lock.unlock();
     ByteReader rdr{ .buffer = udpPacketWithoutMID };
     auto sessionIdHostOrder = ntohl(rdr.read<SessionId>());
+    if (_currentDrawer == std::nullopt ||
+        *_currentDrawer != sessionIdHostOrder)
+    {
+        log(std::cerr,
+            std::format("[Server] Received REQ_END_STROKE but client is not the drawer: {}",
+                sessionIdHostOrder));
+        return;
+    }
+    gamelock.unlock();
 
     // check if session id exists
     std::unique_lock sessionIdHostLock{_clientStorageMutex};
@@ -906,21 +963,29 @@ SessionId Server::getNextSessionIdHostOrder()
 
 bool Server::destroySessionIdHostOrder(SessionId id, std::string ipPort)
 {
-    std::lock_guard lock(_clientStorageMutex);
+    std::unique_lock lock(_clientStorageMutex);
     auto it3 = _sessionIdToClient.find(id);
     if (it3 == _sessionIdToClient.end())
     {
         log(std::cerr,
-            std::format("[Server] Client {}: Requested to destroy a session id that is not active!!!!!",ipPort));
+            std::format("[Server] Client {}: Requested to destroy a session id that is not active!!!!!", ipPort));
         return false;
     }
     if (it3->second.ipPort != ipPort)
     {
         log(std::cerr,
-            std::format("[Server] Client {}: Requested to destroy a session id that is not theirs.",ipPort));
+            std::format("[Server] Client {}: Requested to destroy a session id that is not theirs.", ipPort));
         return false;
     }
     _sessionIdToClient.erase(it3);
+
+    std::unique_lock gameLock(_gameMut);
+    if (_currentDrawer.has_value() && _currentDrawer == id)
+    {
+        gameLock.unlock();
+        lock.unlock();
+        advanceDrawer();
+    }
     return true;
 }
 
@@ -1013,8 +1078,53 @@ int Server::word_heuristic() {
 
 void Server::advanceDrawer()
 {
+    std::lock_guard gameLock(_gameMut);
+    std::lock_guard clientLock(_clientStorageMutex);
 
-    return;
+    if (_sessionIdToClient.empty()) return;
+
+    // helper: find the next in-game player starting from 'start', wrapping around
+    auto findNextInGame = [&](std::map<SessionId, Client>::iterator start) -> std::optional<SessionId>
+    {
+        auto it = start;
+        auto startPoint = it;
+        bool wrapped = false;
+
+        while (true)
+        {
+            if (it == _sessionIdToClient.end())
+            {
+                it = _sessionIdToClient.begin();
+                wrapped = true;
+            }
+            if (wrapped && it == startPoint)
+                break; // looped all the way around, no one found
+
+            if (it->second.inGame)
+                return it->first;
+
+            ++it;
+        }
+        return std::nullopt;
+    };
+
+    if (!_currentDrawer.has_value())
+    {
+        _currentDrawer = findNextInGame(_sessionIdToClient.begin());
+        return;
+    }
+
+    auto it = _sessionIdToClient.find(*_currentDrawer);
+    if (it == _sessionIdToClient.end())
+    {
+        // current drawer no longer exists, pick first available
+        _currentDrawer = findNextInGame(_sessionIdToClient.begin());
+        return;
+    }
+
+    // advance past current drawer
+    ++it;
+    _currentDrawer = findNextInGame(it);
 }
 
 // ============================================================
@@ -1025,7 +1135,7 @@ void Server::broadcastScoreboard()
 {
     auto now = std::chrono::steady_clock::now();
     std::lock_guard ntfLock(_pendingNtfUpdateScoreboardMutex);
-
+    std::lock_guard clientStorageLock(_clientStorageMutex);
     for (const auto& [ssiho, client] : _sessionIdToClient)
     {
         if(!client.inGame) continue;
@@ -1044,7 +1154,7 @@ void Server::broadcastScoreboard()
         ByteWriter wrt{ .buffer = pkt };
         wrt.write(static_cast<char>(MessageType::NTF_UPDATE_SCOREBOARD));
         wrt.write(htonl(ssiho));                                              // target session id
-        wrt.write(htonl(_messageIdServer));                                   // score id
+        wrt.write(htonl(_scoreBoardIdServer));                                   // score id
         wrt.write(htonl(static_cast<std::uint32_t>(_sessionIdToClient.size()))); // num players
         wrt.write(nameLength);
         wrt.writeSpan(std::span<const char>(name.data(), nameLength));
@@ -1054,16 +1164,16 @@ void Server::broadcastScoreboard()
         sendto(_socket, pkt.data(), static_cast<int>(pkt.size()), 0,
             reinterpret_cast<sockaddr*>(&clientSa), sizeof(clientSa));
 
-        _pendingNtfUpdateScoreboards[NtfKey{ ssiho, _messageIdServer }] = PendingNTF{
+        _pendingNtfUpdateScoreboards[NtfKey{ ssiho, _scoreBoardIdServer }] = PendingNTF{
             ._data = std::move(pkt),
             ._clientAddr = client.sa,
             ._targetSessionId = ssiho,
-            ._ntfId = _messageIdServer,
+            ._ntfId = _scoreBoardIdServer ,
             ._nextSendTime = now + std::chrono::milliseconds(100),
             ._giveUpTime = now + std::chrono::seconds(2),
         };
     }
-    _messageIdServer++;
+    _scoreBoardIdServer++;
 }
 
 // ============================================================
@@ -1072,13 +1182,22 @@ void Server::broadcastScoreboard()
 
 void Server::startGame()
 {
-    std::lock_guard lock(_gameMut);
+    std::unique_lock lock(_gameMut);
     if(_gameRunning)
     {
         log(std::cerr, "[Server] Game has already started");
         return;
     }
+    std::unique_lock clientLock(_clientStorageMutex);
+    if (_sessionIdToClient.empty())
+    {
+        log(std::cerr, "[Server] Game can't start with no players");
+        return;
+    }
     _gameRunning = true;
+    lock.unlock();
+    clientLock.unlock();
+    advanceDrawer();
 }
 
 // ============================================================
@@ -1087,10 +1206,13 @@ void Server::startGame()
 
 void Server::stopGame()
 {
-    std::lock_guard lock(_gameMut);
-    _gameRunning = false;
-    std::lock_guard storageLock(_clientStorageMutex);
+    {
+        std::lock_guard lock(_gameMut);
+        _gameRunning = false;
+        _currentDrawer = std::nullopt;
+    }
     log(std::cout, "[Server] Game stopped");
+
 }
 
 // ============================================================
