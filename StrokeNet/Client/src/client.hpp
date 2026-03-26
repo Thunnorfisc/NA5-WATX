@@ -85,6 +85,10 @@ public:
     // ============================================================
     static std::queue<ReceivedChatMessage> getReceivedChatMessages();
 
+    // ============================================================
+    // Round end time - receive
+    // ============================================================
+    static std::int64_t getRoundEndTimeMs();
 private:
     // ============================================================
     // Socket / session
@@ -101,6 +105,11 @@ private:
 
     static inline const double _recvTimeOut = 0.05;
     static inline const int    _maxRetries = 3;
+
+    // ============================================================
+    // Round end time
+    // ============================================================
+    static inline std::atomic<std::int64_t> _roundEndTimeMs = 0;
 
     // ============================================================
     // Chat messages thingies - Seen msges id
@@ -185,8 +194,9 @@ private:
     static void handle_SVR_EndStroke(std::span<const char> msg);    // < push into _strokeCommandsRecv
     static void handle_SVR_ExtendStroke(std::span<const char> msg); // < push into _strokeCommandsRecv
 
-    static void handle_NTF_Msg(std::span<const char> msg);         // < send back ack to server
-    static void handle_NTF_ClearCanvas(std::span<const char> msg); // < send back ack to server
+    static void handle_NTF_Msg(std::span<const char> msg);          // < send back ack to server
+    static void handle_NTF_ClearCanvas(std::span<const char> msg);  // < send back ack to server
+    static void handle_NTF_RoundEndTime(std::span<const char> msg); // < send back ack to server
 
     static void startListening(std::stop_token st);
 
@@ -203,7 +213,8 @@ private:
         { MessageType::SVR_EXTEND_STROKE, &Client::handle_SVR_ExtendStroke },
 
         { MessageType::NTF_MSG, &Client::handle_NTF_Msg },
-        { MessageType::NTF_CLEAR_CANVAS, &Client::handle_NTF_ClearCanvas }
+        { MessageType::NTF_CLEAR_CANVAS, &Client::handle_NTF_ClearCanvas },
+        { MessageType::NTF_ROUND_END_TIME, &Client::handle_NTF_RoundEndTime },
     };
 
     // ============================================================

@@ -6,8 +6,8 @@
             "highscore": 0
         },
         {
-            "username": "boy",
-            "password": "zGp3hATqVX2lVD18uhT3UDDdBp9WyAr2Kw1+GECh/2c=",
+            "username": "test",
+            "password": "n4bQgYhMfWWaL+qgxVrQFaO/TxsrC4Is0V1sFbDwCgg=",
             "highscore": 0
         },
         {
@@ -16,8 +16,8 @@
             "highscore": 0
         },
         {
-            "username": "test",
-            "password": "n4bQgYhMfWWaL+qgxVrQFaO/TxsrC4Is0V1sFbDwCgg=",
+            "username": "boy",
+            "password": "zGp3hATqVX2lVD18uhT3UDDdBp9WyAr2Kw1+GECh/2c=",
             "highscore": 0
         },
         {
@@ -27,6 +27,11 @@
         },
         {
             "username": "snowpuppy",
+            "password": "pmWkWSBCL51Bfkhn79xPuKBKHz//H6B+mY6G9/eieuM=",
+            "highscore": 0
+        },
+        {
+            "username": "VERYLONGNAMEAHHHHHHHHHHHHHHHH",
             "password": "pmWkWSBCL51Bfkhn79xPuKBKHz//H6B+mY6G9/eieuM=",
             "highscore": 0
         }

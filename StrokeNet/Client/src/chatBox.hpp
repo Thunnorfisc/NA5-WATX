@@ -43,5 +43,5 @@ struct ChatBox
 	void handleEvent(const sf::Event& event);
 	std::string wrapText(const std::string& input);
 	void clearChatHistory();
-	void displayTimer(uint8_t seconds);
+	void displayTimer(std::int64_t seconds);
 };

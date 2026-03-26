@@ -362,6 +362,8 @@ void Server::handle_fafDisconnect(std::span<const char> udpPacketWithoutMID, soc
 
 void Server::handle_ntfRcvClearCanvas(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
 {
+    assert((udpPacketWithoutMID.size() == PacketSize::NTF_RCV_CLEAR_CANVAS - 1) &&
+        "Size of NTF_RCV_CLEAR_CANVAS packet received is wrong");
     ByteReader rdr{ .buffer = udpPacketWithoutMID };
     auto sessionIdHostOrder = ntohl(rdr.read<SessionId>());
     auto msgIdHostOrder = ntohl(rdr.read<std::uint32_t>());
@@ -382,6 +384,22 @@ void Server::handle_ntfRcvMsg(std::span<const char> udpPacketWithoutMID, sockadd
 
     std::lock_guard lock(_pendingNtfClearCanvasMutex);
     _pendingNtfClearCanvases.erase(NtfKey{ sessionIdHostOrder, msgIdHostOrder });
+}
+
+// ============================================================
+// NTF_RCV_RET
+// ============================================================
+
+void Server::handle_ntfRcvRET(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
+{
+    assert((udpPacketWithoutMID.size() == PacketSize::NTF_RCV_ROUND_END_TIME - 1) &&
+        "Size of NTF_RCV_ROUND_END_TIME packet received is wrong");
+    ByteReader rdr{.buffer = udpPacketWithoutMID};
+    auto sessionIdHostOrder = ntohl(rdr.read<SessionId>());
+    auto retIdHostOrder = ntohl(rdr.read<std::uint32_t>());
+
+    std::lock_guard lock(_pendingNtfRETMutex);
+    _pendingNtfRET.erase(NtfKey{sessionIdHostOrder, retIdHostOrder});
 }
 
 // ============================================================
@@ -845,6 +863,7 @@ void Server::actualStartListening(std::stop_token st) noexcept
     {
         tickPendingNtf(_pendingNtfClearCanvasMutex, _pendingNtfClearCanvases, "NTF_CLEAR_CANVAS");
         tickPendingNtf(_pendingNtfMsgMutex, _pendingNtfMsg, "NTF_MSG");
+        tickPendingNtf(_pendingNtfRETMutex, _pendingNtfRET, "NTF_ROUND_END_TIME");
 
         fd_set readSet;
         FD_ZERO(&readSet);
@@ -1069,6 +1088,11 @@ void Server::advanceDrawer()
 void Server::startGame()
 {
     std::lock_guard lock(_gameMut);
+    if(_gameRunning)
+    {
+        log(std::cerr, "[Server] Game has already started");
+        return;
+    }
     if (_listOfPlayersAllowedToDraw.empty())
     {
         log(std::cerr, "[Server] Cannot start game, no players connected");
@@ -1108,6 +1132,46 @@ std::size_t Server::getNumberOfPlayers()
 {
     std::lock_guard lock(_gameMut);
     return _listOfPlayersAllowedToDraw.size();
+}
+
+// ============================================================
+// Send new round end time
+// ============================================================
+
+void Server::sendNewRoundEndTime(std::int64_t time)
+{
+    time = time < std::int64_t{0} ? 0 : time;
+
+    // broadcast to all clients ntf
+
+    auto now = std::chrono::steady_clock::now();
+    std::lock_guard ntfLock(_pendingNtfRETMutex);
+    for(const auto& [ssiho, client] : _sessionIdToClient)
+    {
+        std::vector<char> msg;
+        msg.resize(PacketSize::NTF_ROUND_END_TIME);
+        ByteWriter wrt{.buffer = msg};
+        wrt.write(static_cast<char>(MessageType::NTF_ROUND_END_TIME));
+        wrt.write(htonl(ssiho));
+        wrt.write(htonl(_roundEndTimeIdServer));
+        wrt.write(htonll(static_cast<std::uint64_t>(time)));
+
+        // Send immediately once
+        sockaddr_in clientSa = client.sa;
+        sendto(_socket, msg.data(), static_cast<int>(msg.size()), 0,
+            reinterpret_cast<sockaddr*>(&clientSa), sizeof(clientSa));
+
+        // Add to pending for retry
+        _pendingNtfRET[NtfKey{ssiho, _roundEndTimeIdServer}] = PendingNTF{
+            ._data = std::move(msg),
+            ._clientAddr = client.sa,
+            ._targetSessionId = ssiho,
+            ._ntfId = _roundEndTimeIdServer,
+            ._nextSendTime = now + std::chrono::milliseconds(100),
+            ._giveUpTime = now + std::chrono::seconds(2),
+        };
+    }
+    _roundEndTimeIdServer++;
 }
 
 // ============================================================

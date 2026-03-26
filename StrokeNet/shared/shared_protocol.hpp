@@ -121,6 +121,14 @@ namespace PacketSize
     //  1                    4           4
     // [NTF_RCV_CLEAR_CANVAS][SESSION_ID][CLEAR_ID]
     constexpr inline std::size_t NTF_RCV_CLEAR_CANVAS = 9;
+
+    //  1                   4           4                  8
+    // [NTF_ROUND_END_TIME][SESSION_ID][ROUND_END_TIME_ID][ROUND_END_TIME]
+    constexpr inline std::size_t NTF_ROUND_END_TIME = 17;
+
+    //  1                       4           4
+    // [NTF_RCV_ROUND_END_TIME][SESSION_ID][ROUND_END_TIME_ID]
+    constexpr inline std::size_t NTF_RCV_ROUND_END_TIME = 9;
 }
 enum class MessageType: std::uint8_t
 {
@@ -150,6 +158,8 @@ enum class MessageType: std::uint8_t
     NTF_RCV_MSG,                            // < Ack by client
     NTF_CLEAR_CANVAS,                       // < Sent by server
     NTF_RCV_CLEAR_CANVAS,                   // < Ack by client
+    NTF_ROUND_END_TIME,                     // < Sent by server
+    NTF_RCV_ROUND_END_TIME,                 // < Ack by client
 
     // ===================================
     // Best effort - client -> server

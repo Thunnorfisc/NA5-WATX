@@ -68,6 +68,8 @@ public:
     void advanceDrawer();
 
     std::size_t getNumberOfPlayers();
+
+    void sendNewRoundEndTime(std::int64_t time);
 private:
     // ============================================================
     // Game State
@@ -78,7 +80,11 @@ private:
     std::size_t _currentAllowedToDrawIndex{};
     std::vector<SessionId> _listOfPlayersAllowedToDraw;
 
+    // ============================================================
+    // Ids for acks
+    // ============================================================
     std::uint32_t _messageIdServer = 1;
+    std::uint32_t _roundEndTimeIdServer = 1;
 
     // ============================================================
     // Client storage
@@ -143,6 +149,12 @@ private:
     std::unordered_map<NtfKey, PendingNTF, NtfKeyHash> _pendingNtfMsg;
 
     // ============================================================
+    // Check for pending NTFs for round end time
+    // ============================================================
+    std::mutex _pendingNtfRETMutex;
+    std::unordered_map<NtfKey, PendingNTF, NtfKeyHash> _pendingNtfRET;
+
+    // ============================================================
     // Socket / session
     // ============================================================
     std::string _ip;
@@ -172,6 +184,7 @@ private:
 
     void handle_ntfRcvClearCanvas   (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
     void handle_ntfRcvMsg           (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
+    void handle_ntfRcvRET           (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
 
     using MessageFn = void(Server::*)(std::span<const char>, sockaddr_in*);
     const std::unordered_map<MessageType, MessageFn> _messageTypeFns
@@ -188,7 +201,8 @@ private:
         std::make_pair(MessageType::FAF_DISCONNECT,         &Server::handle_fafDisconnect       ),
 
         std::make_pair(MessageType::NTF_RCV_CLEAR_CANVAS,   &Server::handle_ntfRcvClearCanvas   ),
-        std::make_pair(MessageType::NTF_RCV_MSG,            &Server::handle_ntfRcvMsg           )
+        std::make_pair(MessageType::NTF_RCV_MSG,            &Server::handle_ntfRcvMsg           ),
+        std::make_pair(MessageType::NTF_RCV_ROUND_END_TIME, &Server::handle_ntfRcvRET           ),
     };
 
     // ============================================================

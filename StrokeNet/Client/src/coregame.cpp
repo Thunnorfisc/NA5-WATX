@@ -20,6 +20,7 @@
 #include "coregame.hpp"
 #include "state_machine.hpp"
 
+#include <chrono>
 #include <iostream>
 #include <algorithm>
 
@@ -224,6 +225,17 @@ void CoreGameState::render()
     m_canvas.draw(window);
     m_cpicker.draw(window);
 	m_chatBox.draw(window);
+
+    std::int64_t retMs = Client::getRoundEndTimeMs();
+    
+    std::int64_t nowMs =
+        std::chrono::duration_cast<std::chrono::milliseconds>
+        (std::chrono::steady_clock::now().time_since_epoch()).count();
+
+    std::int64_t timeRemainingMs = retMs - nowMs;
+    if(timeRemainingMs < std::int64_t{0}) timeRemainingMs = std::int64_t{0};
+
+    m_chatBox.displayTimer(timeRemainingMs / 1000);
 }
 
 bool CoreGameState::isMouseOverBackButton() const
