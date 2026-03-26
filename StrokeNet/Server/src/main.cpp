@@ -78,7 +78,7 @@ int main()
 
             if (std::chrono::duration<double>(std::chrono::steady_clock::now() - advanceTurnNow).count() >= budgetAdvanceTurn)
             {
-                server.advanceDrawer();
+                server.resetRound();
                 advanceTurnNow = std::chrono::steady_clock::now();
             }
         }

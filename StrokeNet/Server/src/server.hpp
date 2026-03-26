@@ -64,6 +64,7 @@ public:
 
     void stopGame();
     void startGame();
+    void resetRound();
     bool gameStarted();
     void advanceDrawer();
 
@@ -77,8 +78,8 @@ private:
     std::mutex _gameMut;
     UserStore _userStore;
     bool _gameRunning = false;
+    std::vector<SessionId> _listOfPlayersToDraw;
     std::size_t _currentAllowedToDrawIndex{};
-    std::vector<SessionId> _listOfPlayersAllowedToDraw;
 
     // ============================================================
     // Ids for acks
