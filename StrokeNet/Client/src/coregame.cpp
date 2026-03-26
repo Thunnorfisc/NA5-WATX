@@ -224,6 +224,7 @@ void CoreGameState::render()
     m_canvas.draw(window);
     m_cpicker.draw(window);
 	m_chatBox.draw(window);
+    m_chatBox.displayTimer(Client::getTimer());
 }
 
 bool CoreGameState::isMouseOverBackButton() const

@@ -106,6 +106,10 @@ namespace PacketSize
     // [SVR_EXTEND_STROKE][SESSION_ID][MOUSE_POS]
     constexpr inline std::size_t SVR_EXTEND_STROKE = 9;
 
+    //  1          4           1
+    // [SVR_TIMER][SESSION_ID][TIME]
+    constexpr inline std::size_t SVR_TIMER = 6;
+
     //  1        4           4       1           VAR         1            VAR
     // [NTF_MSG][SESSION_ID][MSG_ID][MSG_LENGTH][MSG_BUFFER][NAME_LENGTH][NAME_BUFFER]
     constexpr inline std::size_t NTF_MSG_WITHOUT_BUFFER = 11;
@@ -164,6 +168,8 @@ enum class MessageType: std::uint8_t
     SVR_START_STROKE,                       // < Sent by server
     SVR_END_STROKE,                         // < Sent by server
     SVR_EXTEND_STROKE,                      // < Sent by server
+
+    SVR_TIMER                               // < Sent by server
 };
 
 enum class LoginStatus: std::uint8_t

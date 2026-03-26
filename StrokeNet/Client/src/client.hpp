@@ -85,6 +85,11 @@ public:
     // ============================================================
     static std::queue<ReceivedChatMessage> getReceivedChatMessages();
 
+    // ============================================================
+    // Timer - receive
+    // ============================================================
+    static std::uint8_t getTimer();
+
 private:
     // ============================================================
     // Socket / session
@@ -101,6 +106,11 @@ private:
 
     static inline const double _recvTimeOut = 0.05;
     static inline const int    _maxRetries = 3;
+
+    // ============================================================
+    // Timer
+    // ============================================================
+    static inline std::atomic<std::uint8_t> _timeLeftInRound;
 
     // ============================================================
     // Chat messages thingies - Seen msges id
@@ -184,6 +194,7 @@ private:
     static void handle_SVR_StartStroke(std::span<const char> msg);  // < push into _strokeCommandsRecv
     static void handle_SVR_EndStroke(std::span<const char> msg);    // < push into _strokeCommandsRecv
     static void handle_SVR_ExtendStroke(std::span<const char> msg); // < push into _strokeCommandsRecv
+    static void handle_SVR_Timer(std::span<const char> msg);        // < updates atomic _timeLeftInRound
 
     static void handle_NTF_Msg(std::span<const char> msg);         // < send back ack to server
     static void handle_NTF_ClearCanvas(std::span<const char> msg); // < send back ack to server
@@ -201,6 +212,7 @@ private:
         { MessageType::SVR_START_STROKE, &Client::handle_SVR_StartStroke },
         { MessageType::SVR_END_STROKE, &Client::handle_SVR_EndStroke },
         { MessageType::SVR_EXTEND_STROKE, &Client::handle_SVR_ExtendStroke },
+        { MessageType::SVR_TIMER, &Client::handle_SVR_Timer },
 
         { MessageType::NTF_MSG, &Client::handle_NTF_Msg },
         { MessageType::NTF_CLEAR_CANVAS, &Client::handle_NTF_ClearCanvas }

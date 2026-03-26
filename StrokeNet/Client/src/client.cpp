@@ -264,6 +264,20 @@ void Client::handle_SVR_ExtendStroke(std::span<const char> msg)
     _strokeCommandsReceived.push(std::move(rcs));
 }
 
+void Client::handle_SVR_Timer(std::span<const char> msg)
+{
+    assert(msg.size() == (PacketSize::SVR_TIMER - 1) && "Size of svr_timer is wrong");
+    ByteReader rdr{ .buffer = msg };
+    auto sessionIdHost = ntohl(rdr.read<SessionId>());
+    if (sessionIdHost != _sessionId)
+    {
+        log(std::cerr,
+            std::format("[Client] Received an invalid session id [{}] from the server, ignoring packet", sessionIdHost));
+        return;
+    }
+    _timeLeftInRound = rdr.read<std::uint8_t>();
+}
+
 // ============================================================
 // NTF_MSG
 // ============================================================
@@ -816,4 +830,13 @@ std::queue<Client::ReceivedChatMessage> Client::getReceivedChatMessages()
     cpy.swap(_msgesReceived);
     _msgesReceivedMut.unlock();
     return cpy;
+}
+
+// ============================================================
+// for game to retrieve time left in round
+// ============================================================
+
+std::uint8_t Client::getTimer()
+{
+    return _timeLeftInRound;
 }

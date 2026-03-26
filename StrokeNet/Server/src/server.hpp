@@ -67,6 +67,8 @@ public:
     bool gameStarted();
     void advanceDrawer();
 
+    void sendTime(std::uint8_t seconds);
+
     std::size_t getNumberOfPlayers();
 private:
     // ============================================================
