@@ -90,7 +90,7 @@ public:
     // ============================================================
     static std::queue<ReceivedChatMessage> getReceivedChatMessages();
 
-    static std::queue<ScoreBoard> getScoreboard();
+    static std::optional<ScoreBoard> getLatestScoreboard();
 
     // ============================================================
     // Round end time - receive
