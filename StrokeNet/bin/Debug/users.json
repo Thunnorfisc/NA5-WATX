@@ -3,17 +3,22 @@
         {
             "username": "admin",
             "password": "admin",
-            "score": 0
+            "highscore": 0
         },
         {
             "username": "hi",
             "password": "fuck",
-            "score": 0
+            "highscore": 0
+        },
+        {
+            "username": "boy",
+            "password": "boy",
+            "highscore": 0
         },
         {
             "username": "timothy",
             "password": "timothy",
-            "score": 0
+            "highscore": 0
         }
     ]
 }
