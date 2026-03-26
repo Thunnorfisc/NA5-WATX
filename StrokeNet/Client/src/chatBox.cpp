@@ -106,6 +106,11 @@ void ChatBox::draw(sf::RenderWindow& window)
 	if (auto sb = Client::getLatestScoreboard()) {
 		scoreboardData = sb->_users;
 		currentDrawerName = sb->_currentDrawer;
+		std::cout << "Current drawer: " << currentDrawerName << std::endl;
+		std::cout << "Scoreboard data:" << std::endl;
+		for (const auto& [name, score] : scoreboardData) {
+			std::cout << " - " << name << ": " << score << std::endl;
+		}
 	}
 
 	static float currentPosY = SCOREBOARD_BACKGROUND_POSITION_Y + 10.f;
