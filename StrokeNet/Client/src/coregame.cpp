@@ -45,8 +45,8 @@ CoreGameState::CoreGameState(StateMachine& stateMachine, StateContext& context) 
     m_backText(m_font, "Main Menu", 34),
     m_chatBox("resources/Marvel-Regular.ttf")
 {
-    m_backButton.setRadius(110.0f);
-    m_backButton.setOrigin({ 110.0f, 110.0f });
+	m_backButton.setPosition({ 10, 830 });
+	m_backButton.setSize({ 150, 50 });
     m_backButton.setFillColor(sf::Color(45, 45, 45));
     m_backButton.setOutlineThickness(5.0f);
     m_backButton.setOutlineColor(sf::Color(220, 70, 70));
