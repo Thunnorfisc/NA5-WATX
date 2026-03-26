@@ -666,7 +666,7 @@ void Server::handle_reqMsg(std::span<const char> udpPacketWithoutMID, sockaddr_i
 
     // Now NTF all clients for msg
     auto now = std::chrono::steady_clock::now();
-    std::lock_guard ntfLock(_pendingNtfClearCanvasMutex);
+    std::lock_guard ntfLock(_pendingNtfMsgMutex);
     for (const auto& [ssiho, client] : _sessionIdToClient)
     {
         std::vector<char> svrmsg;
