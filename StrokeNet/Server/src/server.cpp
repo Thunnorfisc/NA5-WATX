@@ -210,7 +210,7 @@ void Server::handle_reqLogin(std::span<const char> udpPacketWithoutMID, sockaddr
 
         // place it into the list of players allowed to draw
         std::unique_lock lock(_gameMut);
-        _listOfPlayersAllowedToDraw.push_back(sessionIdHostOrder);
+        _listOfPlayersToDraw.push_back(sessionIdHostOrder);
         lock.unlock();
 
         status = LoginStatus::SUCCESS;
@@ -339,12 +339,12 @@ void Server::handle_fafDisconnect(std::span<const char> udpPacketWithoutMID, soc
 
     std::unique_lock lock(_gameMut);
     // delete from list of players allowed to draw
-    auto it = std::ranges::find(_listOfPlayersAllowedToDraw, sessionIdHostOrder);
-    if (it != _listOfPlayersAllowedToDraw.end())
+    auto it = std::ranges::find(_listOfPlayersToDraw, sessionIdHostOrder);
+    if (it != _listOfPlayersToDraw.end())
     {
-        _listOfPlayersAllowedToDraw.erase(it);
+        _listOfPlayersToDraw.erase(it);
 
-        if (!_listOfPlayersAllowedToDraw.empty()) _currentAllowedToDrawIndex %= _listOfPlayersAllowedToDraw.size();
+        if (!_listOfPlayersToDraw.empty()) _currentAllowedToDrawIndex %= _listOfPlayersToDraw.size();
         else _currentAllowedToDrawIndex = 0;
     }
     else
@@ -420,13 +420,13 @@ void Server::handle_reqStartStroke(std::span<const char> udpPacketWithoutMID, so
         return;
     }
 
-    if (_listOfPlayersAllowedToDraw.empty())
+    if (_listOfPlayersToDraw.empty())
     {
         log(std::cerr,
             std::format("[Server] Received REQ_START_STROKE but list of allowed players to draw is empty"));
         return;
     }
-    if (_currentAllowedToDrawIndex >= _listOfPlayersAllowedToDraw.size())
+    if (_currentAllowedToDrawIndex >= _listOfPlayersToDraw.size())
     {
         _currentAllowedToDrawIndex = 0;
     }
@@ -446,7 +446,7 @@ void Server::handle_reqStartStroke(std::span<const char> udpPacketWithoutMID, so
     }
 
     // check if session id is allowed to draw
-    if (_listOfPlayersAllowedToDraw[_currentAllowedToDrawIndex] != sessionIdHostOrder)
+    if (_listOfPlayersToDraw[_currentAllowedToDrawIndex] != sessionIdHostOrder)
     {
         // not allowed to draw, ignore
         log(std::cerr,
@@ -519,13 +519,13 @@ void Server::handle_reqEndStroke(std::span<const char> udpPacketWithoutMID, sock
             std::format("[Server] Received REQ_END_STROKE but game is not started"));
         return;
     }
-    if (_listOfPlayersAllowedToDraw.empty())
+    if (_listOfPlayersToDraw.empty())
     {
         log(std::cerr,
             std::format("[Server] Received REQ_END_STROKE but list of allowed players to draw is empty"));
         return;
     }
-    if (_currentAllowedToDrawIndex >= _listOfPlayersAllowedToDraw.size())
+    if (_currentAllowedToDrawIndex >= _listOfPlayersToDraw.size())
     {
         _currentAllowedToDrawIndex = 0;
     }
@@ -544,7 +544,7 @@ void Server::handle_reqEndStroke(std::span<const char> udpPacketWithoutMID, sock
     }
 
     // check if session id is allowed to draw
-    if (_listOfPlayersAllowedToDraw[_currentAllowedToDrawIndex] != sessionIdHostOrder)
+    if (_listOfPlayersToDraw[_currentAllowedToDrawIndex] != sessionIdHostOrder)
     {
         // not allowed to draw, ignore
         log(std::cerr,
@@ -616,7 +616,16 @@ void Server::handle_reqMsg(std::span<const char> udpPacketWithoutMID, sockaddr_i
 
     // CHECK IF ITS NOT CURRENT DRAWER + IF ACTUAL MSG IS THE GUESS, THEN SEND BACK
     // "USER GUESSED THE WORD" @TODOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO
+    bool can_draw{};
 
+    std::string str_msg = std::string(actualmsg.begin(), actualmsg.end()).c_str();
+    std::transform(str_msg.begin(), str_msg.end(), str_msg.begin(), [](char c) {return std::toupper(c); });
+    std::transform(word.second.begin(), word.second.end(), word.second.begin(), [](char c) {return std::toupper(c); });
+
+    if (std::find(_listOfPlayersToDraw.begin(), _listOfPlayersToDraw.end(), it->first) != _listOfPlayersToDraw.end() &&
+        str_msg == word.second) {
+        std::cout << str_msg << '\n';
+    }
 
 
 
@@ -681,13 +690,13 @@ void Server::handle_reqClearCanvas(std::span<const char> udpPacketWithoutMID, so
 
     std::unique_lock lock(_gameMut);
     if (!_gameRunning) return;
-    if (_listOfPlayersAllowedToDraw.empty())
+    if (_listOfPlayersToDraw.empty())
     {
         log(std::cerr,
             std::format("[Server] Received REQ_CLEAR_CANVAS but list of allowed players to draw is empty"));
         return;
     }
-    if (_currentAllowedToDrawIndex >= _listOfPlayersAllowedToDraw.size())
+    if (_currentAllowedToDrawIndex >= _listOfPlayersToDraw.size())
     {
         _currentAllowedToDrawIndex = 0;
     }
@@ -698,7 +707,7 @@ void Server::handle_reqClearCanvas(std::span<const char> udpPacketWithoutMID, so
     if (it == _sessionIdToClient.end()) { lock.unlock(); return; }
 
     // Only the current drawer can clear
-    if (_listOfPlayersAllowedToDraw[_currentAllowedToDrawIndex] != sessionIdHostOrder)
+    if (_listOfPlayersToDraw[_currentAllowedToDrawIndex] != sessionIdHostOrder)
     {
         log(std::cerr,
             std::format("[Server] Received REQ_CLEAR_CANVAS from client session id {} but not allowed to draw", sessionIdHostOrder));
@@ -791,13 +800,13 @@ void Server::handle_fafExtendStroke(std::span<const char> udpPacketWithoutMID, s
             std::format("[Server] Received FAF_EXTEND_STROKE but game is not started"));
         return;
     }
-    if (_listOfPlayersAllowedToDraw.empty())
+    if (_listOfPlayersToDraw.empty())
     {
         log(std::cerr,
             std::format("[Server] Received FAF_EXTEND_STROKE but list of allowed players to draw is empty"));
         return;
     }
-    if (_currentAllowedToDrawIndex >= _listOfPlayersAllowedToDraw.size())
+    if (_currentAllowedToDrawIndex >= _listOfPlayersToDraw.size())
     {
         _currentAllowedToDrawIndex = 0;
     }
@@ -816,7 +825,7 @@ void Server::handle_fafExtendStroke(std::span<const char> udpPacketWithoutMID, s
     }
 
     // check if session id is allowed to draw
-    if (_listOfPlayersAllowedToDraw[_currentAllowedToDrawIndex] != sessionIdHostOrder)
+    if (_listOfPlayersToDraw[_currentAllowedToDrawIndex] != sessionIdHostOrder)
     {
         // not allowed to draw, ignore
         log(std::cerr,
@@ -1043,14 +1052,14 @@ int Server::word_heuristic() {
 void Server::advanceDrawer()
 {
     std::lock_guard lock(_gameMut);
-    if (_listOfPlayersAllowedToDraw.empty())
+    if (_listOfPlayersToDraw.empty())
     {
         log(std::cerr, std::format("[Server] Unable to advance drawer, no available drawers to pick from"));
         return;
     }
     // WHEN ADVANCE DRAWER, NEED TO SEND EVERYONE SVR_END_STROKE IF
     // there is a current stroke active
-    SessionId currentDrawer = _listOfPlayersAllowedToDraw[_currentAllowedToDrawIndex];
+    SessionId currentDrawer = _listOfPlayersToDraw[_currentAllowedToDrawIndex];
     auto it = _sessionIdToClient.find(currentDrawer);
     if (it != _sessionIdToClient.end() && it->second.currentStrokeId.has_value())
     {
@@ -1076,8 +1085,8 @@ void Server::advanceDrawer()
         }
     }
 
-    _currentAllowedToDrawIndex = (_currentAllowedToDrawIndex + 1) % _listOfPlayersAllowedToDraw.size();
-    log(std::cout, std::format("[Server] Advanced drawer, new drawer: {}", _listOfPlayersAllowedToDraw[_currentAllowedToDrawIndex]));
+    _currentAllowedToDrawIndex = (_currentAllowedToDrawIndex + 1) % _listOfPlayersToDraw.size();
+    log(std::cout, std::format("[Server] Advanced drawer, new drawer: {}", _listOfPlayersToDraw[_currentAllowedToDrawIndex]));
 
     return;
 }
@@ -1131,14 +1140,14 @@ void Server::broadcastScoreboard()
 void Server::startGame()
 {
     std::lock_guard lock(_gameMut);
-    if (_listOfPlayersAllowedToDraw.empty())
+    if (_listOfPlayersToDraw.empty())
     {
         log(std::cerr, "[Server] Cannot start game, no players connected");
         return;
     }
     _currentAllowedToDrawIndex = 0;
     _gameRunning = true;
-    log(std::cout, std::format("[Server] Game started, first drawer: {}", _listOfPlayersAllowedToDraw[0]));
+    log(std::cout, std::format("[Server] Game started, first drawer: {}", _listOfPlayersToDraw[0]));
 }
 
 // ============================================================
@@ -1163,13 +1172,24 @@ bool Server::gameStarted()
 }
 
 // ============================================================
+// Reset Round
+// ============================================================
+
+void Server::resetRound()
+{
+    
+    advanceDrawer();
+    pick_word();
+}
+
+// ============================================================
 // Get number of players
 // ============================================================
 
 std::size_t Server::getNumberOfPlayers()
 {
     std::lock_guard lock(_gameMut);
-    return _listOfPlayersAllowedToDraw.size();
+    return _listOfPlayersToDraw.size();
 }
 
 // ============================================================
