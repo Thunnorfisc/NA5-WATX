@@ -54,10 +54,9 @@ int main()
         const double fixedFps = 60.0;
         const double budget = 1.0 / 60.0;
 
-
-        const double budgetAdvanceTurn = 5.0; // advance turn every 5 seconds, just for testing
+        const double budgetAdvanceTurn = 15.0; // advance turn every 15 seconds, just for testing
+        const int budgetAdvanceTurnInt = static_cast<int>(budgetAdvanceTurn);
         auto advanceTurnNow = std::chrono::steady_clock::now();
-
         while (!server.isListeningThreadFinished())
         {
             auto now = std::chrono::steady_clock::now();
@@ -65,25 +64,27 @@ int main()
             if (!server.gameStarted() && server.getNumberOfPlayers() >= 2)
             {
                 server.startGame();
+                std::int64_t nowMs =
+                    std::chrono::duration_cast<std::chrono::milliseconds>
+                    (std::chrono::steady_clock::now().time_since_epoch()).count();
+                nowMs += (budgetAdvanceTurnInt * 1000);
+                server.resetRound(nowMs);
             }
             if (!server.gameStarted()) continue;
 
-            if (server.word.first) {
-                server.pick_word();
-                //server.word.first = false;
-            }
+            //if (server.word.first) {
+            //    server.pick_word();
+            //    //server.word.first = false;
+            //}
 
             if (std::chrono::duration<double>(std::chrono::steady_clock::now() - advanceTurnNow).count() >= budgetAdvanceTurn)
             {
-                server.resetRound();
+                std::int64_t newEndRoundTimeMs =
+                    std::chrono::duration_cast<std::chrono::milliseconds>
+                    (std::chrono::steady_clock::now().time_since_epoch()).count();
+                newEndRoundTimeMs += (budgetAdvanceTurnInt * 1000);
+                server.resetRound(newEndRoundTimeMs);
                 advanceTurnNow = std::chrono::steady_clock::now();
-            }
-
-            // don't sleep here, sleep is inaccurate for very small time frames. just busy wait here
-            while (true)
-            {
-                double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - now).count();
-                if (seconds >= budget) break;
             }
         }
         server.stopGame();

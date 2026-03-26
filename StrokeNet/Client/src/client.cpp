@@ -330,6 +330,7 @@ void Client::handle_NTF_Msg(std::span<const char> msg)
 
 void Client::handle_NTF_ClearCanvas(std::span<const char> msg)
 {
+    assert(msg.size() == (PacketSize::NTF_CLEAR_CANVAS - 1) && "Size of ntf_clear_canvas is wrong");
     ByteReader rdr{ .buffer = msg };
     auto sessionIdHost = ntohl(rdr.read<SessionId>());
     if (sessionIdHost != _sessionId)
@@ -352,7 +353,7 @@ void Client::handle_NTF_ClearCanvas(std::span<const char> msg)
     // into the recvQueue
     if (!sendWithRetry(ntfclrcvs))
     {
-        log(std::cerr, "[Client] Unable to send NTF_CLEAR_CANVAS back to server");
+        log(std::cerr, "[Client] Unable to send NTF_RCV_CLEAR_CANVAS back to server");
     }
 
     ReceivedStrokeCommand rcs;
@@ -405,6 +406,38 @@ void Client::handle_NTF_UpdateScoreboard(std::span<const char> msg)
     }
     std::lock_guard lock(_scoreboardReceivedMut);
     _scoreboardReceived.push(std::move(sb));
+}
+
+void Client::handle_NTF_RoundEndTime(std::span<const char> msg)
+{
+    assert(msg.size() == (PacketSize::NTF_ROUND_END_TIME - 1) && "Size of ntf_round_end_time is wrong");
+    ByteReader rdr{.buffer = msg};
+    auto sessionIdHost = ntohl(rdr.read<SessionId>());
+    if(sessionIdHost != _sessionId)
+    {
+        log(std::cerr,
+            std::format("[Client] Received an invalid session id [{}] from the server, ignoring packet", sessionIdHost));
+        return;
+    }
+    auto roundEndTimeIdHost = ntohl(rdr.read<std::uint32_t>());
+    auto roundEndTimeHost = static_cast<std::int64_t>(ntohll(rdr.read<std::uint64_t>()));
+
+    // Prepare ack to send back to server
+    std::array<char, PacketSize::NTF_RCV_ROUND_END_TIME> ntfRcvRET;
+    ByteWriterN wrt{.buffer = ntfRcvRET};
+    wrt.write(static_cast<char>(MessageType::NTF_RCV_ROUND_END_TIME));
+    wrt.write(htonl(_sessionId));
+    wrt.write(htonl(roundEndTimeIdHost));
+
+    // if not able to send back ntf_clear_canvas,
+    // log, and continue pushing the message
+    // into the recvQueue
+    if(!sendWithRetry(ntfRcvRET))
+    {
+        log(std::cerr, "[Client] Unable to send NTF_RCV_ROUND_END_TIME back to server");
+    }
+
+    _roundEndTimeMs = roundEndTimeHost;
 }
 
 // ============================================================
@@ -871,4 +904,13 @@ std::queue<Client::ScoreBoard> Client::getScoreboard()
     cpy.swap(_scoreboardReceived);
     _msgesReceivedMut.unlock();
     return cpy;
+}
+
+// ============================================================
+// for game to retrieve round end time
+// ============================================================
+
+std::int64_t Client::getRoundEndTimeMs()
+{
+    return _roundEndTimeMs;
 }

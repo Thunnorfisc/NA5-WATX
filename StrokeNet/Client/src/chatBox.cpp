@@ -176,6 +176,6 @@ void ChatBox::clearChatHistory() {
 	messagesReceivedFromServer.clear();
 }
 
-void ChatBox::displayTimer(uint8_t seconds) {
+void ChatBox::displayTimer(std::int64_t seconds) {
 	timerText.setString(std::to_string(seconds) + "s");
 }
