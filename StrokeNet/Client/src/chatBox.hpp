@@ -25,6 +25,7 @@ struct ChatBox
 
 	sf::Text text;
 	sf::Text sampleText;
+	sf::Text timerText;
 	std::string currentInput;
 	std::vector<sf::Text> messagesReceivedFromServer;
 
@@ -42,4 +43,5 @@ struct ChatBox
 	void handleEvent(const sf::Event& event);
 	std::string wrapText(const std::string& input);
 	void clearChatHistory();
+	void displayTimer(uint8_t seconds);
 };
