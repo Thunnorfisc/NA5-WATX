@@ -97,6 +97,16 @@ public:
     // Round end time - receive
     // ============================================================
     static std::int64_t getRoundEndTimeMs();
+
+    // ============================================================
+    // Round end time - receive
+    // ============================================================
+    static std::int32_t getWordLength();
+
+    // ============================================================
+    // Round end time - receive
+    // ============================================================
+    static std::string getWord();
 private:
     // ============================================================
     // Socket / session
@@ -118,6 +128,12 @@ private:
     // Round end time
     // ============================================================
     static inline std::atomic<std::int64_t> _roundEndTimeMs = 0;
+
+    // ============================================================
+    // Word
+    // ============================================================
+    static inline std::int32_t _word_len = 0;
+    static inline std::string _word{};
 
     // ============================================================
     // Chat messages thingies - Seen msges id
@@ -210,6 +226,10 @@ private:
     static void handle_NTF_UpdateScoreboard(std::span<const char> msg); // < send back ack to server
 
     static void handle_NTF_RoundEndTime(std::span<const char> msg); // < send back ack to server
+    
+    static void handle_NTF_NewWordLen(std::span<const char> msg); // < update word len
+    
+    static void handle_NTF_NewWord(std::span<const char> msg); // < update word len
 
     static void startListening(std::stop_token st);
 
@@ -229,6 +249,8 @@ private:
         { MessageType::NTF_CLEAR_CANVAS, &Client::handle_NTF_ClearCanvas },
         { MessageType::NTF_UPDATE_SCOREBOARD, &Client::handle_NTF_UpdateScoreboard },
         { MessageType::NTF_ROUND_END_TIME, &Client::handle_NTF_RoundEndTime },
+        { MessageType::NTF_SEND_WORD_LEN, &Client::handle_NTF_NewWordLen },
+        { MessageType::NTF_SEND_WORD, &Client::handle_NTF_NewWord },
     };
 
     // ============================================================

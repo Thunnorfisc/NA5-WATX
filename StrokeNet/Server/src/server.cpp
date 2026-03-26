@@ -422,6 +422,30 @@ void Server::handle_ntfRcvRET(std::span<const char> udpPacketWithoutMID, sockadd
     _pendingNtfRET.erase(NtfKey{sessionIdHostOrder, retIdHostOrder});
 }
 
+void Server::handle_ntfRcvSendWordLen(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
+{
+    assert((udpPacketWithoutMID.size() == PacketSize::NTF_RCV_SEND_WORD_LEN - 1) &&
+        "Size of NTF_RCV_SEND_WORD_LEN packet received is wrong");
+    ByteReader rdr{ .buffer = udpPacketWithoutMID };
+    auto sessionIdHostOrder = ntohl(rdr.read<SessionId>());
+    auto retIdHostOrder = ntohl(rdr.read<std::uint32_t>());
+
+    std::lock_guard lock(_pendingNtfNewWordLenMutex);
+    _pendingNtfNewWordsLen.erase(NtfKey{ sessionIdHostOrder, retIdHostOrder });
+}
+
+void Server::handle_ntfRcvSendWord(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
+{
+    assert((udpPacketWithoutMID.size() == PacketSize::NTF_RCV_SEND_WORD - 1) &&
+        "Size of NTF_RCV_SEND_WORD packet received is wrong");
+    ByteReader rdr{ .buffer = udpPacketWithoutMID };
+    auto sessionIdHostOrder = ntohl(rdr.read<SessionId>());
+    auto retIdHostOrder = ntohl(rdr.read<std::uint32_t>());
+
+    std::lock_guard lock(_pendingNtfNewWordMutex);
+    _pendingNtfNewWords.erase(NtfKey{ sessionIdHostOrder, retIdHostOrder });
+}
+
 // ============================================================
 // REQ_START_STROKE
 // ============================================================
@@ -1206,14 +1230,17 @@ bool Server::gameStarted()
 
 void Server::resetRound(std::int64_t newEpoch)
 {
-    // send client stuff
-    sendNewRoundEndTime(newEpoch);
-    sendClearCanvasCommand();
-
     // local server stuff
     advanceDrawer();
     pick_word();
     broadcastScoreboard();
+
+    // send client stuff
+    sendNewWord();
+    sendNewWordLen();
+    sendNewRoundEndTime(newEpoch);
+    sendClearCanvasCommand();
+
 }
 
 // ============================================================
@@ -1299,6 +1326,71 @@ void Server::sendClearCanvasCommand()
     }
     _clearCanvasIdServer++;
 }
+
+void Server::sendNewWordLen()
+{
+    auto now = std::chrono::steady_clock::now();
+    std::lock_guard ntfLock(_pendingNtfNewWordLenMutex);
+    for (const auto& [ssiho, client] : _sessionIdToClient)
+    {
+        std::vector<char> ntfPkt(PacketSize::NTF_SEND_WORD_LEN);
+        ByteWriter ntfWrt{ .buffer = ntfPkt };
+        ntfWrt.write(static_cast<char>(MessageType::NTF_SEND_WORD_LEN));
+        ntfWrt.write(htonl(ssiho));       // target's session ID
+        ntfWrt.write(htonl(_sendNewWordLenIdServer));
+        ntfWrt.write(static_cast<std::uint8_t>(word.second.size()));
+
+        // Send immediately once
+        sockaddr_in clientSa = client.sa;
+        sendto(_socket, ntfPkt.data(), static_cast<int>(ntfPkt.size()), 0,
+            reinterpret_cast<sockaddr*>(&clientSa), sizeof(clientSa));
+
+        // Add to pending for retry
+        _pendingNtfNewWordsLen[NtfKey{ ssiho, _sendNewWordLenIdServer }] = PendingNTF{
+            ._data = std::move(ntfPkt),
+            ._clientAddr = client.sa,
+            ._targetSessionId = ssiho,
+            ._ntfId = _sendNewWordLenIdServer,
+            ._nextSendTime = now + std::chrono::milliseconds(100),
+            ._giveUpTime = now + std::chrono::seconds(2),
+        };
+    }
+    _sendNewWordLenIdServer++;
+}
+
+
+void Server::sendNewWord()
+{
+    auto now = std::chrono::steady_clock::now();
+    std::lock_guard ntfLock(_pendingNtfNewWordMutex);
+    SessionId const& ssiho = _listOfPlayersToDraw[_currentAllowedToDrawIndex];
+    Server::Client const& client = _sessionIdToClient[ssiho];
+
+    std::vector<char> ntfPkt(PacketSize::NTF_SEND_WORD + word.second.size());
+    ByteWriter ntfWrt{ .buffer = ntfPkt };
+    ntfWrt.write(static_cast<char>(MessageType::NTF_SEND_WORD));
+    ntfWrt.write(htonl(ssiho));       // target's session ID
+    ntfWrt.write(htonl(_sendNewWordIdServer));
+    ntfWrt.write(static_cast<std::uint8_t>(word.second.size()));
+    ntfWrt.writeSpan(word.second);
+
+    // Send immediately once
+    sockaddr_in clientSa = client.sa;
+    sendto(_socket, ntfPkt.data(), static_cast<int>(ntfPkt.size()), 0,
+        reinterpret_cast<sockaddr*>(&clientSa), sizeof(clientSa));
+
+    // Add to pending for retry
+    _pendingNtfNewWords[NtfKey{ ssiho, _sendNewWordIdServer }] = PendingNTF{
+        ._data = std::move(ntfPkt),
+        ._clientAddr = client.sa,
+        ._targetSessionId = ssiho,
+        ._ntfId = _sendNewWordIdServer,
+        ._nextSendTime = now + std::chrono::milliseconds(100),
+        ._giveUpTime = now + std::chrono::seconds(2),
+    };
+    _sendNewWordIdServer++;
+}
+
 
 // ============================================================
 // Helper - Send with retry

@@ -71,8 +71,11 @@ public:
 
     std::size_t getNumberOfPlayers();
 
+    // Round reset commands
     void sendNewRoundEndTime(std::int64_t time);
     void sendClearCanvasCommand();
+    void sendNewWordLen();
+    void sendNewWord();
 private:
     // ============================================================
     // Game State
@@ -89,6 +92,8 @@ private:
     std::uint32_t _messageIdServer = 1;
     std::uint32_t _roundEndTimeIdServer = 1;
     std::uint32_t _clearCanvasIdServer = 1;
+    std::uint32_t _sendNewWordLenIdServer = 1;
+    std::uint32_t _sendNewWordIdServer = 1;
 
     // ============================================================
     // Client storage
@@ -139,6 +144,18 @@ private:
                 );
         }
     };
+
+    // ============================================================
+    // Check for pending NTFs for sending new word
+    // ============================================================
+    std::mutex _pendingNtfNewWordLenMutex;
+    std::unordered_map<NtfKey, PendingNTF, NtfKeyHash> _pendingNtfNewWordsLen;
+    
+    // ============================================================
+    // Check for pending NTFs for sending new word
+    // ============================================================
+    std::mutex _pendingNtfNewWordMutex;
+    std::unordered_map<NtfKey, PendingNTF, NtfKeyHash> _pendingNtfNewWords;
 
     // ============================================================
     // Check for pending NTFs for clear canvas
@@ -193,6 +210,8 @@ private:
     void handle_ntfRcvMsg               (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
     void handle_ntfRcvUpdateScoreboard  (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
     void handle_ntfRcvRET           (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
+    void handle_ntfRcvSendWordLen       (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
+    void handle_ntfRcvSendWord          (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
 
     using MessageFn = void(Server::*)(std::span<const char>, sockaddr_in*);
     const std::unordered_map<MessageType, MessageFn> _messageTypeFns
@@ -212,6 +231,8 @@ private:
         std::make_pair(MessageType::NTF_RCV_MSG,            &Server::handle_ntfRcvMsg           ),
         std::make_pair(MessageType::NTF_RCV_UPDATE_SCOREBOARD, &Server::handle_ntfRcvUpdateScoreboard),
         std::make_pair(MessageType::NTF_RCV_ROUND_END_TIME, &Server::handle_ntfRcvRET           ),
+        std::make_pair(MessageType::NTF_RCV_SEND_WORD_LEN,      &Server::handle_ntfRcvSendWordLen   ),
+        std::make_pair(MessageType::NTF_RCV_SEND_WORD,      &Server::handle_ntfRcvSendWord      ),
     };
 
     // ============================================================

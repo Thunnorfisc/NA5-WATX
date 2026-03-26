@@ -122,8 +122,28 @@ namespace PacketSize
     // [NTF_RCV_CLEAR_CANVAS][SESSION_ID][CLEAR_ID]
     constexpr inline std::size_t NTF_RCV_CLEAR_CANVAS = 9;
 
+    //  1                 4          4      1
+    // [NTF_SEND_WORD_LEN][SESSION_ID][WORD_ID][WORD_LEN]
+    constexpr inline std::size_t NTF_SEND_WORD_LEN = 10;
+
+    //  1                       4           4
+    // [NTF_RCV_SEND_WORD_LEN][SESSION_ID][ROUND_END_TIME_ID]
+    constexpr inline std::size_t NTF_RCV_SEND_WORD_LEN = 9;
+
+    //  1                 4          4           1        VAR
+    // [NTF_SEND_WORD_LEN][SESSION_ID][WORD_ID][WORD_LEN][WORD]
+    constexpr inline std::size_t NTF_SEND_WORD = 10;
+
+    //  1                       4           4
+    // [NTF_RCV_SEND_WORD_LEN][SESSION_ID][ROUND_END_TIME_ID]
+    constexpr inline std::size_t NTF_RCV_SEND_WORD = 9;
+
+    // 1                 4           4         4            1            VAR          2
+    // [NTF_PLAYER_JOIN][SESSION_ID][SCORE_ID][NUM_PLAYERS][NAME_LENGTH][NAME_BUFFER][SCORE]
+    constexpr inline std::size_t NTF_UPDATE_SCOREBOARD = 16;
+
     // 1                      4           4         4             N                                    1           VAR
-    // [NTF_UPDATE_SCOREBOARD][SESSION_ID][SCORE_ID][NUM_PLAYERS]{ NAME_LEN(1) | NAME(VAR) | SCORE(2) }[DRAWER_LEN][DRAWER_NAME]
+// [NTF_UPDATE_SCOREBOARD][SESSION_ID][SCORE_ID][NUM_PLAYERS]{ NAME_LEN(1) | NAME(VAR) | SCORE(2) }[DRAWER_LEN][DRAWER_NAME]
     constexpr inline std::size_t NTF_UPDATE_SCOREBOARD_BASE = 14;
 
     // 1                     4           4        
@@ -169,6 +189,10 @@ enum class MessageType: std::uint8_t
     NTF_RCV_UPDATE_SCOREBOARD,              // < Ack by client
     NTF_ROUND_END_TIME,                     // < Sent by server
     NTF_RCV_ROUND_END_TIME,                 // < Ack by client
+    NTF_SEND_WORD_LEN,                      // < Sent by client
+    NTF_RCV_SEND_WORD_LEN,                  // < Sent by client
+    NTF_SEND_WORD,                      // < Sent by client
+    NTF_RCV_SEND_WORD,                  // < Sent by client
 
     // ===================================
     // Best effort - client -> server
