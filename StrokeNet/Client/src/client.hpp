@@ -61,6 +61,7 @@ public:
     struct ScoreBoard 
     {
         std::vector<std::pair<std::string, std::uint16_t>> _users;
+        std::string _currentDrawer;
     };
     // ============================================================
     // Drawing canvas thingies - send

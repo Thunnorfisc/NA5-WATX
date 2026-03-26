@@ -1117,9 +1117,11 @@ void Server::broadcastScoreboard()
     auto now = std::chrono::steady_clock::now();
     std::lock_guard ntfLock(_pendingNtfUpdateScoreboardMutex);
 
+    std::string& drawer = _sessionIdToClient[_listOfPlayersToDraw[_currentAllowedToDrawIndex]].username;
+
     for (const auto& [ssiho, client] : _sessionIdToClient)
     {
-        std::vector<char> pkt(PacketSize::NTF_UPDATE_SCOREBOARD_BASE + varSize);
+        std::vector<char> pkt(PacketSize::NTF_UPDATE_SCOREBOARD_BASE + varSize + drawer.size());
         ByteWriter wrt{ .buffer = pkt };
         wrt.write(static_cast<char>(MessageType::NTF_UPDATE_SCOREBOARD));
         wrt.write(htonl(ssiho));
@@ -1134,6 +1136,10 @@ void Server::broadcastScoreboard()
             wrt.writeSpan(std::span<const char>(e.name.data(), nameLen));
             wrt.write(htons(e.score));
         }
+
+        auto drawerLen = static_cast<std::uint8_t>(drawer.size());
+        wrt.write(drawerLen);
+        wrt.writeSpan(std::span<const char>(drawer.data(), drawerLen));
 
         sockaddr_in clientSa = client.sa;
         sendto(_socket, pkt.data(), static_cast<int>(pkt.size()), 0,
@@ -1207,6 +1213,7 @@ void Server::resetRound(std::int64_t newEpoch)
     // local server stuff
     advanceDrawer();
     pick_word();
+    broadcastScoreboard();
 }
 
 // ============================================================

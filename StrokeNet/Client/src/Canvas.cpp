@@ -88,9 +88,9 @@ void Canvas::draw(sf::RenderWindow& window) {
 	DrawDrawing(window, drawing);
 
 	if (isDrawing) {
-		window.draw(currentRender.quads);
+		window.draw(currentRender.quads, sf::RenderStates(currentRender.blend));
 		for (const auto& joint : currentRender.joints)
-			window.draw(joint);
+			window.draw(joint, sf::RenderStates(currentRender.blend));
 	}
 
 	window.setView(oldView);

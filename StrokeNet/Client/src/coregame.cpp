@@ -93,6 +93,12 @@ void CoreGameState::handleEvent(const sf::Event& event)
     }
 
     if (const auto* keyPressed = event.getIf<sf::Event::KeyPressed>()) {
+        if (keyPressed->code == sf::Keyboard::Key::E) {
+            m_canvas.eraseMode = true;
+        }
+    }
+
+    if (const auto* keyPressed = event.getIf<sf::Event::KeyPressed>()) {
         if (keyPressed->code == sf::Keyboard::Key::C) {
             Client::sendClearCanvas(m_canvas.clearId);
         }
