@@ -357,7 +357,7 @@ inline void Encode_sha_2_64(std::string const& data, unsigned char* ret_encoded)
 }
 
 inline std::string Decode_64_2_sha(const std::string& input){
-    int len = input.size();
+    int len = static_cast<int>(input.size());
     std::string out(len, '\0');  // allocate properly
 
     int decodedLen = EVP_DecodeBlock(
