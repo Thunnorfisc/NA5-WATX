@@ -117,9 +117,9 @@ void AppendPoint(RenderStroke& rs, const Point& pt, const Stroke& stroke)
 void DrawDrawing(sf::RenderWindow& window, const Drawing& drawing)
 {
     for (const auto& rs : drawing.strokes) {
-        window.draw(rs.quads);
+        window.draw(rs.quads, sf::RenderStates(rs.blend));
         for (const auto& joint : rs.joints) {
-            window.draw(joint);
+            window.draw(joint, sf::RenderStates(rs.blend));
         }
     }
 }

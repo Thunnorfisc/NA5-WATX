@@ -66,6 +66,7 @@ public:
     void startGame();
     bool gameStarted();
     void advanceDrawer();
+    void broadcastScoreboard();
 
     std::size_t getNumberOfPlayers();
 private:
@@ -88,7 +89,7 @@ private:
         std::string ipPort;
         std::string username;
         sockaddr_in sa;
-
+        std::uint16_t score{};
         std::optional<std::uint32_t> currentStrokeId;
     };
     // right now, if client misbehaves and keeps sending
@@ -142,6 +143,9 @@ private:
     std::mutex _pendingNtfMsgMutex;
     std::unordered_map<NtfKey, PendingNTF, NtfKeyHash> _pendingNtfMsg;
 
+    std::mutex _pendingNtfUpdateScoreboardMutex;
+    std::unordered_map<NtfKey, PendingNTF, NtfKeyHash> _pendingNtfUpdateScoreboards;
+
     // ============================================================
     // Socket / session
     // ============================================================
@@ -158,20 +162,21 @@ private:
     // ============================================================
     // Message handlers
     // ============================================================
-    void handle_reqLogin            (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
-    void handle_reqCreateAccount    (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
+    void handle_reqLogin                (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
+    void handle_reqCreateAccount        (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
 
-    void handle_reqStartStroke      (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
-    void handle_reqEndStroke        (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
-    void handle_reqClearCanvas      (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
+    void handle_reqStartStroke          (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
+    void handle_reqEndStroke            (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
+    void handle_reqClearCanvas          (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
 
-    void handle_reqMsg              (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
+    void handle_reqMsg                  (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
 
-    void handle_fafExtendStroke     (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
-    void handle_fafDisconnect       (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
+    void handle_fafExtendStroke         (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
+    void handle_fafDisconnect           (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
 
-    void handle_ntfRcvClearCanvas   (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
-    void handle_ntfRcvMsg           (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
+    void handle_ntfRcvClearCanvas       (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
+    void handle_ntfRcvMsg               (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
+    void handle_ntfRcvUpdateScoreboard  (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
 
     using MessageFn = void(Server::*)(std::span<const char>, sockaddr_in*);
     const std::unordered_map<MessageType, MessageFn> _messageTypeFns
@@ -188,7 +193,8 @@ private:
         std::make_pair(MessageType::FAF_DISCONNECT,         &Server::handle_fafDisconnect       ),
 
         std::make_pair(MessageType::NTF_RCV_CLEAR_CANVAS,   &Server::handle_ntfRcvClearCanvas   ),
-        std::make_pair(MessageType::NTF_RCV_MSG,            &Server::handle_ntfRcvMsg           )
+        std::make_pair(MessageType::NTF_RCV_MSG,            &Server::handle_ntfRcvMsg           ),
+        std::make_pair(MessageType::NTF_RCV_UPDATE_SCOREBOARD, &Server::handle_ntfRcvUpdateScoreboard)
     };
 
     // ============================================================

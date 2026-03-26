@@ -51,6 +51,8 @@
 #include <WS2tcpip.h>
 #include <iphlpapi.h>
 
+#undef min
+
 #pragma comment(lib, "Ws2_32.lib")
 
 std::mutex s_ostreamMutex;
@@ -364,10 +366,10 @@ void Server::handle_ntfRcvClearCanvas(std::span<const char> udpPacketWithoutMID,
 {
     ByteReader rdr{ .buffer = udpPacketWithoutMID };
     auto sessionIdHostOrder = ntohl(rdr.read<SessionId>());
-    auto msgIdHostOrder = ntohl(rdr.read<std::uint32_t>());
+    auto clearIdHostOrder = ntohl(rdr.read<std::uint32_t>());
 
-    std::lock_guard lock(_pendingNtfMsgMutex);
-    _pendingNtfMsg.erase(NtfKey{ sessionIdHostOrder, msgIdHostOrder });
+    std::lock_guard lock(_pendingNtfClearCanvasMutex);
+    _pendingNtfClearCanvases.erase(NtfKey{ sessionIdHostOrder, clearIdHostOrder });
 }
 
 // ============================================================
@@ -380,9 +382,26 @@ void Server::handle_ntfRcvMsg(std::span<const char> udpPacketWithoutMID, sockadd
     auto sessionIdHostOrder = ntohl(rdr.read<SessionId>());
     auto msgIdHostOrder = ntohl(rdr.read<std::uint32_t>());
 
-    std::lock_guard lock(_pendingNtfClearCanvasMutex);
-    _pendingNtfClearCanvases.erase(NtfKey{ sessionIdHostOrder, msgIdHostOrder });
+    std::lock_guard lock(_pendingNtfMsgMutex);
+    _pendingNtfMsg.erase(NtfKey{ sessionIdHostOrder, msgIdHostOrder });
 }
+
+// ============================================================
+// NTF_RCV_UPDATE_SCOREBOARD
+// ============================================================
+
+void Server::handle_ntfRcvUpdateScoreboard(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
+{
+    assert((udpPacketWithoutMID.size() == PacketSize::NTF_RCV_UPDATE_SCOREBOARD - 1) &&
+        "Size of NTF_RCV_UPDATE_SCOREBOARD packet received is wrong");
+    ByteReader rdr{ .buffer = udpPacketWithoutMID };
+    auto sessionIdHostOrder = ntohl(rdr.read<SessionId>());
+    auto scoreIdHostOrder = ntohl(rdr.read<std::uint32_t>());
+
+    std::lock_guard lock(_pendingNtfUpdateScoreboardMutex);
+    _pendingNtfUpdateScoreboards.erase(NtfKey{ sessionIdHostOrder, scoreIdHostOrder });
+}
+
 
 // ============================================================
 // REQ_START_STROKE
@@ -845,6 +864,7 @@ void Server::actualStartListening(std::stop_token st) noexcept
     {
         tickPendingNtf(_pendingNtfClearCanvasMutex, _pendingNtfClearCanvases, "NTF_CLEAR_CANVAS");
         tickPendingNtf(_pendingNtfMsgMutex, _pendingNtfMsg, "NTF_MSG");
+        tickPendingNtf(_pendingNtfUpdateScoreboardMutex, _pendingNtfUpdateScoreboards, "NTF_UPDATE_SCOREBOARD");
 
         fd_set readSet;
         FD_ZERO(&readSet);
@@ -1060,6 +1080,48 @@ void Server::advanceDrawer()
     log(std::cout, std::format("[Server] Advanced drawer, new drawer: {}", _listOfPlayersAllowedToDraw[_currentAllowedToDrawIndex]));
 
     return;
+}
+
+// ============================================================
+// Broadcast Scoreboard
+// ============================================================
+
+void Server::broadcastScoreboard()
+{
+    auto now = std::chrono::steady_clock::now();
+    std::lock_guard ntfLock(_pendingNtfUpdateScoreboardMutex);
+
+    for (const auto& [ssiho, client] : _sessionIdToClient)
+    {
+        auto name = client.username;
+        auto nameLength = static_cast<std::uint8_t>(std::min(name.size(), std::size_t(12)));
+
+        std::uint16_t score = client.score;
+
+        std::vector<char> pkt(PacketSize::NTF_UPDATE_SCOREBOARD + nameLength);
+        ByteWriter wrt{ .buffer = pkt };
+        wrt.write(static_cast<char>(MessageType::NTF_UPDATE_SCOREBOARD));
+        wrt.write(htonl(ssiho));                                              // target session id
+        wrt.write(htonl(_messageIdServer));                                   // score id
+        wrt.write(htonl(static_cast<std::uint32_t>(_sessionIdToClient.size()))); // num players
+        wrt.write(nameLength);
+        wrt.writeSpan(std::span<const char>(name.data(), nameLength));
+        wrt.write(htons(score));
+
+        sockaddr_in clientSa = client.sa;
+        sendto(_socket, pkt.data(), static_cast<int>(pkt.size()), 0,
+            reinterpret_cast<sockaddr*>(&clientSa), sizeof(clientSa));
+
+        _pendingNtfUpdateScoreboards[NtfKey{ ssiho, _messageIdServer }] = PendingNTF{
+            ._data = std::move(pkt),
+            ._clientAddr = client.sa,
+            ._targetSessionId = ssiho,
+            ._ntfId = _messageIdServer,
+            ._nextSendTime = now + std::chrono::milliseconds(100),
+            ._giveUpTime = now + std::chrono::seconds(2),
+        };
+    }
+    _messageIdServer++;
 }
 
 // ============================================================

@@ -34,6 +34,7 @@
 #include <string_view>
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 void log(std::ostream& os, std::string_view msg);
 class Client
@@ -56,6 +57,10 @@ public:
     {
         std::string _name;
         std::string _message;
+    };
+    struct ScoreBoard 
+    {
+        std::vector<std::pair<std::string, std::uint16_t>> _users;
     };
     // ============================================================
     // Drawing canvas thingies - send
@@ -173,6 +178,9 @@ private:
     static inline std::mutex _msgesReceivedMut;
     static inline std::queue<ReceivedChatMessage> _msgesReceived;
 
+    static inline std::mutex _scoreboardReceivedMut;
+    static inline std::queue<ScoreBoard> _scoreboardReceived;
+
     // ============================================================
     // Listening thread
     // ============================================================
@@ -185,8 +193,9 @@ private:
     static void handle_SVR_EndStroke(std::span<const char> msg);    // < push into _strokeCommandsRecv
     static void handle_SVR_ExtendStroke(std::span<const char> msg); // < push into _strokeCommandsRecv
 
-    static void handle_NTF_Msg(std::span<const char> msg);         // < send back ack to server
-    static void handle_NTF_ClearCanvas(std::span<const char> msg); // < send back ack to server
+    static void handle_NTF_Msg(std::span<const char> msg);              // < send back ack to server
+    static void handle_NTF_ClearCanvas(std::span<const char> msg);      // < send back ack to server
+    static void handle_NTF_UpdateScoreboard(std::span<const char> msg); // < send back ack to server
 
     static void startListening(std::stop_token st);
 
@@ -203,7 +212,8 @@ private:
         { MessageType::SVR_EXTEND_STROKE, &Client::handle_SVR_ExtendStroke },
 
         { MessageType::NTF_MSG, &Client::handle_NTF_Msg },
-        { MessageType::NTF_CLEAR_CANVAS, &Client::handle_NTF_ClearCanvas }
+        { MessageType::NTF_CLEAR_CANVAS, &Client::handle_NTF_ClearCanvas },
+        { MessageType::NTF_UPDATE_SCOREBOARD, &Client::handle_NTF_UpdateScoreboard }
     };
 
     // ============================================================

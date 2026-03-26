@@ -24,6 +24,7 @@ struct Canvas {
 	Stroke currentStroke;
 	RenderStroke currentRender;
 	bool isDrawing = false;
+	bool eraseMode = false;
 	uint32_t nextId = 1;
 	uint32_t clearId = 0;
 

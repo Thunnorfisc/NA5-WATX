@@ -361,6 +361,51 @@ void Client::handle_NTF_ClearCanvas(std::span<const char> msg)
     _strokeCommandsReceived.push(std::move(rcs));
 }
 
+void Client::handle_NTF_UpdateScoreboard(std::span<const char> msg)
+{
+    ByteReader rdr{ .buffer = msg };
+    auto sessionIdHost = ntohl(rdr.read<SessionId>());
+    if (sessionIdHost != _sessionId)
+    {
+        log(std::cerr,
+            std::format("[Client] Received an invalid session id [{}] from the server, ignoring packet", sessionIdHost));
+        return;
+    }
+
+    auto scoreIdHost = ntohl(rdr.read<std::uint32_t>());
+
+    auto num = ntohl(rdr.read<std::uint32_t>());
+
+    auto nameLengthHost = rdr.read<std::uint8_t>();
+    auto actualName = rdr.readBytes(nameLengthHost);
+
+    auto score = ntohs(rdr.read<std::uint16_t>());
+
+    // Prepare ack to send back to server
+    std::array<char, PacketSize::NTF_RCV_UPDATE_SCOREBOARD> ntfrcvsb;
+    ByteWriterN wrt{ .buffer = ntfrcvsb };
+    wrt.write(static_cast<char>(MessageType::NTF_RCV_UPDATE_SCOREBOARD));
+    wrt.write(htonl(_sessionId));
+    wrt.write(htonl(scoreIdHost));
+
+    // if not able to send back ntf_rcv_update_scoreboard,
+    // log, and continue pushing the message
+    // into the recvQueue
+    if (!sendWithRetry(ntfrcvsb))
+    {
+        log(std::cerr, "[Client] Unable to send NTF_RCV_UPDATE_SCOREBOARD back to server");
+    }
+
+    ScoreBoard sb;
+    for (std::size_t i{}; i < num; ++i) {
+        sb._users[i].first.resize(nameLengthHost);
+        std::memcpy(sb._users[i].first.data(), actualName.data(), nameLengthHost);
+        sb._users[i].second = score;
+    }
+    std::lock_guard lock(_scoreboardReceivedMut);
+    _scoreboardReceived.push(std::move(sb));
+}
+
 // ============================================================
 // startListening
 // ============================================================

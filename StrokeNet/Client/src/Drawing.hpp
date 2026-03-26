@@ -29,6 +29,7 @@ struct Stroke {
 struct RenderStroke {
 	sf::VertexArray quads;
 	std::vector<sf::CircleShape> joints;
+	sf::BlendMode blend = sf::BlendAlpha;
 };
 
 struct Drawing {
