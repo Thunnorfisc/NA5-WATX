@@ -86,6 +86,22 @@ namespace PacketSize
     // [RSP_MSG][SESSION_ID][MSG_ID]
     constexpr inline std::size_t RSP_MSG = 9;
 
+    //  1              4
+    // [REQ_PLAY_GAME][SESSION_ID]
+    constexpr inline std::size_t REQ_PLAY_GAME = 5;
+
+    //  1              4
+    // [RSP_PLAY_GAME][SESSION_ID]
+    constexpr inline std::size_t RSP_PLAY_GAME = 5;
+
+    //  1              4
+    // [REQ_QUIT_GAME][SESSION_ID]
+    constexpr inline std::size_t REQ_QUIT_GAME = 5;
+
+    //  1              4
+    // [RSP_QUIT_GAME][SESSION_ID]
+    constexpr inline std::size_t RSP_QUIT_GAME = 5;
+
     //  1                  4           4          4
     // [FAF_EXTEND_STROKE][SESSION_ID][STROKE_ID][MOUSE_POS]
     constexpr inline std::size_t FAF_EXTEND_STROKE = 13;
@@ -166,6 +182,12 @@ enum class MessageType: std::uint8_t
     REQ_CREATE_ACCOUNT,                     // < Sent by client
     RSP_LOGIN_AND_CREATE_ACCOUNT,           // < Ack by server
 
+    REQ_PLAY_GAME,                          // < Sent by client
+    RSP_PLAY_GAME,                          // < Acked by server
+
+    REQ_QUIT_GAME,                          // < Sent by client
+    RSP_QUIT_GAME,                          // < Acked by server
+
     REQ_START_STROKE,                       // < Sent by client
     RSP_START_STROKE,                       // < Ack by server
 
@@ -189,10 +211,10 @@ enum class MessageType: std::uint8_t
     NTF_RCV_UPDATE_SCOREBOARD,              // < Ack by client
     NTF_ROUND_END_TIME,                     // < Sent by server
     NTF_RCV_ROUND_END_TIME,                 // < Ack by client
-    NTF_SEND_WORD_LEN,                      // < Sent by client
-    NTF_RCV_SEND_WORD_LEN,                  // < Sent by client
-    NTF_SEND_WORD,                      // < Sent by client
-    NTF_RCV_SEND_WORD,                  // < Sent by client
+    NTF_SEND_WORD_LEN,                      // < Sent by server
+    NTF_RCV_SEND_WORD_LEN,                  // < Ack by client
+    NTF_SEND_WORD,                          // < Sent by server
+    NTF_RCV_SEND_WORD,                      // < Ack by client
 
     // ===================================
     // Best effort - client -> server

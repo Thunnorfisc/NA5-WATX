@@ -13,7 +13,7 @@
 /* End Header
 ***********************************************************************/
 #include "mainmenu.hpp"
-
+#include "client.hpp"
 #include "state_machine.hpp"
 
 #include <algorithm>
@@ -55,7 +55,8 @@ void MainMenuState::handleEvent(const sf::Event& event)
 
     if (const auto* mousePressed = event.getIf<sf::Event::MouseButtonPressed>())
     {
-        if (mousePressed->button == sf::Mouse::Button::Left && isMouseOverPlayButton())
+        if (mousePressed->button == sf::Mouse::Button::Left && isMouseOverPlayButton() &&
+            Client::playGame())
         {
             m_shouldStartGame = true;
         }

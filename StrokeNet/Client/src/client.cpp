@@ -822,6 +822,133 @@ void Client::disconnect()
 }
 
 // ============================================================
+// send play game
+// ============================================================
+bool Client::playGame()
+{
+    if(_playingGame)
+    {
+        log(std::cerr, "[Client] Play game called when game is already playing");
+        return true;
+    }
+    std::array<char, PacketSize::REQ_PLAY_GAME> msg;
+    ByteWriterN wrt{.buffer = msg};
+    wrt.write(static_cast<char>(MessageType::REQ_PLAY_GAME));
+    wrt.write(htonl(_sessionId));
+
+    std::vector<char> recvBuf(MaxUdpPacketBytes);
+
+    for(int attempt = 0; attempt < _maxRetries; ++attempt)
+    {
+        sendto(_socket, msg.data(), static_cast<int>(msg.size()),
+            0, reinterpret_cast<sockaddr*>(&_serverAddr), sizeof(_serverAddr));
+
+        auto deadline = std::chrono::steady_clock::now() +
+            std::chrono::milliseconds(static_cast<int>(_recvTimeOut * 1000.0));
+
+        while(true)
+        {
+            auto rem = deadline - std::chrono::steady_clock::now();
+            if(rem.count() <= 0) break;
+
+            fd_set rs; FD_ZERO(&rs); FD_SET(_socket, &rs);
+            auto us = std::chrono::duration_cast<std::chrono::microseconds>(rem);
+            timeval tv{static_cast<long>(us.count() / 1'000'000),
+                       static_cast<long>(us.count() % 1'000'000)};
+
+            if(select(0, &rs, nullptr, nullptr, &tv) <= 0) break;
+
+            sockaddr_in from{}; int fromLen = sizeof(from);
+            while(true)
+            {
+                int n = recvfrom(_socket, recvBuf.data(), static_cast<int>(recvBuf.size()),
+                    0, reinterpret_cast<sockaddr*>(&from), &fromLen);
+
+                if(n == SOCKET_ERROR)
+                {
+                    if(WSAGetLastError() == WSAEWOULDBLOCK) break;
+                    break;
+                }
+                if(n != static_cast<int>(PacketSize::RSP_PLAY_GAME)) continue;
+                if(static_cast<MessageType>(recvBuf[0]) != MessageType::RSP_PLAY_GAME) continue;
+
+                ByteReader rdr{.buffer = std::span<const char>(recvBuf).subspan(1, n - 1)};
+                SessionId sid = ntohl(rdr.read<SessionId>());
+                if(sid == _sessionId) return true;
+                else return false;
+            }
+        }
+    }
+
+    log(std::cerr, "[Client] Play Game: no server responded");
+    return false;
+}
+
+// ============================================================
+// send quit game
+// ============================================================
+bool Client::quitGame()
+{
+    if(!_playingGame)
+    {
+        log(std::cerr, "[Client] Quit game called when no game is playing");
+        return true;
+    }
+    std::array<char, PacketSize::REQ_QUIT_GAME> msg;
+    ByteWriterN wrt{.buffer = msg};
+    wrt.write(static_cast<char>(MessageType::REQ_QUIT_GAME));
+    wrt.write(htonl(_sessionId));
+
+    std::vector<char> recvBuf(MaxUdpPacketBytes);
+
+    for(int attempt = 0; attempt < _maxRetries; ++attempt)
+    {
+        sendto(_socket, msg.data(), static_cast<int>(msg.size()),
+            0, reinterpret_cast<sockaddr*>(&_serverAddr), sizeof(_serverAddr));
+
+        auto deadline = std::chrono::steady_clock::now() +
+            std::chrono::milliseconds(static_cast<int>(_recvTimeOut * 1000.0));
+
+        while(true)
+        {
+            auto rem = deadline - std::chrono::steady_clock::now();
+            if(rem.count() <= 0) break;
+
+            fd_set rs; FD_ZERO(&rs); FD_SET(_socket, &rs);
+            auto us = std::chrono::duration_cast<std::chrono::microseconds>(rem);
+            timeval tv{static_cast<long>(us.count() / 1'000'000),
+                       static_cast<long>(us.count() % 1'000'000)};
+
+            if(select(0, &rs, nullptr, nullptr, &tv) <= 0) break;
+
+            sockaddr_in from{}; int fromLen = sizeof(from);
+            while(true)
+            {
+                int n = recvfrom(_socket, recvBuf.data(), static_cast<int>(recvBuf.size()),
+                    0, reinterpret_cast<sockaddr*>(&from), &fromLen);
+
+                if(n == SOCKET_ERROR)
+                {
+                    if(WSAGetLastError() == WSAEWOULDBLOCK) break;
+                    break;
+                }
+                if(n != static_cast<int>(PacketSize::RSP_QUIT_GAME)) continue;
+                if(static_cast<MessageType>(recvBuf[0]) != MessageType::RSP_QUIT_GAME) continue;
+
+                ByteReader rdr{.buffer = std::span<const char>(recvBuf).subspan(1, n - 1)};
+                SessionId sid = ntohl(rdr.read<SessionId>());
+                if(sid == _sessionId) return true;
+                else return false;
+            }
+        }
+    }
+
+    log(std::cerr, "[Client] Quit Game: no server responded");
+    return false;
+}
+
+
+// ============================================================
 // send start stroke
 // ============================================================
 

@@ -95,7 +95,7 @@ void CoreGameState::handleEvent(const sf::Event& event)
             sf::Vector2f pos(static_cast<float>(mousePressed->position.x),
                 static_cast<float>(mousePressed->position.y));
 
-            if (isMouseOverBackButton()) {
+            if (isMouseOverBackButton() && Client::quitGame()) {
                 m_shouldReturnToMenu = true;
                 return;
             }

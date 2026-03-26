@@ -47,6 +47,9 @@ public:
     static LoginStatus createAccountViaBroadcast(const std::string& username, const std::string& password);
     static void        disconnect();
 
+    static bool        playGame();
+    static bool        quitGame();
+
     struct ReceivedStrokeCommand
     {
         enum class Type : std::uint8_t { START_STROKE, EXTEND_STROKE, END_STROKE, CLEAR_CANVAS };
@@ -123,6 +126,11 @@ private:
 
     static inline const double _recvTimeOut = 0.05;
     static inline const int    _maxRetries = 3;
+
+    // ============================================================
+    // Play game bool
+    // ============================================================
+    static inline bool _playingGame = false;
 
     // ============================================================
     // Round end time
