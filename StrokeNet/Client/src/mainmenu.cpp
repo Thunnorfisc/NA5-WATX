@@ -60,6 +60,13 @@ void MainMenuState::handleEvent(const sf::Event& event)
             m_shouldStartGame = true;
         }
     }
+    else if (const auto* keyboardPressed = event.getIf<sf::Event::KeyPressed>())
+    {
+        if (keyboardPressed->code == sf::Keyboard::Key::Enter || keyboardPressed->code == sf::Keyboard::Key::Space)
+        {
+            m_shouldStartGame = true;
+        }
+	}
 }
 
 void MainMenuState::update(sf::Time)
