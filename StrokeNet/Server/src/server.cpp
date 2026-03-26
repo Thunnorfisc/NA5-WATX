@@ -1092,31 +1092,48 @@ void Server::advanceDrawer()
 
 void Server::broadcastScoreboard()
 {
+    // Pre-build the per-player payload once (shared across all clients)
+    // Each entry: 1 byte name_len + name bytes + 2 bytes score
+    struct PlayerEntry { std::string name; std::uint16_t score; };
+    std::vector<PlayerEntry> entries;
+
+    for (const auto& [sid, client] : _sessionIdToClient)
+    {
+        std::string name = client.username;
+        if (name.size() > 15)
+            name = name.substr(0, 12) + "...";
+
+        std::uint16_t score = 0; // TODO: pull from your actual score storage
+        entries.push_back({ std::move(name), score });
+    }
+
+    // Calculate variable payload size
+    std::size_t varSize = 0;
+    for (const auto& e : entries)
+        varSize += 1 + e.name.size() + 2; // name_len + name + score
+
+    auto numPlayers = static_cast<std::uint32_t>(entries.size());
+
     auto now = std::chrono::steady_clock::now();
     std::lock_guard ntfLock(_pendingNtfUpdateScoreboardMutex);
 
     for (const auto& [ssiho, client] : _sessionIdToClient)
     {
-        auto name = client.username;
-        auto nameLength = static_cast<std::uint8_t>(std::min(name.size(), std::size_t(15)));
-        if (nameLength > 15) // 15 is arbitrary here
-        {
-            name = name.substr(0, 12); // trunc it
-            name += "...";
-            nameLength = 15;
-        }
-
-        std::uint16_t score = client.score;
-
-        std::vector<char> pkt(PacketSize::NTF_UPDATE_SCOREBOARD + nameLength);
+        std::vector<char> pkt(PacketSize::NTF_UPDATE_SCOREBOARD_BASE + varSize);
         ByteWriter wrt{ .buffer = pkt };
         wrt.write(static_cast<char>(MessageType::NTF_UPDATE_SCOREBOARD));
-        wrt.write(htonl(ssiho));                                              // target session id
-        wrt.write(htonl(_messageIdServer));                                   // score id
-        wrt.write(htonl(static_cast<std::uint32_t>(_sessionIdToClient.size()))); // num players
-        wrt.write(nameLength);
-        wrt.writeSpan(std::span<const char>(name.data(), nameLength));
-        wrt.write(htons(score));
+        wrt.write(htonl(ssiho));
+        wrt.write(htonl(_messageIdServer));
+        wrt.write(htonl(numPlayers));
+
+        // Write each player's name + score
+        for (const auto& e : entries)
+        {
+            auto nameLen = static_cast<std::uint8_t>(e.name.size());
+            wrt.write(nameLen);
+            wrt.writeSpan(std::span<const char>(e.name.data(), nameLen));
+            wrt.write(htons(e.score));
+        }
 
         sockaddr_in clientSa = client.sa;
         sendto(_socket, pkt.data(), static_cast<int>(pkt.size()), 0,

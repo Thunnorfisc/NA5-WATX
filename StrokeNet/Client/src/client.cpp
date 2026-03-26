@@ -374,36 +374,31 @@ void Client::handle_NTF_UpdateScoreboard(std::span<const char> msg)
     }
 
     auto scoreIdHost = ntohl(rdr.read<std::uint32_t>());
+    auto numPlayers = ntohl(rdr.read<std::uint32_t>());
 
-    auto num = ntohl(rdr.read<std::uint32_t>());
-
-    auto nameLengthHost = rdr.read<std::uint8_t>();
-    auto actualName = rdr.readBytes(nameLengthHost);
-
-    auto score = ntohs(rdr.read<std::uint16_t>());
-
-    // Prepare ack to send back to server
+    // Send ack first
     std::array<char, PacketSize::NTF_RCV_UPDATE_SCOREBOARD> ntfrcvsb;
     ByteWriterN wrt{ .buffer = ntfrcvsb };
     wrt.write(static_cast<char>(MessageType::NTF_RCV_UPDATE_SCOREBOARD));
     wrt.write(htonl(_sessionId));
     wrt.write(htonl(scoreIdHost));
 
-    // if not able to send back ntf_rcv_update_scoreboard,
-    // log, and continue pushing the message
-    // into the recvQueue
     if (!sendWithRetry(ntfrcvsb))
-    {
         log(std::cerr, "[Client] Unable to send NTF_RCV_UPDATE_SCOREBOARD back to server");
-    }
 
+    // Now read each player entry
     ScoreBoard sb;
-    sb._users.resize(num);
-    for (std::size_t i{}; i < num; ++i) {
-        sb._users[i].first.resize(nameLengthHost);
-        std::memcpy(sb._users[i].first.data(), actualName.data(), nameLengthHost);
+    sb._users.resize(numPlayers);
+    for (std::size_t i = 0; i < numPlayers; ++i)
+    {
+        auto nameLen = rdr.read<std::uint8_t>();
+        auto nameBytes = rdr.readBytes(nameLen);
+        auto score = ntohs(rdr.read<std::uint16_t>());
+
+        sb._users[i].first = std::string(nameBytes.data(), nameLen);
         sb._users[i].second = score;
     }
+
     std::lock_guard lock(_scoreboardReceivedMut);
     _scoreboardReceived.push(std::move(sb));
 }
