@@ -460,6 +460,30 @@ void Server::handle_ntfRcvRET(std::span<const char> udpPacketWithoutMID, sockadd
     _pendingNtfRET.erase(NtfKey{sessionIdHostOrder, retIdHostOrder});
 }
 
+void Server::handle_ntfRcvSendWordLen(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
+{
+    assert((udpPacketWithoutMID.size() == PacketSize::NTF_RCV_SEND_WORD_LEN - 1) &&
+        "Size of NTF_RCV_SEND_WORD_LEN packet received is wrong");
+    ByteReader rdr{ .buffer = udpPacketWithoutMID };
+    auto sessionIdHostOrder = ntohl(rdr.read<SessionId>());
+    auto retIdHostOrder = ntohl(rdr.read<std::uint32_t>());
+
+    std::lock_guard lock(_pendingNtfNewWordLenMutex);
+    _pendingNtfNewWordsLen.erase(NtfKey{ sessionIdHostOrder, retIdHostOrder });
+}
+
+void Server::handle_ntfRcvSendWord(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
+{
+    assert((udpPacketWithoutMID.size() == PacketSize::NTF_RCV_SEND_WORD - 1) &&
+        "Size of NTF_RCV_SEND_WORD packet received is wrong");
+    ByteReader rdr{ .buffer = udpPacketWithoutMID };
+    auto sessionIdHostOrder = ntohl(rdr.read<SessionId>());
+    auto retIdHostOrder = ntohl(rdr.read<std::uint32_t>());
+
+    std::lock_guard lock(_pendingNtfNewWordMutex);
+    _pendingNtfNewWords.erase(NtfKey{ sessionIdHostOrder, retIdHostOrder });
+}
+
 // ============================================================
 // REQ_START_STROKE
 // ============================================================
@@ -1134,10 +1158,6 @@ void Server::advanceDrawer()
 
 void Server::broadcastScoreboard()
 {
-    auto now = std::chrono::steady_clock::now();
-    std::lock_guard ntfLock(_pendingNtfUpdateScoreboardMutex);
-    std::lock_guard clientLock(_clientStorageMutex);
-
     // Pre-build the per-player payload once (shared across all clients)
     // Each entry: 1 byte name_len + name bytes + 2 bytes score
     struct PlayerEntry { std::string name; std::uint16_t score; };
@@ -1145,12 +1165,12 @@ void Server::broadcastScoreboard()
 
     for (const auto& [sid, client] : _sessionIdToClient)
     {
-        if (!client.inGame) continue;
         std::string name = client.username;
         if (name.size() > 15)
             name = name.substr(0, 12) + "...";
 
-        entries.push_back({ std::move(name), client.score });
+        std::uint16_t score = 0; // TODO: pull from your actual score storage
+        entries.push_back({ std::move(name), score });
     }
 
     // Calculate variable payload size
@@ -1160,28 +1180,18 @@ void Server::broadcastScoreboard()
 
     auto numPlayers = static_cast<std::uint32_t>(entries.size());
 
-    // Get drawer name
-    std::string drawerName;
-    if (_currentDrawer.has_value())
-    {
-        auto drawerIt = _sessionIdToClient.find(*_currentDrawer);
-        if (drawerIt != _sessionIdToClient.end())
-        {
-            drawerName = drawerIt->second.username;
-            if (drawerName.size() > 15)
-                drawerName = drawerName.substr(0, 12) + "...";
-        }
-    }
+    auto now = std::chrono::steady_clock::now();
+    std::lock_guard ntfLock(_pendingNtfUpdateScoreboardMutex);
+
+    std::string& drawer = _sessionIdToClient[_listOfPlayersToDraw[_currentAllowedToDrawIndex]].username;
 
     for (const auto& [ssiho, client] : _sessionIdToClient)
     {
-        if (!client.inGame) continue;
-        // +1 for drawerLen byte
-        std::vector<char> pkt(PacketSize::NTF_UPDATE_SCOREBOARD_BASE + varSize + 1 + drawerName.size());
+        std::vector<char> pkt(PacketSize::NTF_UPDATE_SCOREBOARD_BASE + varSize + drawer.size());
         ByteWriter wrt{ .buffer = pkt };
         wrt.write(static_cast<char>(MessageType::NTF_UPDATE_SCOREBOARD));
         wrt.write(htonl(ssiho));
-        wrt.write(htonl(_scoreBoardIdServer));
+        wrt.write(htonl(_messageIdServer));
         wrt.write(htonl(numPlayers));
 
         // Write each player's name + score
@@ -1193,9 +1203,9 @@ void Server::broadcastScoreboard()
             wrt.write(htons(e.score));
         }
 
-        auto drawerLen = static_cast<std::uint8_t>(drawerName.size());
+        auto drawerLen = static_cast<std::uint8_t>(drawer.size());
         wrt.write(drawerLen);
-        wrt.writeSpan(std::span<const char>(drawerName.data(), drawerLen));
+        wrt.writeSpan(std::span<const char>(drawer.data(), drawerLen));
 
         sockaddr_in clientSa = client.sa;
         sendto(_socket, pkt.data(), static_cast<int>(pkt.size()), 0,
@@ -1268,14 +1278,17 @@ bool Server::gameStarted()
 
 void Server::resetRound(std::int64_t newEpoch)
 {
-    // send client stuff
-    sendNewRoundEndTime(newEpoch);
-    sendClearCanvasCommand();
-
     // local server stuff
     advanceDrawer();
     pick_word();
     broadcastScoreboard();
+
+    // send client stuff
+    sendNewWord();
+    sendNewWordLen();
+    sendNewRoundEndTime(newEpoch);
+    sendClearCanvasCommand();
+
 }
 
 // ============================================================
@@ -1367,6 +1380,71 @@ void Server::sendClearCanvasCommand()
     }
     _clearCanvasIdServer++;
 }
+
+void Server::sendNewWordLen()
+{
+    auto now = std::chrono::steady_clock::now();
+    std::lock_guard ntfLock(_pendingNtfNewWordLenMutex);
+    for (const auto& [ssiho, client] : _sessionIdToClient)
+    {
+        std::vector<char> ntfPkt(PacketSize::NTF_SEND_WORD_LEN);
+        ByteWriter ntfWrt{ .buffer = ntfPkt };
+        ntfWrt.write(static_cast<char>(MessageType::NTF_SEND_WORD_LEN));
+        ntfWrt.write(htonl(ssiho));       // target's session ID
+        ntfWrt.write(htonl(_sendNewWordLenIdServer));
+        ntfWrt.write(static_cast<std::uint8_t>(word.second.size()));
+
+        // Send immediately once
+        sockaddr_in clientSa = client.sa;
+        sendto(_socket, ntfPkt.data(), static_cast<int>(ntfPkt.size()), 0,
+            reinterpret_cast<sockaddr*>(&clientSa), sizeof(clientSa));
+
+        // Add to pending for retry
+        _pendingNtfNewWordsLen[NtfKey{ ssiho, _sendNewWordLenIdServer }] = PendingNTF{
+            ._data = std::move(ntfPkt),
+            ._clientAddr = client.sa,
+            ._targetSessionId = ssiho,
+            ._ntfId = _sendNewWordLenIdServer,
+            ._nextSendTime = now + std::chrono::milliseconds(100),
+            ._giveUpTime = now + std::chrono::seconds(2),
+        };
+    }
+    _sendNewWordLenIdServer++;
+}
+
+
+void Server::sendNewWord()
+{
+    auto now = std::chrono::steady_clock::now();
+    std::lock_guard ntfLock(_pendingNtfNewWordMutex);
+    SessionId const& ssiho = _listOfPlayersToDraw[_currentAllowedToDrawIndex];
+    Server::Client const& client = _sessionIdToClient[ssiho];
+
+    std::vector<char> ntfPkt(PacketSize::NTF_SEND_WORD + word.second.size());
+    ByteWriter ntfWrt{ .buffer = ntfPkt };
+    ntfWrt.write(static_cast<char>(MessageType::NTF_SEND_WORD));
+    ntfWrt.write(htonl(ssiho));       // target's session ID
+    ntfWrt.write(htonl(_sendNewWordIdServer));
+    ntfWrt.write(static_cast<std::uint8_t>(word.second.size()));
+    ntfWrt.writeSpan(word.second);
+
+    // Send immediately once
+    sockaddr_in clientSa = client.sa;
+    sendto(_socket, ntfPkt.data(), static_cast<int>(ntfPkt.size()), 0,
+        reinterpret_cast<sockaddr*>(&clientSa), sizeof(clientSa));
+
+    // Add to pending for retry
+    _pendingNtfNewWords[NtfKey{ ssiho, _sendNewWordIdServer }] = PendingNTF{
+        ._data = std::move(ntfPkt),
+        ._clientAddr = client.sa,
+        ._targetSessionId = ssiho,
+        ._ntfId = _sendNewWordIdServer,
+        ._nextSendTime = now + std::chrono::milliseconds(100),
+        ._giveUpTime = now + std::chrono::seconds(2),
+    };
+    _sendNewWordIdServer++;
+}
+
 
 // ============================================================
 // Helper - Send with retry

@@ -86,6 +86,7 @@ void Client::initalize()
     ioctlsocket(_socket, FIONBIO, &mode);
 
     log(std::cout, std::format("[Client] Ready at {}:{}", _ip, _portHostOrder));
+
 }
 
 // ============================================================
@@ -436,6 +437,76 @@ void Client::handle_NTF_RoundEndTime(std::span<const char> msg)
     }
 
     _roundEndTimeMs = roundEndTimeHost;
+}
+
+
+void Client::handle_NTF_NewWordLen(std::span<const char> msg)
+{
+    assert(msg.size() == (PacketSize::NTF_SEND_WORD_LEN - 1) && "Size of NTF_SEND_WORD_LEN is wrong");
+    ByteReader rdr{ .buffer = msg };
+    auto sessionIdHost = ntohl(rdr.read<SessionId>());
+    if (sessionIdHost != _sessionId)
+    {
+        log(std::cerr,
+            std::format("[Client] Received an invalid session id [{}] from the server, ignoring packet", sessionIdHost));
+        return;
+    }
+
+    auto sendWordIdHost = ntohl(rdr.read<std::uint32_t>());
+    _word_len = static_cast<int32_t>(rdr.read<std::uint8_t>());
+    std::cout << _word_len << '\n';
+
+
+    // Prepare ack to send back to server
+    std::array<char, PacketSize:: NTF_RCV_SEND_WORD_LEN> ntfRcvRET;
+    ByteWriterN wrt{ .buffer = ntfRcvRET };
+    wrt.write(static_cast<char>(MessageType::NTF_RCV_SEND_WORD_LEN));
+    wrt.write(htonl(_sessionId));
+    wrt.write(htonl(sendWordIdHost));
+
+    // if not able to send back ntf_clear_canvas,
+    // log, and continue pushing the message
+    // into the recvQueue
+    if (!sendWithRetry(ntfRcvRET))
+    {
+        log(std::cerr, "[Client] Unable to send NTF_SEND_WORD_LEN back to server");
+    }
+
+}
+
+void Client::handle_NTF_NewWord(std::span<const char> msg)
+{
+    ByteReader rdr{ .buffer = msg };
+    auto sessionIdHost = ntohl(rdr.read<SessionId>());
+    if (sessionIdHost != _sessionId)
+    {
+        log(std::cerr,
+            std::format("[Client] Received an invalid session id [{}] from the server, ignoring packet", sessionIdHost));
+        return;
+    }
+
+    auto sendWordIdHost = ntohl(rdr.read<std::uint32_t>());
+    _word_len = static_cast<int32_t>(rdr.read<std::uint8_t>());
+
+    auto temp_word = rdr.readBytes(_word_len);
+    _word = std::string(temp_word.begin(), temp_word.end());
+    std::cout << _word << '\n';
+
+    // Prepare ack to send back to server
+    std::array<char, PacketSize::NTF_RCV_SEND_WORD> ntfRcvRET;
+    ByteWriterN wrt{ .buffer = ntfRcvRET };
+    wrt.write(static_cast<char>(MessageType::NTF_RCV_SEND_WORD));
+    wrt.write(htonl(_sessionId));
+    wrt.write(htonl(sendWordIdHost));
+
+    // if not able to send back ntf_clear_canvas,
+    // log, and continue pushing the message
+    // into the recvQueue
+    if (!sendWithRetry(ntfRcvRET))
+    {
+        log(std::cerr, "[Client] Unable to send NTF_RCV_ROUND_END_TIME back to server");
+    }
+
 }
 
 // ============================================================
@@ -1041,4 +1112,23 @@ std::optional<Client::ScoreBoard> Client::getLatestScoreboard()
 std::int64_t Client::getRoundEndTimeMs()
 {
     return _roundEndTimeMs;
+}
+
+
+// ============================================================
+// for game to retrieve word length
+// ============================================================
+
+std::int32_t Client::getWordLength()
+{
+    return _word_len;
+}
+
+// ============================================================
+// for game to retrieve word
+// ============================================================
+
+std::string Client::getWord()
+{
+    return _word;
 }
