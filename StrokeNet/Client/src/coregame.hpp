@@ -47,6 +47,7 @@ private:
     sf::Font m_font;
     sf::Text m_titleText;
     sf::Text m_backText;
+
     bool m_shouldReturnToMenu = false;
     bool m_leftDown = false;
     bool m_wasLeftDown = false;
