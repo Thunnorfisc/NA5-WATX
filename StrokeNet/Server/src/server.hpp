@@ -21,6 +21,7 @@
 
 #include <winsock2.h>
 
+#include <map>
 #include <list>
 #include <span>
 #include <deque>
@@ -75,22 +76,6 @@ public:
     void sendClearCanvasCommand();
 private:
     // ============================================================
-    // Game State
-    // ============================================================
-    std::mutex _gameMut;
-    UserStore _userStore;
-    bool _gameRunning = false;
-    std::vector<SessionId> _listOfPlayersToDraw;
-    std::size_t _currentAllowedToDrawIndex{};
-
-    // ============================================================
-    // Ids for acks
-    // ============================================================
-    std::uint32_t _messageIdServer = 1;
-    std::uint32_t _roundEndTimeIdServer = 1;
-    std::uint32_t _clearCanvasIdServer = 1;
-
-    // ============================================================
     // Client storage
     // ============================================================
     struct Client
@@ -100,12 +85,28 @@ private:
         sockaddr_in sa;
         std::uint16_t score{};
         std::optional<std::uint32_t> currentStrokeId;
+        bool inGame = false;
     };
     // right now, if client misbehaves and keeps sending
     // registeration after registration without deregistering
     // then we have a leak
     std::mutex _clientStorageMutex;
-    std::unordered_map<SessionId, Client> _sessionIdToClient;
+    std::map<SessionId, Client> _sessionIdToClient;
+
+    // ============================================================
+    // Game State
+    // ============================================================
+    std::mutex _gameMut;
+    UserStore _userStore;
+    bool _gameRunning = false;
+
+    // ============================================================
+    // Ids for acks
+    // ============================================================
+    std::uint32_t _messageIdServer = 1;
+    std::uint32_t _roundEndTimeIdServer = 1;
+    std::uint32_t _clearCanvasIdServer = 1;
+
 
     // ============================================================
     // NTF Handling
@@ -179,6 +180,8 @@ private:
     // ============================================================
     void handle_reqLogin                (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
     void handle_reqCreateAccount        (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
+    void handle_reqPlayGame             (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
+    void handle_reqQuitGame             (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
 
     void handle_reqStartStroke          (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
     void handle_reqEndStroke            (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
@@ -200,6 +203,8 @@ private:
         std::make_pair(MessageType::REQ_LOGIN,              &Server::handle_reqLogin            ),
         std::make_pair(MessageType::REQ_CREATE_ACCOUNT,     &Server::handle_reqCreateAccount    ),
         std::make_pair(MessageType::REQ_MSG,                &Server::handle_reqMsg              ),
+        std::make_pair(MessageType::REQ_PLAY_GAME,          &Server::handle_reqPlayGame         ),
+        std::make_pair(MessageType::REQ_QUIT_GAME,          &Server::handle_reqQuitGame         ),
         
         std::make_pair(MessageType::REQ_START_STROKE,       &Server::handle_reqStartStroke      ),
         std::make_pair(MessageType::REQ_END_STROKE,         &Server::handle_reqEndStroke        ),

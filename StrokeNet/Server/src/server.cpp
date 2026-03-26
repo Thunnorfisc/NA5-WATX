@@ -207,12 +207,6 @@ void Server::handle_reqLogin(std::span<const char> udpPacketWithoutMID, sockaddr
     if (_userStore.authenticate(username, password))
     {
         sessionIdHostOrder = getNextSessionIdHostOrder();
-
-        // place it into the list of players allowed to draw
-        std::unique_lock lock(_gameMut);
-        _listOfPlayersToDraw.push_back(sessionIdHostOrder);
-        lock.unlock();
-
         status = LoginStatus::SUCCESS;
     }
     else
@@ -315,6 +309,69 @@ void Server::handle_reqCreateAccount(std::span<const char> udpPacketWithoutMID, 
 }
 
 // ============================================================
+// REQ_PLAY_GAME
+// ============================================================
+
+void Server::handle_reqPlayGame(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
+{
+    assert((udpPacketWithoutMID.size() == PacketSize::REQ_PLAY_GAME - 1) &&
+        "Size of REQ_PLAY_GAME packet received is wrong");
+
+    ByteReader rdr{udpPacketWithoutMID};
+    
+    SessionId sessionIdHost = ntohl(rdr.read<SessionId>());
+    std::unique_lock lock(_clientStorageMutex);
+    auto it = _sessionIdToClient.find(sessionIdHost);
+    if(it == _sessionIdToClient.end()) return; // ignore this, client is not even in our database
+    it->second.inGame = true;
+    lock.unlock();
+    
+    // send back ack
+    std::array<char, PacketSize::RSP_PLAY_GAME> msg;
+    ByteWriterN wrt{.buffer = msg};
+    wrt.write(static_cast<char>(MessageType::RSP_PLAY_GAME));
+    wrt.write(htonl(sessionIdHost));
+    bool success = sendWithRetry(msg, *sa);
+    if(!success)
+    {
+        log(std::cerr,
+            std::format("[Server] Client {}: Unable to send RSP_PLAY_GAME for account creation", it->first));
+    }
+}
+
+// ============================================================
+// REQ_QUIT_GAME
+// ============================================================
+
+void Server::handle_reqQuitGame(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
+{
+    assert((udpPacketWithoutMID.size() == PacketSize::REQ_QUIT_GAME - 1) &&
+        "Size of REQ_QUIT_GAME packet received is wrong");
+
+    ByteReader rdr{udpPacketWithoutMID};
+
+    SessionId sessionIdHost = ntohl(rdr.read<SessionId>());
+    std::unique_lock lock(_clientStorageMutex);
+    auto it = _sessionIdToClient.find(sessionIdHost);
+    if(it == _sessionIdToClient.end()) return; // ignore this, client is not even in our database
+    lock.unlock();
+
+    it->second.inGame = false;
+
+    // send back ack
+    std::array<char, PacketSize::RSP_PLAY_GAME> msg;
+    ByteWriterN wrt{.buffer = msg};
+    wrt.write(static_cast<char>(MessageType::RSP_QUIT_GAME));
+    wrt.write(htonl(sessionIdHost));
+    bool success = sendWithRetry(msg, *sa);
+    if(!success)
+    {
+        log(std::cerr,
+            std::format("[Server] Client {}: Unable to send RSP_PLAY_GAME for account creation", it->first));
+    }
+}
+
+// ============================================================
 // FAF_DISCONNECT
 // ============================================================
 
@@ -336,23 +393,6 @@ void Server::handle_fafDisconnect(std::span<const char> udpPacketWithoutMID, soc
                 ipStrAndPort,sessionIdHostOrder));
         return;
     }
-
-    std::unique_lock lock(_gameMut);
-    // delete from list of players allowed to draw
-    auto it = std::ranges::find(_listOfPlayersToDraw, sessionIdHostOrder);
-    if (it != _listOfPlayersToDraw.end())
-    {
-        _listOfPlayersToDraw.erase(it);
-
-        if (!_listOfPlayersToDraw.empty()) _currentAllowedToDrawIndex %= _listOfPlayersToDraw.size();
-        else _currentAllowedToDrawIndex = 0;
-    }
-    else
-    {
-        log(std::cerr,
-            std::format("[Server] Tried to remove client {} from the list of players allowed to draw, but not able to find",sessionIdHostOrder));
-    }
-    lock.unlock();
 
     log(std::cout, std::format("[Server] Client: {} disconnected", ipStrAndPort));
     return;
@@ -430,49 +470,28 @@ void Server::handle_reqStartStroke(std::span<const char> udpPacketWithoutMID, so
     assert((udpPacketWithoutMID.size() == PacketSize::REQ_START_STROKE - 1) &&
         "Size of REQ_START_STROKE packet received is wrong");
 
-    std::unique_lock lock(_gameMut);
+    std::unique_lock gamelock(_gameMut);
     if (!_gameRunning)
     {
         log(std::cerr,
             std::format("[Server] Received REQ_START_STROKE but game is not started"));
         return;
     }
-
-    if (_listOfPlayersToDraw.empty())
-    {
-        log(std::cerr,
-            std::format("[Server] Received REQ_START_STROKE but list of allowed players to draw is empty"));
-        return;
-    }
-    if (_currentAllowedToDrawIndex >= _listOfPlayersToDraw.size())
-    {
-        _currentAllowedToDrawIndex = 0;
-    }
+    gamelock.unlock();
 
     ByteReader rdr{ .buffer = udpPacketWithoutMID };
     auto sessionIdHostOrder = ntohl(rdr.read<SessionId>());
     
     // check if session id exists
+    std::unique_lock sessionIdLock(_clientStorageMutex);
     auto it = _sessionIdToClient.find(sessionIdHostOrder);
     if (it == _sessionIdToClient.end())
     {
         // no session id exists, ignore
         log(std::cerr,
             std::format("[Server] Received REQ_START_STROKE from unknown client session id: {}", sessionIdHostOrder));
-        lock.unlock();
         return;
     }
-
-    // check if session id is allowed to draw
-    if (_listOfPlayersToDraw[_currentAllowedToDrawIndex] != sessionIdHostOrder)
-    {
-        // not allowed to draw, ignore
-        log(std::cerr,
-            std::format("[Server] Received REQ_START_STROKE from client session id {} but not allowed to draw", sessionIdHostOrder));
-        lock.unlock();
-        return;
-    }
-    lock.unlock();
 
     auto strokeIdHostOrder = ntohl(rdr.read<std::uint32_t>());
     if (it->second.currentStrokeId.has_value())
@@ -506,6 +525,7 @@ void Server::handle_reqStartStroke(std::span<const char> udpPacketWithoutMID, so
 
     // set the currentStrokeId
     it->second.currentStrokeId = strokeIdHostOrder;
+    sessionIdLock.unlock();
 
     // just send back to all clients
     std::array<char, PacketSize::SVR_START_STROKE> svrmsg;
@@ -530,26 +550,22 @@ void Server::handle_reqEndStroke(std::span<const char> udpPacketWithoutMID, sock
 {
     assert((udpPacketWithoutMID.size() == PacketSize::REQ_END_STROKE - 1) &&
         "Size of REQ_END_STROKE packet received is wrong");
-    std::unique_lock lock(_gameMut);
+    std::unique_lock gamelock(_gameMut);
     if (!_gameRunning)
     {
         log(std::cerr,
             std::format("[Server] Received REQ_END_STROKE but game is not started"));
         return;
     }
-    if (_listOfPlayersToDraw.empty())
-    {
-        log(std::cerr,
-            std::format("[Server] Received REQ_END_STROKE but list of allowed players to draw is empty"));
-        return;
-    }
-    if (_currentAllowedToDrawIndex >= _listOfPlayersToDraw.size())
-    {
-        _currentAllowedToDrawIndex = 0;
-    }
+    gamelock.unlock();
+
+
+
     ByteReader rdr{ .buffer = udpPacketWithoutMID };
     auto sessionIdHostOrder = ntohl(rdr.read<SessionId>());
 
+
+    std::unique_lock sessionIdLock(_clientStorageMutex);
     // check if session id exists
     auto it = _sessionIdToClient.find(sessionIdHostOrder);
     if (it == _sessionIdToClient.end())
@@ -557,20 +573,8 @@ void Server::handle_reqEndStroke(std::span<const char> udpPacketWithoutMID, sock
         // no session id exists, ignore
         log(std::cerr,
             std::format("[Server] Received REQ_END_STROKE from unknown client session id: {}", sessionIdHostOrder));
-        lock.unlock();
         return;
     }
-
-    // check if session id is allowed to draw
-    if (_listOfPlayersToDraw[_currentAllowedToDrawIndex] != sessionIdHostOrder)
-    {
-        // not allowed to draw, ignore
-        log(std::cerr,
-            std::format("[Server] Received REQ_END_STROKE from client session id {} but not allowed to draw", sessionIdHostOrder));
-        lock.unlock();
-        return;
-    }
-    lock.unlock();
 
     auto strokeIdHostOrder = ntohl(rdr.read<std::uint32_t>());
     if (!it->second.currentStrokeId.has_value())
@@ -600,6 +604,7 @@ void Server::handle_reqEndStroke(std::span<const char> udpPacketWithoutMID, sock
 
     // set client's stroke id to nullopt
     it->second.currentStrokeId = std::nullopt;
+    sessionIdLock.unlock();
 
     // just send back to all clients
     std::array<char, PacketSize::SVR_END_STROKE> svrmsg;
@@ -640,8 +645,7 @@ void Server::handle_reqMsg(std::span<const char> udpPacketWithoutMID, sockaddr_i
     std::transform(str_msg.begin(), str_msg.end(), str_msg.begin(), [](char c) {return std::toupper(c); });
     std::transform(word.second.begin(), word.second.end(), word.second.begin(), [](char c) {return std::toupper(c); });
 
-    if (std::find(_listOfPlayersToDraw.begin(), _listOfPlayersToDraw.end(), it->first) != _listOfPlayersToDraw.end() &&
-        str_msg == word.second) {
+    if (str_msg == word.second) {
         std::cout << str_msg << '\n';
         broadcastScoreboard();
     }
@@ -664,10 +668,12 @@ void Server::handle_reqMsg(std::span<const char> udpPacketWithoutMID, sockaddr_i
     }
 
     // Now NTF all clients for msg
+    std::lock_guard lock(_clientStorageMutex);
     auto now = std::chrono::steady_clock::now();
     std::lock_guard ntfLock(_pendingNtfClearCanvasMutex);
     for (const auto& [ssiho, client] : _sessionIdToClient)
     {
+        if (!client.inGame) continue;
         std::vector<char> svrmsg;
         svrmsg.resize(PacketSize::NTF_MSG_WITHOUT_BUFFER + msgLength + nameLength);
         ByteWriter svrwrt{ .buffer = svrmsg };
@@ -707,30 +713,12 @@ void Server::handle_reqClearCanvas(std::span<const char> udpPacketWithoutMID, so
 
     std::unique_lock lock(_gameMut);
     if (!_gameRunning) return;
-    if (_listOfPlayersToDraw.empty())
-    {
-        log(std::cerr,
-            std::format("[Server] Received REQ_CLEAR_CANVAS but list of allowed players to draw is empty"));
-        return;
-    }
-    if (_currentAllowedToDrawIndex >= _listOfPlayersToDraw.size())
-    {
-        _currentAllowedToDrawIndex = 0;
-    }
+    lock.unlock();
     ByteReader rdr{ .buffer = udpPacketWithoutMID };
     auto sessionIdHostOrder = ntohl(rdr.read<SessionId>());
-
+    std::unique_lock sessionIdLock(_clientStorageMutex);
     auto it = _sessionIdToClient.find(sessionIdHostOrder);
-    if (it == _sessionIdToClient.end()) { lock.unlock(); return; }
-
-    // Only the current drawer can clear
-    if (_listOfPlayersToDraw[_currentAllowedToDrawIndex] != sessionIdHostOrder)
-    {
-        log(std::cerr,
-            std::format("[Server] Received REQ_CLEAR_CANVAS from client session id {} but not allowed to draw", sessionIdHostOrder));
-        lock.unlock(); return;
-    }
-    lock.unlock();
+    if (it == _sessionIdToClient.end()) { return; }
 
     auto clearIdHostOrder = ntohl(rdr.read<std::uint32_t>());
 
@@ -773,7 +761,7 @@ void Server::handle_reqClearCanvas(std::span<const char> udpPacketWithoutMID, so
     // End any active stroke first
     if (it->second.currentStrokeId.has_value())
         it->second.currentStrokeId = std::nullopt;
-
+    sessionIdLock.unlock();
     // Now NTF all clients to clear their canvas
     sendClearCanvasCommand();
 }
@@ -793,40 +781,20 @@ void Server::handle_fafExtendStroke(std::span<const char> udpPacketWithoutMID, s
             std::format("[Server] Received FAF_EXTEND_STROKE but game is not started"));
         return;
     }
-    if (_listOfPlayersToDraw.empty())
-    {
-        log(std::cerr,
-            std::format("[Server] Received FAF_EXTEND_STROKE but list of allowed players to draw is empty"));
-        return;
-    }
-    if (_currentAllowedToDrawIndex >= _listOfPlayersToDraw.size())
-    {
-        _currentAllowedToDrawIndex = 0;
-    }
+    lock.unlock();
     ByteReader rdr{ .buffer = udpPacketWithoutMID };
     auto sessionIdHostOrder = ntohl(rdr.read<SessionId>());
 
     // check if session id exists
+    std::unique_lock sessionIdHostLock{_clientStorageMutex};
     auto it = _sessionIdToClient.find(sessionIdHostOrder);
     if (it == _sessionIdToClient.end())
     {
         // no session id exists, ignore
         log(std::cerr,
             std::format("[Server] Received FAF_EXTEND_STROKE from unknown client session id: {}", sessionIdHostOrder));
-        lock.unlock();
         return;
     }
-
-    // check if session id is allowed to draw
-    if (_listOfPlayersToDraw[_currentAllowedToDrawIndex] != sessionIdHostOrder)
-    {
-        // not allowed to draw, ignore
-        log(std::cerr,
-            std::format("[Server] Received FAF_EXTEND_STROKE from client session id {} but not allowed to draw", sessionIdHostOrder));
-        lock.unlock();
-        return;
-    }
-    lock.unlock();
 
     auto strokeIdHostOrder = ntohl(rdr.read<std::uint32_t>());
     if (!it->second.currentStrokeId.has_value())
@@ -837,7 +805,7 @@ void Server::handle_fafExtendStroke(std::span<const char> udpPacketWithoutMID, s
                 sessionIdHostOrder));
         return;
     }
-
+    sessionIdHostLock.unlock();
     auto mousePosNetworkOrder = rdr.read<MousePosition>();
 
     // just send back to all clients
@@ -1045,42 +1013,6 @@ int Server::word_heuristic() {
 
 void Server::advanceDrawer()
 {
-    std::lock_guard lock(_gameMut);
-    if (_listOfPlayersToDraw.empty())
-    {
-        log(std::cerr, std::format("[Server] Unable to advance drawer, no available drawers to pick from"));
-        return;
-    }
-    // WHEN ADVANCE DRAWER, NEED TO SEND EVERYONE SVR_END_STROKE IF
-    // there is a current stroke active
-    SessionId currentDrawer = _listOfPlayersToDraw[_currentAllowedToDrawIndex];
-    auto it = _sessionIdToClient.find(currentDrawer);
-    if (it != _sessionIdToClient.end() && it->second.currentStrokeId.has_value())
-    {
-        it->second.currentStrokeId = std::nullopt; // remove the stroke id
-        std::array<char, PacketSize::SVR_END_STROKE> svrmsg;
-        ByteWriterN svrwrt{ .buffer = svrmsg };
-        for (const auto& [ssiho, client] : _sessionIdToClient)
-        {
-            svrwrt.write(static_cast<char>(MessageType::SVR_END_STROKE));
-            svrwrt.write(htonl(ssiho));
-            //if (ssiho == sessionIdHostOrder) continue; // dont send back to itself
-
-            bool success = sendWithRetry(svrmsg, client.sa);
-
-            // if not able to send SVR_END_STROKE, its ok. wtv
-            if (!success)
-            {
-                log(std::cerr,
-                    std::format("[Server] Unable to send SVR_END_STROKE for client session id {}", ssiho));
-            }
-
-            svrwrt.offset = 0; // offset at zero to write from the beginning again
-        }
-    }
-
-    _currentAllowedToDrawIndex = (_currentAllowedToDrawIndex + 1) % _listOfPlayersToDraw.size();
-    log(std::cout, std::format("[Server] Advanced drawer, new drawer: {}", _listOfPlayersToDraw[_currentAllowedToDrawIndex]));
 
     return;
 }
@@ -1096,6 +1028,7 @@ void Server::broadcastScoreboard()
 
     for (const auto& [ssiho, client] : _sessionIdToClient)
     {
+        if(!client.inGame) continue;
         auto name = client.username;
         auto nameLength = static_cast<std::uint8_t>(std::min(name.size(), std::size_t(15)));
         if (nameLength > 15) // 15 is arbitrary here
@@ -1145,14 +1078,7 @@ void Server::startGame()
         log(std::cerr, "[Server] Game has already started");
         return;
     }
-    if (_listOfPlayersToDraw.empty())
-    {
-        log(std::cerr, "[Server] Cannot start game, no players connected");
-        return;
-    }
-    _currentAllowedToDrawIndex = 0;
     _gameRunning = true;
-    log(std::cout, std::format("[Server] Game started, first drawer: {}", _listOfPlayersToDraw[0]));
 }
 
 // ============================================================
@@ -1163,6 +1089,7 @@ void Server::stopGame()
 {
     std::lock_guard lock(_gameMut);
     _gameRunning = false;
+    std::lock_guard storageLock(_clientStorageMutex);
     log(std::cout, "[Server] Game stopped");
 }
 
@@ -1197,8 +1124,10 @@ void Server::resetRound(std::int64_t newEpoch)
 
 std::size_t Server::getNumberOfPlayers()
 {
-    std::lock_guard lock(_gameMut);
-    return _listOfPlayersToDraw.size();
+    std::lock_guard lock(_clientStorageMutex);
+    return std::ranges::count_if(_sessionIdToClient, [](std::pair<const SessionId&, const Client&> p){
+        return p.second.inGame;
+        });
 }
 
 // ============================================================
@@ -1213,8 +1142,10 @@ void Server::sendNewRoundEndTime(std::int64_t time)
 
     auto now = std::chrono::steady_clock::now();
     std::lock_guard ntfLock(_pendingNtfRETMutex);
+    std::unique_lock sessionIdLock(_clientStorageMutex);
     for(const auto& [ssiho, client] : _sessionIdToClient)
     {
+        if(!client.inGame) continue;
         std::vector<char> msg;
         msg.resize(PacketSize::NTF_ROUND_END_TIME);
         ByteWriter wrt{.buffer = msg};
@@ -1249,8 +1180,10 @@ void Server::sendClearCanvasCommand()
 {
     auto now = std::chrono::steady_clock::now();
     std::lock_guard ntfLock(_pendingNtfClearCanvasMutex);
+    std::unique_lock sessionIdLock(_clientStorageMutex);
     for(const auto& [ssiho, client] : _sessionIdToClient)
     {
+        if(!client.inGame)continue;
         std::vector<char> ntfPkt(PacketSize::NTF_CLEAR_CANVAS);
         ByteWriter ntfWrt{.buffer = ntfPkt};
         ntfWrt.write(static_cast<char>(MessageType::NTF_CLEAR_CANVAS));
