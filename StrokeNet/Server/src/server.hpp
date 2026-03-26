@@ -210,7 +210,7 @@ private:
 
         std::make_pair(MessageType::NTF_RCV_CLEAR_CANVAS,   &Server::handle_ntfRcvClearCanvas   ),
         std::make_pair(MessageType::NTF_RCV_MSG,            &Server::handle_ntfRcvMsg           ),
-        std::make_pair(MessageType::NTF_RCV_UPDATE_SCOREBOARD, &Server::handle_ntfRcvUpdateScoreboard)
+        std::make_pair(MessageType::NTF_RCV_UPDATE_SCOREBOARD, &Server::handle_ntfRcvUpdateScoreboard),
         std::make_pair(MessageType::NTF_RCV_ROUND_END_TIME, &Server::handle_ntfRcvRET           ),
     };
 
