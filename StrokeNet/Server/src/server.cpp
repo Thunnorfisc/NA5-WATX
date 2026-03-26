@@ -1062,21 +1062,6 @@ void Server::advanceDrawer()
     return;
 }
 
-void Server::sendTime(std::uint8_t seconds)
-{
-    std::array<char, PacketSize::SVR_TIMER> svrmsg;
-    ByteWriterN wrt{ .buffer = svrmsg };
-    wrt.write(static_cast<char>(MessageType::SVR_TIMER));
-    wrt.write(static_cast<std::uint32_t>(0)); // placeholder
-    wrt.write(seconds);
-
-    broadcastPacket(svrmsg,
-        [&](std::array<char, PacketSize::SVR_TIMER>& pkt, SessionId sidHost) {
-            SessionId sidNetwork = htonl(sidHost);
-            std::memcpy(pkt.data() + sizeof(MessageType::SVR_TIMER), &sidNetwork, sizeof(sidNetwork));
-        });
-}
-
 // ============================================================
 // Start game
 // ============================================================

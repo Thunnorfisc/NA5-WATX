@@ -55,9 +55,9 @@ int main()
         const double budget = 1.0 / 60.0;
 
 
-        const double budgetAdvanceTurn = 15.0; // advance turn every 5 seconds, just for testing
+        const double budgetAdvanceTurn = 5.0; // advance turn every 5 seconds, just for testing
         auto advanceTurnNow = std::chrono::steady_clock::now();
-        auto lastSecondTick = std::chrono::steady_clock::now();
+
         while (!server.isListeningThreadFinished())
         {
             auto now = std::chrono::steady_clock::now();
@@ -73,28 +73,17 @@ int main()
                 //server.word.first = false;
             }
 
-            // how much time has passed in current turn
-            double elapsed = std::chrono::duration<double>(now - advanceTurnNow).count();
-
-            // remaining time (countdown)
-            double remaining = budgetAdvanceTurn - elapsed;
-
-            // clamp to [0, budgetAdvanceTurn]
-            if (remaining < 0.0) remaining = 0.0;
-
-            // fire every 1 second
-            if (std::chrono::duration<double>(now - lastSecondTick).count() >= 1.0)
-            {
-                lastSecondTick = now;
-
-                std::uint8_t secondsLeft = static_cast<std::uint8_t>(remaining);
-                server.sendTime(secondsLeft);
-            }
-
             if (std::chrono::duration<double>(std::chrono::steady_clock::now() - advanceTurnNow).count() >= budgetAdvanceTurn)
             {
                 server.advanceDrawer();
                 advanceTurnNow = std::chrono::steady_clock::now();
+            }
+
+            // don't sleep here, sleep is inaccurate for very small time frames. just busy wait here
+            while (true)
+            {
+                double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - now).count();
+                if (seconds >= budget) break;
             }
         }
         server.stopGame();
