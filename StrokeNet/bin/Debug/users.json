@@ -4,8 +4,6 @@
             "username": "admin",
             "password": "jGl25bVBBBW96Qi9Te4V37Fnqchz/Eu4qB9vKrRIqRg=",
             "score": 0
-            "password": "admin",
-            "highscore": 0
         },
         {
             "username": "test",
@@ -16,22 +14,11 @@
             "username": "timothy",
             "password": "GT0wQ+Apqfn7rE9KqtQ37cLFg3cZxcxfSZOVc7r3h2A=",
             "score": 0
-            "username": "hi",
-            "password": "fuck",
-            "highscore": 0
-        },
-        {
-            "username": "boy",
-            "password": "boy",
-            "highscore": 0
         },
         {
             "username": "hi",
             "password": "asPDNuQJSDUpOj/tiktf7d4bXiYm2YOP7VBpO7o=",
             "score": 0
-            "username": "timothy",
-            "password": "timothy",
-            "highscore": 0
         }
     ]
 }
