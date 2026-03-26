@@ -626,8 +626,6 @@ void Server::handle_reqMsg(std::span<const char> udpPacketWithoutMID, sockaddr_i
         std::cout << str_msg << '\n';
     }
 
-
-
     // validated its good REQ_MSG packet, send back RSP_MSG
     std::array<char, PacketSize::RSP_MSG> rspmsg;
     ByteWriterN rspwrt{ .buffer = rspmsg };
@@ -1102,7 +1100,7 @@ void Server::startGame()
         log(std::cerr, "[Server] Game has already started");
         return;
     }
-    if (_listOfPlayersAllowedToDraw.empty())
+    if (_listOfPlayersToDraw.empty())
     {
         log(std::cerr, "[Server] Cannot start game, no players connected");
         return;
@@ -1137,9 +1135,13 @@ bool Server::gameStarted()
 // Reset Round
 // ============================================================
 
-void Server::resetRound()
+void Server::resetRound(std::int64_t newEpoch)
 {
-    
+    // send client stuff
+    sendNewRoundEndTime(newEpoch);
+
+
+    // local server stuff
     advanceDrawer();
     pick_word();
 }

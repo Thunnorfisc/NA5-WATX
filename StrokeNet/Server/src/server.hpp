@@ -64,7 +64,7 @@ public:
 
     void stopGame();
     void startGame();
-    void resetRound();
+    void resetRound(std::int64_t newEpoch);
     bool gameStarted();
     void advanceDrawer();
 
