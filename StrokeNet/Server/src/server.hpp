@@ -67,8 +67,14 @@ public:
     void startGame();
     void resetRound(std::int64_t newEpoch);
     bool gameStarted();
-    void advanceDrawer();
-    void broadcastScoreboard();
+
+    // This locks both game and client storage mutexes
+    void LOCK_advanceDrawer();
+    void LOCK_broadcastScoreboard();
+
+    // This doesnt lock any mutex
+    void NO_LOCK_advanceDrawer();
+    void NO_LOCK_broadcastScoreboard();
 
     std::size_t getNumberOfPlayers();
 
@@ -81,18 +87,12 @@ private:
     // ============================================================
     // Game State
     // ============================================================
-    std::mutex _gameMut;
     UserStore _userStore;
-    bool _gameRunning = false;
-    std::vector<SessionId> _listOfPlayersToDraw;
-    std::size_t _currentAllowedToDrawIndex{};
 
-    // ============================================================
-    // Ids for acks
-    // ============================================================
-    std::uint32_t _messageIdServer = 1;
-    std::uint32_t _roundEndTimeIdServer = 1;
-    std::uint32_t _clearCanvasIdServer = 1;
+    // Mutex protects _gameRunning and _drawerSessionId
+    std::mutex _gameMutex;
+    bool _gameRunning = false;
+    std::optional<SessionId> _drawerSessionId = std::nullopt;
 
     // ============================================================
     // Client storage
@@ -110,15 +110,7 @@ private:
     // registeration after registration without deregistering
     // then we have a leak
     std::mutex _clientStorageMutex;
-    std::map<SessionId, Client> _sessionIdToClient;
-
-    // ============================================================
-    // Game State
-    // ============================================================
-    std::mutex _gameMut;
-    UserStore _userStore;
-    bool _gameRunning = false;
-    std::optional<SessionId> _currentDrawer = std::nullopt;
+    std::map<SessionId, Client> _clientStorageMap;
 
     // ============================================================
     // Ids for acks
@@ -127,7 +119,8 @@ private:
     std::uint32_t _roundEndTimeIdServer = 1;
     std::uint32_t _clearCanvasIdServer = 1;
     std::uint32_t _scoreBoardIdServer = 1;
-
+    std::uint32_t _sendNewWordLenIdServer = 1;
+    std::uint32_t _sendNewWordIdServer = 1;
 
     // ============================================================
     // NTF Handling
@@ -209,7 +202,7 @@ private:
     SessionId _nextSessionIdHostOrder = InvalidSessionId + 1;
 
     // ============================================================
-    // Message handlers
+    // Message handlers - RULES (NO LOCKING MUTEXES DIRECTLY INSIDE THESE FUNCTIONS)
     // ============================================================
     void handle_reqLogin                (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
     void handle_reqCreateAccount        (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
@@ -228,32 +221,32 @@ private:
     void handle_ntfRcvClearCanvas       (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
     void handle_ntfRcvMsg               (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
     void handle_ntfRcvUpdateScoreboard  (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
-    void handle_ntfRcvRET           (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
+    void handle_ntfRcvRET               (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
     void handle_ntfRcvSendWordLen       (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
     void handle_ntfRcvSendWord          (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
 
     using MessageFn = void(Server::*)(std::span<const char>, sockaddr_in*);
     const std::unordered_map<MessageType, MessageFn> _messageTypeFns
     {
-        std::make_pair(MessageType::REQ_LOGIN,              &Server::handle_reqLogin            ),
-        std::make_pair(MessageType::REQ_CREATE_ACCOUNT,     &Server::handle_reqCreateAccount    ),
-        std::make_pair(MessageType::REQ_MSG,                &Server::handle_reqMsg              ),
-        std::make_pair(MessageType::REQ_PLAY_GAME,          &Server::handle_reqPlayGame         ),
-        std::make_pair(MessageType::REQ_QUIT_GAME,          &Server::handle_reqQuitGame         ),
+        std::make_pair(MessageType::REQ_LOGIN,                  &Server::handle_reqLogin                ),
+        std::make_pair(MessageType::REQ_CREATE_ACCOUNT,         &Server::handle_reqCreateAccount        ),
+        std::make_pair(MessageType::REQ_MSG,                    &Server::handle_reqMsg                  ),
+        std::make_pair(MessageType::REQ_PLAY_GAME,              &Server::handle_reqPlayGame             ),
+        std::make_pair(MessageType::REQ_QUIT_GAME,              &Server::handle_reqQuitGame             ),
         
-        std::make_pair(MessageType::REQ_START_STROKE,       &Server::handle_reqStartStroke      ),
-        std::make_pair(MessageType::REQ_END_STROKE,         &Server::handle_reqEndStroke        ),
-        std::make_pair(MessageType::REQ_CLEAR_CANVAS,       &Server::handle_reqClearCanvas      ),
+        std::make_pair(MessageType::REQ_START_STROKE,           &Server::handle_reqStartStroke          ),
+        std::make_pair(MessageType::REQ_END_STROKE,             &Server::handle_reqEndStroke            ),
+        std::make_pair(MessageType::REQ_CLEAR_CANVAS,           &Server::handle_reqClearCanvas          ),
         
-        std::make_pair(MessageType::FAF_EXTEND_STROKE,      &Server::handle_fafExtendStroke     ),
-        std::make_pair(MessageType::FAF_DISCONNECT,         &Server::handle_fafDisconnect       ),
+        std::make_pair(MessageType::FAF_EXTEND_STROKE,          &Server::handle_fafExtendStroke         ),
+        std::make_pair(MessageType::FAF_DISCONNECT,             &Server::handle_fafDisconnect           ),
 
-        std::make_pair(MessageType::NTF_RCV_CLEAR_CANVAS,   &Server::handle_ntfRcvClearCanvas   ),
-        std::make_pair(MessageType::NTF_RCV_MSG,            &Server::handle_ntfRcvMsg           ),
-        std::make_pair(MessageType::NTF_RCV_UPDATE_SCOREBOARD, &Server::handle_ntfRcvUpdateScoreboard),
-        std::make_pair(MessageType::NTF_RCV_ROUND_END_TIME, &Server::handle_ntfRcvRET           ),
-        std::make_pair(MessageType::NTF_RCV_SEND_WORD_LEN,      &Server::handle_ntfRcvSendWordLen   ),
-        std::make_pair(MessageType::NTF_RCV_SEND_WORD,      &Server::handle_ntfRcvSendWord      ),
+        std::make_pair(MessageType::NTF_RCV_CLEAR_CANVAS,       &Server::handle_ntfRcvClearCanvas       ),
+        std::make_pair(MessageType::NTF_RCV_MSG,                &Server::handle_ntfRcvMsg               ),
+        std::make_pair(MessageType::NTF_RCV_UPDATE_SCOREBOARD,  &Server::handle_ntfRcvUpdateScoreboard  ),
+        std::make_pair(MessageType::NTF_RCV_ROUND_END_TIME,     &Server::handle_ntfRcvRET               ),
+        std::make_pair(MessageType::NTF_RCV_SEND_WORD_LEN,      &Server::handle_ntfRcvSendWordLen       ),
+        std::make_pair(MessageType::NTF_RCV_SEND_WORD,          &Server::handle_ntfRcvSendWord          ),
     };
 
     // ============================================================
@@ -272,7 +265,7 @@ private:
     void broadcastPacket(Packet& pkt,FillFn fill)
     {
         std::lock_guard lock(_clientStorageMutex);
-        for (auto& [sid, client] : _sessionIdToClient)
+        for (auto& [sid, client] : _clientStorageMap)
         {
             fill(pkt, sid);
 
@@ -285,4 +278,29 @@ private:
         }
     }
     void tickPendingNtf(std::mutex& mut, std::unordered_map<NtfKey, PendingNTF, NtfKeyHash>& map, std::string_view name);
+
+    template <typename Fn>
+    auto LOCK_clientStorage(Fn fn)
+        -> decltype(fn(_clientStorageMap))
+    {
+        std::lock_guard lock(_clientStorageMutex);
+        return fn(_clientStorageMap);
+    }
+
+    template <typename Fn>
+    auto LOCK_gameVariables(Fn fn) 
+        -> decltype(fn(_gameRunning, _drawerSessionId))
+    {
+        std::lock_guard lock(_gameMutex);
+        return fn(_gameRunning, _drawerSessionId);
+    }
+
+    template <typename Fn>
+    auto LOCK_gameVariablesANDclientStorage(Fn fn)
+        -> decltype(fn(_clientStorageMap, _gameRunning, _drawerSessionId))
+    {
+        std::scoped_lock lock(_gameMutex, _clientStorageMutex);
+        return fn(_clientStorageMap, _gameRunning, _drawerSessionId);
+    }
+
 };
