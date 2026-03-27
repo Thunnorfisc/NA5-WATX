@@ -242,7 +242,6 @@ void Server::handle_reqLogin(std::span<const char> udpPacketWithoutMID, sockaddr
 
         log(std::cout,
             std::format("[Server] Client {}: '{}' logged in successfully", ipStrAndPort, username));
-        LOCK_broadcastScoreboard();
     }
     else if (!success)
     {
@@ -333,6 +332,10 @@ void Server::handle_reqPlayGame(std::span<const char> udpPacketWithoutMID, socka
         it->second.inGame = true;
         return true;
         })) return;
+
+    LOCK_gameVariables([sessionIdHost](const auto& gameRunning, auto& drawerSessionIdOpt) {
+        if (!drawerSessionIdOpt.has_value() && !gameRunning) drawerSessionIdOpt = sessionIdHost;
+        });
     
     // send back ack
     std::array<char, PacketSize::RSP_PLAY_GAME> msg;
@@ -345,6 +348,8 @@ void Server::handle_reqPlayGame(std::span<const char> udpPacketWithoutMID, socka
         log(std::cerr,
             std::format("[Server] Unable to send back RSP_PLAY_GAME to client {}",sessionIdHost));
     }
+
+    LOCK_broadcastScoreboard();
 }
 
 // ============================================================
@@ -380,6 +385,7 @@ void Server::handle_reqQuitGame(std::span<const char> udpPacketWithoutMID, socka
         log(std::cerr,
             std::format("[Server] Unable to send back RSP_QUIT_GAME to client {}", sessionIdHost));
     }
+    LOCK_broadcastScoreboard();
 }
 
 // ============================================================
@@ -998,6 +1004,7 @@ void Server::actualStartListening(std::stop_token st) noexcept
             {
                 if (WSAGetLastError() == WSAEWOULDBLOCK) break; // fully drained
                 log(std::cerr, std::format("[Server] recvfrom() failed: {}", wsaErrorStr()));
+
                 break;
             }
             else if (bytesReceived == 0) continue; // move on with our lives
@@ -1180,6 +1187,7 @@ void Server::NO_LOCK_advanceDrawer()
     {
         log(std::cerr,
             std::format("[Server] Tried to advance drawer, but server has no clients to choose from"));
+        stopGame();
         return;
     }
 
