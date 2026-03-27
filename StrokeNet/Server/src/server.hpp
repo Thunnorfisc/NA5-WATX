@@ -104,6 +104,7 @@ private:
         sockaddr_in sa;
         std::uint16_t score{};
         std::optional<std::uint32_t> currentStrokeId;
+        bool wordAlreadyGuessed = false;
         bool inGame = false;
     };
     // right now, if client misbehaves and keeps sending

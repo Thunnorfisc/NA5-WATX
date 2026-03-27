@@ -741,8 +741,11 @@ void Server::handle_reqMsg(std::span<const char> udpPacketWithoutMID, sockaddr_i
         std::transform(str_msg.begin(), str_msg.end(), str_msg.begin(), [](char c) {return std::toupper(c); });
         std::transform(word.second.begin(), word.second.end(), word.second.begin(), [](char c) {return std::toupper(c); });
 
-        if (str_msg == word.second) {
+        if (drawerSessionIdOpt == sessionIdHostOrder) return ErrorRetVal::OK_BUT_NOT_GUESSED_WORD;
+
+        if (!it->second.wordAlreadyGuessed && str_msg == word.second) {
             it->second.score += 75;
+            it->second.wordAlreadyGuessed = true;
             NO_LOCK_broadcastScoreboard();
             return ErrorRetVal::OK_AND_GUESSED_WORD;
         }
@@ -767,7 +770,6 @@ void Server::handle_reqMsg(std::span<const char> udpPacketWithoutMID, sockaddr_i
 
     // CHECK IF ITS NOT CURRENT DRAWER + IF ACTUAL MSG IS THE GUESS, THEN SEND BACK
     // "USER GUESSED THE WORD" @TODOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO
-
 
 
     // validated its good REQ_MSG packet, send back RSP_MSG
@@ -1419,7 +1421,9 @@ void Server::resetRound(std::int64_t newEpoch)
 {
     // local server stuff
 
-    LOCK_gameVariablesANDclientStorage([this](auto&, auto&, auto&) {
+    LOCK_gameVariablesANDclientStorage([this](auto& map, auto&, auto&) {
+        for (auto& [_sid, client] : map)
+            client.wordAlreadyGuessed = false;
         NO_LOCK_advanceDrawer();
         pick_word();
         NO_LOCK_broadcastScoreboard();
@@ -1430,7 +1434,6 @@ void Server::resetRound(std::int64_t newEpoch)
     sendNewWordLen();
     sendNewRoundEndTime(newEpoch);
     sendClearCanvasCommand();
-
 }
 
 // ============================================================
