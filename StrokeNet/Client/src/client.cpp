@@ -329,6 +329,10 @@ void Client::handle_NTF_Msg(std::span<const char> msg)
     _msgesReceived.push(std::move(rcm));
 }
 
+// ============================================================
+// NTF_CLEAR_CANVAS
+// ============================================================
+
 void Client::handle_NTF_ClearCanvas(std::span<const char> msg)
 {
     assert(msg.size() == (PacketSize::NTF_CLEAR_CANVAS - 1) && "Size of ntf_clear_canvas is wrong");
@@ -362,6 +366,10 @@ void Client::handle_NTF_ClearCanvas(std::span<const char> msg)
     std::lock_guard lock(_strokeCommandsReceivedMut);
     _strokeCommandsReceived.push(std::move(rcs));
 }
+
+// ============================================================
+// NTF_UPDATE_SCOREBOARD
+// ============================================================
 
 void Client::handle_NTF_UpdateScoreboard(std::span<const char> msg)
 {
@@ -407,6 +415,10 @@ void Client::handle_NTF_UpdateScoreboard(std::span<const char> msg)
     _scoreboardReceived.push(std::move(sb));
 }
 
+// ============================================================
+// NTF_ROUND_END_TIME
+// ============================================================
+
 void Client::handle_NTF_RoundEndTime(std::span<const char> msg)
 {
     assert(msg.size() == (PacketSize::NTF_ROUND_END_TIME - 1) && "Size of ntf_round_end_time is wrong");
@@ -439,6 +451,9 @@ void Client::handle_NTF_RoundEndTime(std::span<const char> msg)
     _roundEndTimeMs = roundEndTimeHost;
 }
 
+// ============================================================
+// NTF_NEW_WORD_LEN
+// ============================================================
 
 void Client::handle_NTF_NewWordLen(std::span<const char> msg)
 {
@@ -456,7 +471,6 @@ void Client::handle_NTF_NewWordLen(std::span<const char> msg)
     _word_len = static_cast<int32_t>(rdr.read<std::uint8_t>());
     std::cout << _word_len << '\n';
 
-
     // Prepare ack to send back to server
     std::array<char, PacketSize:: NTF_RCV_SEND_WORD_LEN> ntfRcvRET;
     ByteWriterN wrt{ .buffer = ntfRcvRET };
@@ -471,8 +485,11 @@ void Client::handle_NTF_NewWordLen(std::span<const char> msg)
     {
         log(std::cerr, "[Client] Unable to send NTF_SEND_WORD_LEN back to server");
     }
-
 }
+
+// ============================================================
+// NTF_NEW_WORD
+// ============================================================
 
 void Client::handle_NTF_NewWord(std::span<const char> msg)
 {
@@ -506,7 +523,59 @@ void Client::handle_NTF_NewWord(std::span<const char> msg)
     {
         log(std::cerr, "[Client] Unable to send NTF_RCV_ROUND_END_TIME back to server");
     }
+}
 
+// ============================================================
+// NTF_STROKE_HISTORY
+// ============================================================
+
+void Client::handle_NTF_StrokeHistory(std::span<const char> msg)
+{
+    ByteReader rdr{ .buffer = msg };
+    auto sessionIdHost = ntohl(rdr.read<SessionId>());
+    if (sessionIdHost != _sessionId)
+    {
+        log(std::cerr,
+            std::format("[Client] Received an invalid session id [{}] from the server, ignoring packet", sessionIdHost));
+        return;
+    }
+
+    auto strokeHistoryIdNetwork = rdr.read<std::uint32_t>();
+    auto numberOfHistoryHost = ntohl(rdr.read<std::uint32_t>());
+
+    ReceivedStrokeHistory rsh;
+    rsh._strokeHistory.resize(numberOfHistoryHost);
+    for (decltype(numberOfHistoryHost) i = 0; i < numberOfHistoryHost; i++)
+    {
+        ReceivedStrokeCommand rsc;
+        // extract the type first
+        rsc._type = rdr.read<ReceivedStrokeCommand::Type>();
+        std::size_t expectedBytesInData = 0;
+        switch (rsc._type)
+        {
+            using enum ReceivedStrokeCommand::Type;
+        case START_STROKE: expectedBytesInData = 9; break;
+        case END_STROKE: expectedBytesInData = 0; break;
+        case EXTEND_STROKE: expectedBytesInData = 4; break;
+        case CLEAR_CANVAS: expectedBytesInData = 0; break;
+        default: assert(false && "Missing switch case handled in handle_NTF_StrokeHistory");
+        }
+
+        rsc._data = rdr.readBytes(expectedBytesInData);
+        rsh._strokeHistory[i] = std::move(rsc);
+    }
+    
+    std::lock_guard lock(_strokeHistoryReceivedMut);
+    _strokeHistoryReceived.push(std::move(rsh));
+}
+
+// ============================================================
+// NTF_MSG_HISTORY
+// ============================================================
+
+void Client::handle_NTF_MsgHistory(std::span<const char> msg)
+{
+    // @TODO ========================================================================================= !!!!!!!!
 }
 
 // ============================================================
@@ -1101,6 +1170,14 @@ std::queue<Client::ReceivedChatMessage> Client::getReceivedChatMessages()
     return cpy;
 }
 
+// ============================================================
+// for game to retrieve scoreboard if have
+// 
+// If lock is owned or no scoreboard in queue, return nullopt
+// 
+// Else get the latest scoreboard and empty the queue
+// ============================================================
+
 std::optional<Client::ReceivedScoreBoard> Client::getLatestScoreboard()
 {
     std::unique_lock lock(_scoreboardReceivedMut, std::try_to_lock);
@@ -1139,4 +1216,44 @@ std::int32_t Client::getWordLength()
 std::string Client::getWord()
 {
     return _word;
+}
+
+// ============================================================
+// for game to retrieve stroke history if have
+// 
+// If lock is owned or no stroke history in queue, return nullopt
+// 
+// Else get the latest stroke history and empty the queue
+// ============================================================
+
+std::optional<Client::ReceivedStrokeHistory> Client::getStrokeHistory()
+{
+    std::unique_lock lock(_strokeHistoryReceivedMut, std::try_to_lock);
+    if (!lock.owns_lock() || _strokeHistoryReceived.empty())
+        return std::nullopt;
+
+    // Grab only the latest, discard older ones
+    ReceivedStrokeHistory latest = std::move(_strokeHistoryReceived.back());
+    std::queue<ReceivedStrokeHistory>().swap(_strokeHistoryReceived); // clear
+    return latest;
+}
+
+// ============================================================
+// for game to retrieve chat history if have
+// 
+// If lock is owned or no chat history in queue, return nullopt
+// 
+// Else get the latest chat history and empty the queue
+// ============================================================
+
+std::optional<Client::ReceivedChatMessageHistory> Client::getMessageHistory()
+{
+    std::unique_lock lock(_msgHistoryReceivedMut, std::try_to_lock);
+    if (!lock.owns_lock() || _msgHistoryReceived.empty())
+        return std::nullopt;
+
+    // Grab only the latest, discard older ones
+    ReceivedChatMessageHistory latest = std::move(_msgHistoryReceived.back());
+    std::queue<ReceivedChatMessageHistory>().swap(_msgHistoryReceived); // clear
+    return latest;
 }

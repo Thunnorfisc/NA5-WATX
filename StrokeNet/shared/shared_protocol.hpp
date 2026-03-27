@@ -169,16 +169,16 @@ namespace PacketSize
     // [NTF_RCV_ROUND_END_TIME][SESSION_ID][ROUND_END_TIME_ID]
     constexpr inline std::size_t NTF_RCV_ROUND_END_TIME = 9;
 
-    //  1                          4           4                             4                  NUMBER_OF_HISTORY
-    // [NTF_CANVAS_STROKE_HISTORY][SESSION_ID][NTF_STROKE_HISTORY_ID][NUMBER_OF_HISTORY]{ STROKE_TYPE | DATA }
-    constexpr inline std::size_t NTF_CANVAS_HISTORY_WITHOUT_DATA = 13;
+    //  1                          4           4                             4            NUMBER_OF_HISTORY
+    // [NTF_CANVAS_STROKE_HISTORY][SESSION_ID][NTF_STROKE_HISTORY_ID][NUMBER_OF_HISTORY]{ STROKE_TYPE(1) | DATA(VAR) }
+    constexpr inline std::size_t NTF_STROKE_HISTORY_WITHOUT_DATA = 13;
 
     //  1                       4           4
     // [NTF_RCV_SEND_WORD_LEN][SESSION_ID][NTF_STROKE_HISTORY_ID]
     constexpr inline std::size_t NTF_RCV_STROKE_HISTORY = 9;
 
     //  1                             4           4                                2                    NUMBER_OF_MESSAGES 
-    // [NTF_MSG_HISTORY_WITHOUT_DATA][SESSION_ID][NTF_MSG_HISTORY_WITHOUT_DATA_ID][NUMBER_OF_MESSAGES]{ MSG_LEN | MSG_BUFFER | NAME_LEN | NAME_BUFFER }
+    // [NTF_MSG_HISTORY_WITHOUT_DATA][SESSION_ID][NTF_MSG_HISTORY_WITHOUT_DATA_ID][NUMBER_OF_MESSAGES]{ MSG_LEN(1) | MSG_BUFFER | NAME_LEN(1) | NAME_BUFFER }
     constexpr inline std::size_t NTF_MSG_HISTORY_WITHOUT_DATA = 11;
 
     //  1                       4           4
