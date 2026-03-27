@@ -1463,7 +1463,9 @@ void Server::resetRound()
 
     LOCK_gameVariablesANDclientStorage([this](auto& map, auto&, auto&) {
         for (auto& [_sid, client] : map)
-            client.wordAlreadyGuessed = false;
+        {
+            if (client.inGame) client.wordAlreadyGuessed = false;
+        }
         NO_LOCK_advanceDrawer();
         pick_word();
         NO_LOCK_broadcastScoreboard();
@@ -1474,7 +1476,6 @@ void Server::resetRound()
     LOCK_sendNewWordLen();
     LOCK_sendNewRoundEndTime();
     LOCK_sendClearCanvasCommand();
-
 }
 
 // ============================================================
