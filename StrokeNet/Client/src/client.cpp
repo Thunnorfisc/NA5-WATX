@@ -874,7 +874,11 @@ bool Client::playGame()
 
                 ByteReader rdr{.buffer = std::span<const char>(recvBuf).subspan(1, n - 1)};
                 SessionId sid = ntohl(rdr.read<SessionId>());
-                if(sid == _sessionId) return true;
+                if (sid == _sessionId)
+                {
+                    _playingGame = true;
+                    return true;
+                }
                 else return false;
             }
         }
@@ -937,7 +941,11 @@ bool Client::quitGame()
 
                 ByteReader rdr{.buffer = std::span<const char>(recvBuf).subspan(1, n - 1)};
                 SessionId sid = ntohl(rdr.read<SessionId>());
-                if(sid == _sessionId) return true;
+                if (sid == _sessionId)
+                {
+                    _playingGame = false;
+                    return true;
+                }
                 else return false;
             }
         }

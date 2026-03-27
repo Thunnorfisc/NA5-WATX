@@ -366,13 +366,26 @@ void Server::handle_reqQuitGame(std::span<const char> udpPacketWithoutMID, socka
 
     // If it finds the id inside the map,
     // it will set inGame to false, and return true
+    // 
+    // it will also call NO_LOCK_advanceDrawer
+    // 
     // else it will return false, and we will early exit
-    if (!LOCK_clientStorage([sessionIdHost](auto& map) {
+    if (!LOCK_gameVariablesANDclientStorage(
+        [sessionIdHost,this](auto& map, const auto& gameRunning, const auto& drawerSessionOpt) {
         auto it = map.find(sessionIdHost);
         if (it == map.end()) return false;
         it->second.inGame = false;
+        it->second.score = 0;
+        it->second.currentStrokeId = std::nullopt;
+
+        if (gameRunning)
+        {
+            NO_LOCK_advanceDrawer();
+            NO_LOCK_broadcastScoreboard();
+        }
         return true;
         })) return;
+
 
     // send back ack
     std::array<char, PacketSize::RSP_PLAY_GAME> msg;
@@ -385,7 +398,6 @@ void Server::handle_reqQuitGame(std::span<const char> udpPacketWithoutMID, socka
         log(std::cerr,
             std::format("[Server] Unable to send back RSP_QUIT_GAME to client {}", sessionIdHost));
     }
-    LOCK_broadcastScoreboard();
 }
 
 // ============================================================
@@ -1183,6 +1195,12 @@ void Server::LOCK_advanceDrawer()
 
 void Server::NO_LOCK_advanceDrawer()
 {
+    if (!_gameRunning)
+    {
+        log(std::cerr,
+            std::format("[Server] Tried to advance drawer, but game is not started"));
+        return;
+    }
     if (_clientStorageMap.empty())
     {
         log(std::cerr,
@@ -1289,6 +1307,7 @@ void Server::NO_LOCK_broadcastScoreboard()
 
     for (const auto& [sid, client] : _clientStorageMap)
     {
+        if (!client.inGame) continue;
         std::string name = client.username;
         if (name.size() > 15)
             name = name.substr(0, 12) + "...";
@@ -1310,11 +1329,12 @@ void Server::NO_LOCK_broadcastScoreboard()
 
     for (const auto& [ssiho, client] : _clientStorageMap)
     {
+        if (!client.inGame) continue;
         std::vector<char> pkt(PacketSize::NTF_UPDATE_SCOREBOARD_BASE + varSize + drawer.size());
         ByteWriter wrt{ .buffer = pkt };
         wrt.write(static_cast<char>(MessageType::NTF_UPDATE_SCOREBOARD));
         wrt.write(htonl(ssiho));
-        wrt.write(htonl(_messageIdServer));
+        wrt.write(htonl(_scoreBoardIdServer));
         wrt.write(htonl(numPlayers));
 
         // Write each player's name + score
@@ -1515,6 +1535,7 @@ void Server::sendNewWordLen()
         auto now = std::chrono::steady_clock::now();
         for (const auto& [ssiho, client] : map)
         {
+            if (!client.inGame) continue;
             std::vector<char> ntfPkt(PacketSize::NTF_SEND_WORD_LEN);
             ByteWriter ntfWrt{ .buffer = ntfPkt };
             ntfWrt.write(static_cast<char>(MessageType::NTF_SEND_WORD_LEN));
