@@ -102,12 +102,12 @@ public:
     static std::int64_t getRoundEndTimeMs();
 
     // ============================================================
-    // Round end time - receive
+    // Word length - receive
     // ============================================================
     static std::int32_t getWordLength();
 
     // ============================================================
-    // Round end time - receive
+    // Word - receive
     // ============================================================
     static std::string getWord();
 private:
@@ -140,7 +140,7 @@ private:
     // ============================================================
     // Word
     // ============================================================
-    static inline std::int32_t _word_len = 0;
+    static inline std::atomic<std::int32_t> _word_len = 0;
     static inline std::string _word{};
 
     // ============================================================

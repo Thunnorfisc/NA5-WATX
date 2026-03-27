@@ -170,12 +170,12 @@ namespace PacketSize
     constexpr inline std::size_t NTF_RCV_ROUND_END_TIME = 9;
 
     //  1                          4           4                             4                  NUMBER_OF_HISTORY
-    // [NTF_CANVAS_STROKE_HISTORY][SESSION_ID][NTF_CANVAS_STROKE_HISTORY_ID][NUMBER_OF_HISTORY]{ STROKE_TYPE | DATA }
-    constexpr inline std::size_t NTF_CANVAS_STROKE_HISTORY_WITHOUT_DATA = 13;
+    // [NTF_CANVAS_STROKE_HISTORY][SESSION_ID][NTF_STROKE_HISTORY_ID][NUMBER_OF_HISTORY]{ STROKE_TYPE | DATA }
+    constexpr inline std::size_t NTF_CANVAS_HISTORY_WITHOUT_DATA = 13;
 
     //  1                       4           4
-    // [NTF_RCV_SEND_WORD_LEN][SESSION_ID][NTF_CANVAS_STROKE_HISTORY_ID]
-    constexpr inline std::size_t NTF_RCV_CANVAS_STROKE_HISTORY = 9;
+    // [NTF_RCV_SEND_WORD_LEN][SESSION_ID][NTF_STROKE_HISTORY_ID]
+    constexpr inline std::size_t NTF_RCV_STROKE_HISTORY = 9;
 
     //  1                             4           4                                2                    NUMBER_OF_MESSAGES 
     // [NTF_MSG_HISTORY_WITHOUT_DATA][SESSION_ID][NTF_MSG_HISTORY_WITHOUT_DATA_ID][NUMBER_OF_MESSAGES]{ MSG_LEN | MSG_BUFFER | NAME_LEN | NAME_BUFFER }
@@ -217,16 +217,27 @@ enum class MessageType: std::uint8_t
     // ===================================
     NTF_MSG,                                // < Sent by server
     NTF_RCV_MSG,                            // < Ack by client
+
     NTF_CLEAR_CANVAS,                       // < Sent by server
     NTF_RCV_CLEAR_CANVAS,                   // < Ack by client
+
     NTF_UPDATE_SCOREBOARD,                  // < Sent by server
     NTF_RCV_UPDATE_SCOREBOARD,              // < Ack by client
+
     NTF_ROUND_END_TIME,                     // < Sent by server
     NTF_RCV_ROUND_END_TIME,                 // < Ack by client
+
     NTF_SEND_WORD_LEN,                      // < Sent by server
     NTF_RCV_SEND_WORD_LEN,                  // < Ack by client
+
     NTF_SEND_WORD,                          // < Sent by server
     NTF_RCV_SEND_WORD,                      // < Ack by client
+
+    NTF_MSG_HISTORY,                        // < Sent by server
+    NTF_RCV_MSG_HISTORY,                    // < Ack by client
+
+    NTF_STROKE_HISTORY,                     // < Sent by server
+    NTF_RCV_STROKE_HISTORY,                 // < Ack by client
 
     // ===================================
     // Best effort - client -> server
