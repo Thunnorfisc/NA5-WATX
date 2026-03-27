@@ -61,7 +61,7 @@ int main()
         {
             auto now = std::chrono::steady_clock::now();
 
-            if (!server.gameStarted() && server.getNumberOfPlayers() >= 2)
+            if (!server.gameStarted() && server.getNumberOfPlayers() >= 1)
             {
                 server.startGame();
                 std::int64_t nowMs =

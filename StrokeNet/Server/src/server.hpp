@@ -268,6 +268,7 @@ private:
         std::lock_guard lock(_clientStorageMutex);
         for (auto& [sid, client] : _clientStorageMap)
         {
+            if (!client.inGame) continue;
             fill(pkt, sid);
 
             bool success = sendWithRetry(pkt, client.sa);
