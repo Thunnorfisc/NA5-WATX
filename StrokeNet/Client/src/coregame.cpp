@@ -310,7 +310,7 @@ void CoreGameState::handle_received_strokeHistory()
             ByteReader rdr{ .buffer = strokeCmd._data };
             switch (strokeCmd._type)
             {
-                using enum Client::ReceivedStrokeCommand::Type;
+                using enum PastStroke::Type;
             case START_STROKE:
             {
                 auto mousePos = rdr.read<MousePosition>();
@@ -343,11 +343,6 @@ void CoreGameState::handle_received_strokeHistory()
             case END_STROKE:
             {
                 m_canvas.endStroke();
-                break;
-            }
-            case CLEAR_CANVAS:
-            {
-                m_canvas.clear();
                 break;
             }
             }

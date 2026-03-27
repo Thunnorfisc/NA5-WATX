@@ -55,16 +55,15 @@ int main()
         const double fixedFps = 60.0;
         const double budget = 1.0 / 60.0;
 
-        const double budgetAdvanceTurn = 15.0; // advance turn every 15 seconds, just for testing
+        const double budgetAdvanceTurn = 60.0; // advance turn every 60 seconds, just for testing
         const int budgetAdvanceTurnInt = static_cast<int>(budgetAdvanceTurn);
         auto advanceTurnNow = std::chrono::steady_clock::now();
-
 
         while (!server.isListeningThreadFinished())
         {
             auto now = std::chrono::steady_clock::now();
 
-            if (!server.gameStarted() && server.getNumberOfPlayers() >= 1)
+            if (!server.gameStarted() && server.LOCK_getNumberOfPlayers() >= 1)
             {
                 server.startGame();
                 _roundEndTime =

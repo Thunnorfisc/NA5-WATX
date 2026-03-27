@@ -68,7 +68,7 @@ public:
     };
     struct ReceivedStrokeHistory
     {
-        std::vector<ReceivedStrokeCommand> _strokeHistory;
+        std::vector<PastStroke> _strokeHistory;
     };
     struct ReceivedChatMessageHistory
     {
@@ -102,6 +102,9 @@ public:
     // ============================================================
     static std::queue<ReceivedChatMessage> getReceivedChatMessages();
 
+    // ============================================================
+    // Scoreboard - receive
+    // ============================================================
     static std::optional<ReceivedScoreBoard> getLatestScoreboard();
 
     // ============================================================
@@ -142,7 +145,7 @@ private:
     static inline std::jthread    _listeningThread;
     static inline std::stop_source _stopSource;
 
-    static inline const double _recvTimeOut = 0.05;
+    static inline const double _recvTimeOut = 0.075;
     static inline const int    _maxRetries = 3;
 
     // ============================================================
@@ -232,12 +235,23 @@ private:
     static inline std::mutex _msgesReceivedMut;
     static inline std::queue<ReceivedChatMessage> _msgesReceived;
 
+    // ============================================================
+    // Used for the game to check if there are any scoreboard updates
+    // ============================================================
     static inline std::mutex _scoreboardReceivedMut;
     static inline std::queue<ReceivedScoreBoard> _scoreboardReceived;
 
+    // ============================================================
+    // Used for the game to check if there are any stroke history received
+    // ============================================================
     static inline std::mutex _strokeHistoryReceivedMut;
     static inline std::queue<ReceivedStrokeHistory> _strokeHistoryReceived;
+    static inline std::pair<std::uint32_t,std::vector<char>> _strokeHistoryId_AND_bufferedStrokeHistoryMsgChunks;
+    static inline std::uint16_t _expectedStrokeChunkId = 0;
 
+    // ============================================================
+    // Used for the game to check if there are any msg history received
+    // ============================================================
     static inline std::mutex _msgHistoryReceivedMut;
     static inline std::queue<ReceivedChatMessageHistory> _msgHistoryReceived;
 

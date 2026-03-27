@@ -76,13 +76,16 @@ public:
     void NO_LOCK_advanceDrawer();
     void NO_LOCK_broadcastScoreboard();
 
-    std::size_t getNumberOfPlayers();
+    std::size_t LOCK_getNumberOfPlayers();
+    std::size_t NO_LOCK_getNumberOfPlayers();
 
     // Round reset commands
     void LOCK_sendNewRoundEndTime();
     void LOCK_sendClearCanvasCommand();
     void LOCK_sendNewWordLen();
     void LOCK_sendNewWord();
+
+    void LOCK_sendStrokeHistory();
 private:
     // ============================================================
     // Game State
@@ -114,6 +117,12 @@ private:
     std::map<SessionId, Client> _clientStorageMap;
 
     // ============================================================
+    // Stroke History
+    // ============================================================
+    std::mutex _pastStrokesMutex;
+    std::vector<PastStroke> _pastStrokes_NEED_MUTEX;
+
+    // ============================================================
     // Ids for acks
     // ============================================================
     std::uint32_t _messageIdServer = 1;
@@ -122,6 +131,7 @@ private:
     std::uint32_t _scoreBoardIdServer = 1;
     std::uint32_t _sendNewWordLenIdServer = 1;
     std::uint32_t _sendNewWordIdServer = 1;
+    std::uint32_t _strokeHistoryIdServer = 1;
 
     // ============================================================
     // NTF Handling
@@ -135,6 +145,9 @@ private:
 
         std::chrono::steady_clock::time_point _nextSendTime;
         std::chrono::steady_clock::time_point _giveUpTime;
+
+        std::vector<std::vector<char>> _chunks;
+        std::uint16_t _nextChunkToSend = 1;
     };
 
     // Unordered map bs, since 1:N for ntdId:client, so need to composite
@@ -157,7 +170,7 @@ private:
     };
 
     // ============================================================
-    // Check for pending NTFs for sending new word
+    // Check for pending NTFs for sending new word length
     // ============================================================
     std::mutex _pendingNtfNewWordLenMutex;
     std::unordered_map<NtfKey, PendingNTF, NtfKeyHash> _pendingNtfNewWordsLen;
@@ -188,6 +201,12 @@ private:
     // ============================================================
     std::mutex _pendingNtfRETMutex;
     std::unordered_map<NtfKey, PendingNTF, NtfKeyHash> _pendingNtfRET;
+
+    // ============================================================
+    // Check for pending NTFs for stroke history
+    // ============================================================
+    std::mutex _pendingNtfStrokeHistoryMutex;
+    std::unordered_map<NtfKey, PendingNTF, NtfKeyHash> _pendingNtfStrokeHistory;
 
     // ============================================================
     // Socket / session
@@ -225,6 +244,7 @@ private:
     void handle_ntfRcvRET               (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
     void handle_ntfRcvSendWordLen       (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
     void handle_ntfRcvSendWord          (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
+    void handle_ntfRcvStrokeHistory     (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
 
     using MessageFn = void(Server::*)(std::span<const char>, sockaddr_in*);
     const std::unordered_map<MessageType, MessageFn> _messageTypeFns
@@ -248,6 +268,7 @@ private:
         std::make_pair(MessageType::NTF_RCV_ROUND_END_TIME,     &Server::handle_ntfRcvRET               ),
         std::make_pair(MessageType::NTF_RCV_SEND_WORD_LEN,      &Server::handle_ntfRcvSendWordLen       ),
         std::make_pair(MessageType::NTF_RCV_SEND_WORD,          &Server::handle_ntfRcvSendWord          ),
+        std::make_pair(MessageType::NTF_RCV_STROKE_HISTORY,     &Server::handle_ntfRcvStrokeHistory     ),
     };
 
     // ============================================================

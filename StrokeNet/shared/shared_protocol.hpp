@@ -35,10 +35,16 @@ using InputBits = std::uint32_t;
 using MousePosition = std::array<std::uint16_t, 2>;
 
 inline constexpr SessionId   InvalidSessionId = 0;
-inline constexpr std::size_t MaxUdpPacketBytes = 65'536;
+inline constexpr std::size_t MaxUdpPacketBytes = 540;
 inline constexpr std::size_t MAX_USERNAME_LEN = 32;
 inline constexpr std::size_t MAX_PASSWORD_LEN = 32;
 inline constexpr std::uint16_t ServerUdpPort = 32112;
+
+inline constexpr std::size_t MAX_PLAYERS_IN_GAME = 8;
+inline constexpr std::size_t MAX_SHOWN_USERNAME_LEN = 15;
+inline constexpr std::size_t MAX_CHARS_PER_CHAT_MSG = 84;
+
+inline constexpr std::size_t MAX_WORD_LEN = 255;
 
 namespace PacketSize
 {
@@ -81,6 +87,8 @@ namespace PacketSize
     //  1        4           4       1           VAR
     // [REQ_MSG][SESSION_ID][MSG_ID][MSG_LENGTH][MSG_BUFFER]
     constexpr inline std::size_t REQ_MSG_WITHOUT_BUFFER = 10;
+    static_assert(REQ_MSG_WITHOUT_BUFFER + MAX_CHARS_PER_CHAT_MSG <= MaxUdpPacketBytes,
+        "REQ_MSG_WITHOUT_BUFFER packet exceeds MaxUdpPacketBytes");
     
     //  1        4           4
     // [RSP_MSG][SESSION_ID][MSG_ID]
@@ -125,6 +133,8 @@ namespace PacketSize
     //  1        4           4       1           VAR         1            VAR
     // [NTF_MSG][SESSION_ID][MSG_ID][MSG_LENGTH][MSG_BUFFER][NAME_LENGTH][NAME_BUFFER]
     constexpr inline std::size_t NTF_MSG_WITHOUT_BUFFER = 11;
+    static_assert(NTF_MSG_WITHOUT_BUFFER + MAX_CHARS_PER_CHAT_MSG + MAX_SHOWN_USERNAME_LEN <= MaxUdpPacketBytes,
+        "NTF_MSG_WITHOUT_BUFFER packet exceeds MaxUdpPacketBytes");
 
     //  1            4           4
     // [NTF_RCV_MSG][SESSION_ID][MSG_ID]
@@ -149,6 +159,8 @@ namespace PacketSize
     //  1                 4            4        1        VAR
     // [NTF_SEND_WORD_LEN][SESSION_ID][WORD_ID][WORD_LEN][WORD]
     constexpr inline std::size_t NTF_SEND_WORD = 10;
+    static_assert(NTF_SEND_WORD + MAX_WORD_LEN <= MaxUdpPacketBytes,
+        "NTF_SEND_WORD packet exceeds MaxUdpPacketBytes");
 
     //  1                       4          4
     // [NTF_RCV_SEND_WORD_LEN][SESSION_ID][WORD_ID]
@@ -157,10 +169,15 @@ namespace PacketSize
     // 1                      4           4         4             N                                    1           VAR
     // [NTF_UPDATE_SCOREBOARD][SESSION_ID][SCORE_ID][NUM_PLAYERS]{ NAME_LEN(1) | NAME(VAR) | SCORE(2) }[DRAWER_LEN][DRAWER_NAME]
     constexpr inline std::size_t NTF_UPDATE_SCOREBOARD_BASE = 14;
+    static_assert(NTF_UPDATE_SCOREBOARD_BASE + 
+        MAX_SHOWN_USERNAME_LEN +  // < drawer name
+        (MAX_PLAYERS_IN_GAME * (1 * MAX_SHOWN_USERNAME_LEN + 2)) <= MaxUdpPacketBytes,
+        "NTF_UPDATE_SCOREBOARD_BASE packet exceeds MaxUdpPacketBytes");
 
     // 1                     4           4        
     // [NTF_RCV_PLAYER_JOIN][SESSION_ID][SCORE_ID]
     constexpr inline std::size_t NTF_RCV_UPDATE_SCOREBOARD = 9;
+
     //  1                   4           4                  8
     // [NTF_ROUND_END_TIME][SESSION_ID][ROUND_END_TIME_ID][ROUND_END_TIME]
     constexpr inline std::size_t NTF_ROUND_END_TIME = 17;
@@ -169,21 +186,31 @@ namespace PacketSize
     // [NTF_RCV_ROUND_END_TIME][SESSION_ID][ROUND_END_TIME_ID]
     constexpr inline std::size_t NTF_RCV_ROUND_END_TIME = 9;
 
-    //  1                          4           4                             4            NUMBER_OF_HISTORY
-    // [NTF_CANVAS_STROKE_HISTORY][SESSION_ID][NTF_STROKE_HISTORY_ID][NUMBER_OF_HISTORY]{ STROKE_TYPE(1) | DATA(VAR) }
-    constexpr inline std::size_t NTF_STROKE_HISTORY_WITHOUT_DATA = 13;
+    //  1                   4           4                      4                                               2                        4                  NUMBER_OF_HISTORY
+    // [NTF_STROKE_HISTORY][SESSION_ID][NTF_STROKE_HISTORY_ID][NUMBER_OF_TOTAL_BYTES_IN_ALL_RAW_STROKE_CHUNKS][NTF_STROKE_CHUNK_NUMBER][NUMBER_OF_HISTORY]{ STROKE_TYPE(1) | DATA(VAR) }
+    constexpr inline std::size_t NTF_STROKE_HISTORY_WITHOUT_DATA = 19;
 
-    //  1                       4           4
-    // [NTF_RCV_SEND_WORD_LEN][SESSION_ID][NTF_STROKE_HISTORY_ID]
-    constexpr inline std::size_t NTF_RCV_STROKE_HISTORY = 9;
+    //  1                       4           4                     2
+    // [NTF_RCV_STROKE_HISTORY][SESSION_ID][NTF_STROKE_HISTORY_ID][NTF_STROKE_CHUNK_NUMBER]
+    constexpr inline std::size_t NTF_RCV_STROKE_HISTORY = 11;
 
-    //  1                             4           4                                2                    NUMBER_OF_MESSAGES 
-    // [NTF_MSG_HISTORY_WITHOUT_DATA][SESSION_ID][NTF_MSG_HISTORY_WITHOUT_DATA_ID][NUMBER_OF_MESSAGES]{ MSG_LEN(1) | MSG_BUFFER | NAME_LEN(1) | NAME_BUFFER }
+    //  1                4           4                                2                    NUMBER_OF_MESSAGES 
+    // [NTF_MSG_HISTORY][SESSION_ID][NTF_MSG_HISTORY_WITHOUT_DATA_ID][NUMBER_OF_MESSAGES]{ MSG_LEN(1) | MSG_BUFFER | NAME_LEN(1) | NAME_BUFFER }
     constexpr inline std::size_t NTF_MSG_HISTORY_WITHOUT_DATA = 11;
 
-    //  1                       4           4
-    // [NTF_RCV_SEND_WORD_LEN][SESSION_ID][NTF_MSG_HISTORY_WITHOUT_DATA_ID]    
+    //  1                    4           4
+    // [NTF_RCV_MSG_HISTORY][SESSION_ID][NTF_MSG_HISTORY_WITHOUT_DATA_ID]    
     constexpr inline std::size_t NTF_RCV_MSG_HISTORY = 9;
+
+    //  4          5
+    // [MOUSE_POS][RGBAT]
+    constexpr inline std::size_t PAST_HISTORY_START_STROKE = 9;
+
+    //  4         
+    // [MOUSE_POS]
+    constexpr inline std::size_t PAST_HISTORY_EXTEND_STROKE = 4;
+
+    constexpr inline std::size_t PAST_HISTORY_END_STROKE = 0;
 }
 enum class MessageType: std::uint8_t
 {
@@ -261,6 +288,13 @@ enum class LoginStatus: std::uint8_t
     USERNAME_TAKEN,
     USERNAME_TOO_LONG,
     ALREADY_LOGGED_IN
+};
+
+struct PastStroke
+{
+    enum class Type : std::uint8_t { START_STROKE, EXTEND_STROKE, END_STROKE };
+    Type _type;
+    std::vector<char> _data;
 };
 
 // ========================================== helpers for input bits

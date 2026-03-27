@@ -378,6 +378,7 @@ void Server::handle_reqPlayGame(std::span<const char> udpPacketWithoutMID, socka
     LOCK_broadcastScoreboard();
     LOCK_sendNewWordLen();
     LOCK_sendNewRoundEndTime();
+    LOCK_sendStrokeHistory();
 }
 
 // ============================================================
@@ -504,9 +505,8 @@ void Server::handle_ntfRcvUpdateScoreboard(std::span<const char> udpPacketWithou
     _pendingNtfUpdateScoreboards.erase(NtfKey{ sessionIdHostOrder, scoreIdHostOrder });
 }
 
-
 // ============================================================
-// NTF_RCV_RET
+// NTF_RCV_ROUND_END_TIME
 // ============================================================
 
 void Server::handle_ntfRcvRET(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
@@ -521,6 +521,10 @@ void Server::handle_ntfRcvRET(std::span<const char> udpPacketWithoutMID, sockadd
     _pendingNtfRET.erase(NtfKey{sessionIdHostOrder, retIdHostOrder});
 }
 
+// ============================================================
+// NTF_RCV_SEND_WORD_LEN
+// ============================================================
+
 void Server::handle_ntfRcvSendWordLen(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
 {
     assert((udpPacketWithoutMID.size() == PacketSize::NTF_RCV_SEND_WORD_LEN - 1) &&
@@ -533,6 +537,10 @@ void Server::handle_ntfRcvSendWordLen(std::span<const char> udpPacketWithoutMID,
     _pendingNtfNewWordsLen.erase(NtfKey{ sessionIdHostOrder, retIdHostOrder });
 }
 
+// ============================================================
+// NTF_RCV_SEND_WORD
+// ============================================================
+
 void Server::handle_ntfRcvSendWord(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
 {
     assert((udpPacketWithoutMID.size() == PacketSize::NTF_RCV_SEND_WORD - 1) &&
@@ -543,6 +551,46 @@ void Server::handle_ntfRcvSendWord(std::span<const char> udpPacketWithoutMID, so
 
     std::lock_guard lock(_pendingNtfNewWordMutex);
     _pendingNtfNewWords.erase(NtfKey{ sessionIdHostOrder, retIdHostOrder });
+}
+
+// ============================================================
+// NTF_RCV_STROKE_HISTORY
+// ============================================================
+
+void Server::handle_ntfRcvStrokeHistory(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
+{
+    assert((udpPacketWithoutMID.size() == PacketSize::NTF_RCV_STROKE_HISTORY - 1) &&
+        "Size of NTF_RCV_STROKE_HISTORY packet received is wrong");
+
+    ByteReader rdr{ .buffer = udpPacketWithoutMID };
+    auto sessionIdHostOrder = ntohl(rdr.read<SessionId>());
+    auto historyIdHostOrder = ntohl(rdr.read<std::uint32_t>());
+    auto chunkIdxHostOrder = ntohs(rdr.read<std::uint16_t>());
+
+    std::lock_guard lock(_pendingNtfStrokeHistoryMutex);
+    auto it = _pendingNtfStrokeHistory.find(NtfKey{ sessionIdHostOrder, historyIdHostOrder });
+    if (it == _pendingNtfStrokeHistory.end()) return; // stale ack, ignore
+
+    auto& p = it->second;
+
+    // Ignore if not the chunk we're currently waiting on
+    if (chunkIdxHostOrder != p._nextChunkToSend) return;
+
+    // Advance
+    p._nextChunkToSend++;
+
+    // All chunks delivered
+    if (p._nextChunkToSend >= static_cast<std::uint16_t>(p._chunks.size()))
+    {
+        _pendingNtfStrokeHistory.erase(it);
+        return;
+    }
+
+    // Point _data at next chunk and reset timers
+    auto now = std::chrono::steady_clock::now();
+    p._data = p._chunks[p._nextChunkToSend];
+    p._nextSendTime = now; // send on next tick immediately
+    p._giveUpTime = now + std::chrono::seconds(2);
 }
 
 // ============================================================
@@ -641,6 +689,15 @@ void Server::handle_reqStartStroke(std::span<const char> udpPacketWithoutMID, so
             SessionId networkSID = htonl(sid);
             std::memcpy(pkt.data() + sizeof(MessageType::SVR_START_STROKE), &networkSID, sizeof(networkSID));
         });
+
+    PastStroke ps{};
+    ps._type = PastStroke::Type::START_STROKE;
+    ps._data.resize(PacketSize::PAST_HISTORY_START_STROKE);
+    ByteWriter paststartstrokeWrt{.buffer = ps._data };
+    paststartstrokeWrt.write(mousePosNetworkOrder);
+    paststartstrokeWrt.write(rgbat);
+    std::lock_guard lock(_pastStrokesMutex);
+    _pastStrokes_NEED_MUTEX.push_back(std::move(ps));
 }
 
 // ============================================================
@@ -729,6 +786,11 @@ void Server::handle_reqEndStroke(std::span<const char> udpPacketWithoutMID, sock
             SessionId networkSID = htonl(sid);
             std::memcpy(pkt.data() + sizeof(MessageType::SVR_END_STROKE), &networkSID, sizeof(networkSID));
         });
+
+    PastStroke ps{};
+    ps._type = PastStroke::Type::END_STROKE;
+    std::lock_guard lock(_pastStrokesMutex);
+    _pastStrokes_NEED_MUTEX.push_back(std::move(ps));
 }
 
 void Server::handle_reqMsg(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
@@ -805,11 +867,11 @@ void Server::handle_reqMsg(std::span<const char> udpPacketWithoutMID, sockaddr_i
     bool successRsp = sendWithRetry(rspmsg, *sa);
 
     auto nameLength = static_cast<std::uint8_t>(username.length());
-    if (nameLength > 15) // 15 is arbitrary here
+    if (nameLength > MAX_SHOWN_USERNAME_LEN)
     {
-        username = username.substr(0, 12); // trunc it
+        username = username.substr(0, MAX_SHOWN_USERNAME_LEN - 3); // trunc it
         username += "...";
-        nameLength = 15;
+        nameLength = MAX_SHOWN_USERNAME_LEN;
     }
 
     // Now NTF all clients for msg
@@ -925,6 +987,9 @@ void Server::handle_reqClearCanvas(std::span<const char> udpPacketWithoutMID, so
 
     // Now NTF all clients to clear their canvas
     LOCK_sendClearCanvasCommand();
+    // When receive clear command, clear all past strokes
+    std::lock_guard lock(_pastStrokesMutex);
+    _pastStrokes_NEED_MUTEX.clear();
 }
 
 // ============================================================
@@ -993,6 +1058,14 @@ void Server::handle_fafExtendStroke(std::span<const char> udpPacketWithoutMID, s
             SessionId networkSID = htonl(sid);
             std::memcpy(pkt.data() + sizeof(MessageType::SVR_EXTEND_STROKE), &networkSID, sizeof(networkSID));
         });
+
+    PastStroke ps{};
+    ps._type = PastStroke::Type::EXTEND_STROKE;
+    ps._data.resize(PacketSize::PAST_HISTORY_EXTEND_STROKE);
+    ByteWriter paststartstrokeWrt{ .buffer = ps._data };
+    paststartstrokeWrt.write(mousePosNetworkOrder);
+    std::lock_guard lock(_pastStrokesMutex);
+    _pastStrokes_NEED_MUTEX.push_back(std::move(ps));
 }
 
 // ============================================================
@@ -1005,10 +1078,13 @@ void Server::actualStartListening(std::stop_token st) noexcept
     udpPacket.resize(MaxUdpPacketBytes);
     while (!st.stop_requested())
     {
-        tickPendingNtf(_pendingNtfClearCanvasMutex, _pendingNtfClearCanvases, "NTF_CLEAR_CANVAS");
         tickPendingNtf(_pendingNtfMsgMutex, _pendingNtfMsg, "NTF_MSG");
-        tickPendingNtf(_pendingNtfUpdateScoreboardMutex, _pendingNtfUpdateScoreboards, "NTF_UPDATE_SCOREBOARD");
         tickPendingNtf(_pendingNtfRETMutex, _pendingNtfRET, "NTF_ROUND_END_TIME");
+        tickPendingNtf(_pendingNtfNewWordMutex, _pendingNtfNewWords, "NTF_NEW_WORD");
+        tickPendingNtf(_pendingNtfNewWordLenMutex, _pendingNtfNewWordsLen, "NTF_NEW_WORD_LEN");
+        tickPendingNtf(_pendingNtfClearCanvasMutex, _pendingNtfClearCanvases, "NTF_CLEAR_CANVAS");
+        tickPendingNtf(_pendingNtfStrokeHistoryMutex, _pendingNtfStrokeHistory, "NTF_STROKE_HISTORY");
+        tickPendingNtf(_pendingNtfUpdateScoreboardMutex, _pendingNtfUpdateScoreboards, "NTF_UPDATE_SCOREBOARD");
 
         fd_set readSet;
         FD_ZERO(&readSet);
@@ -1128,29 +1204,6 @@ bool Server::destroySessionIdHostOrder(SessionId id, std::string ipPort)
     return true;
 }
 
-void Server::tickPendingNtf(std::mutex& mut, std::unordered_map<NtfKey, PendingNTF, NtfKeyHash>& map, std::string_view name)
-{
-    auto now = std::chrono::steady_clock::now();
-    std::lock_guard lock(mut);
-    for (auto it = map.begin(); it != map.end();)
-    {
-        if (now >= it->second._giveUpTime)
-        {
-            log(std::cerr, std::format("[Server] {} to session {} timed out", name, it->first.sessionId));
-            it = map.erase(it);
-            continue;
-        }
-        if (now >= it->second._nextSendTime)
-        {
-            sockaddr_in sa = it->second._clientAddr;
-            sendto(_socket, it->second._data.data(), static_cast<int>(it->second._data.size()), 0,
-                reinterpret_cast<sockaddr*>(&sa), sizeof(sa));
-            it->second._nextSendTime = now + std::chrono::milliseconds(100);
-        }
-        ++it;
-    }
-}
-
 // ============================================================
 // Load word list
 // ============================================================
@@ -1212,7 +1265,7 @@ int Server::word_heuristic() {
 }
 
 // ============================================================
-// Advance drawer - LOCK
+// Advance drawer
 // ============================================================
 
 void Server::LOCK_advanceDrawer()
@@ -1223,7 +1276,7 @@ void Server::LOCK_advanceDrawer()
 }
 
 // ============================================================
-// Advance drawer - NO LOCK
+// Advance drawer
 // ============================================================
 
 void Server::NO_LOCK_advanceDrawer()
@@ -1293,7 +1346,7 @@ void Server::NO_LOCK_advanceDrawer()
 }
 
 // ============================================================
-// Broadcast Scoreboard - LOCK
+// Broadcast Scoreboard
 // ============================================================
 
 void Server::LOCK_broadcastScoreboard()
@@ -1305,7 +1358,7 @@ void Server::LOCK_broadcastScoreboard()
 }
 
 // ============================================================
-// Broadcast Scoreboard - NO LOCK
+// Broadcast Scoreboard
 // ============================================================
 
 void Server::NO_LOCK_broadcastScoreboard()
@@ -1348,8 +1401,8 @@ void Server::NO_LOCK_broadcastScoreboard()
     {
         if (!client.inGame) continue;
         std::string name = client.username;
-        if (name.size() > 15)
-            name = name.substr(0, 12) + "...";
+        if (name.size() > MAX_SHOWN_USERNAME_LEN)
+            name = name.substr(0, MAX_SHOWN_USERNAME_LEN - 3) + "...";
 
         entries.push_back({ std::move(name), client.score });
     }
@@ -1479,13 +1532,22 @@ void Server::resetRound()
 }
 
 // ============================================================
-// Get number of players
+// Get number of players - LOCK
 // ============================================================
 
-std::size_t Server::getNumberOfPlayers()
+std::size_t Server::LOCK_getNumberOfPlayers()
 {
     std::lock_guard lock(_clientStorageMutex);
-    return std::ranges::count_if(_clientStorageMap, [](std::pair<const SessionId&, const Client&> p){
+    return NO_LOCK_getNumberOfPlayers();
+}
+
+// ============================================================
+// Get number of players - NO LOCK
+// ============================================================
+
+std::size_t Server::NO_LOCK_getNumberOfPlayers()
+{
+    return std::ranges::count_if(_clientStorageMap, [](std::pair<const SessionId&, const Client&> p) {
         return p.second.inGame;
         });
 }
@@ -1532,13 +1594,16 @@ void Server::LOCK_sendNewRoundEndTime()
 }
 
 // ============================================================
-// Send clear canvas command - LOCK
+// Send clear canvas command
 // ============================================================
 
 void Server::LOCK_sendClearCanvasCommand()
 {
+    {
+        std::lock_guard lock(_pastStrokesMutex);
+        _pastStrokes_NEED_MUTEX.clear();
+    }
     std::lock_guard ntfLock(_pendingNtfClearCanvasMutex);
-
     LOCK_clientStorage([this](const auto& map) {
         auto now = std::chrono::steady_clock::now();
         for (const auto& [ssiho, client] : map)
@@ -1569,6 +1634,9 @@ void Server::LOCK_sendClearCanvasCommand()
         });
 }
 
+// ============================================================
+// Send new word length
+// ============================================================
 
 void Server::LOCK_sendNewWordLen()
 {
@@ -1605,6 +1673,9 @@ void Server::LOCK_sendNewWordLen()
         });
 }
 
+// ============================================================
+// Send new word
+// ============================================================
 
 void Server::LOCK_sendNewWord()
 {
@@ -1656,6 +1727,108 @@ void Server::LOCK_sendNewWord()
     });
 }
 
+// ============================================================
+// Send stroke history
+// ============================================================
+
+void Server::LOCK_sendStrokeHistory()
+{
+    std::vector<PastStroke> cpy;
+    {
+        std::lock_guard lock(_pastStrokesMutex);
+        cpy = _pastStrokes_NEED_MUTEX;
+    }
+
+    if (cpy.empty())
+    {
+        log(std::cerr, "[Server] Skipping send stroke history, no stroke history");
+        return;
+    }
+
+    // 1. Build raw stroke data only (no headers)
+    std::vector<char> strokeData;
+    strokeData.reserve(30'000);
+    for (const auto& stroke : cpy)
+    {
+        strokeData.emplace_back(static_cast<char>(stroke._type));
+        strokeData.insert(strokeData.end(), stroke._data.begin(), stroke._data.end());
+    }
+
+    // 2. Calculate number of chunks correctly
+    constexpr std::size_t MAX_STROKE_PAYLOAD =
+        MaxUdpPacketBytes - PacketSize::NTF_STROKE_HISTORY_WITHOUT_DATA;
+    std::size_t numChunks = (strokeData.size() + MAX_STROKE_PAYLOAD - 1) / MAX_STROKE_PAYLOAD;
+    if (numChunks == 0) numChunks = 1;
+    const std::uint16_t totalChunks = static_cast<std::uint16_t>(numChunks);
+    const std::uint32_t totalStrokeDataBytes = static_cast<std::uint32_t>(strokeData.size());
+
+    // 3. Pre-build chunks with dummy session id (0), will patch per-client later
+    //    Layout: [MID(1)][SESSION_ID(4)][HISTORY_ID(4)][TOTAL_BYTES(4)][CHUNK_NUM(2)][NUM_STROKES(4)][PAYLOAD]
+    //    Offsets:    0        1              5               9               13            15            19
+    constexpr std::size_t OFF_SESSION_ID = 1;
+    constexpr std::size_t OFF_TOTAL_BYTES = 9;
+    constexpr std::size_t OFF_CHUNK_NUM = 13;
+
+    std::vector<std::vector<char>> chunks;
+    chunks.reserve(numChunks);
+
+    std::size_t strokeDataOffset = 0;
+    for (std::uint16_t chunkIdx = 0; chunkIdx < totalChunks; chunkIdx++)
+    {
+        std::size_t bytesLeft = strokeData.size() - strokeDataOffset;
+        std::size_t payloadSize = std::min(bytesLeft, MAX_STROKE_PAYLOAD);
+
+        std::vector<char> chunk(PacketSize::NTF_STROKE_HISTORY_WITHOUT_DATA + payloadSize);
+        ByteWriter wrt{ .buffer = chunk };
+        wrt.write(static_cast<char>(MessageType::NTF_STROKE_HISTORY));
+        wrt.write(std::uint32_t{ 0 });                          // session id - dummy, patched per client
+        wrt.write(htonl(_strokeHistoryIdServer));               // history id
+        wrt.write(htonl(totalStrokeDataBytes));                 // total bytes across all chunks
+        wrt.write(htons(chunkIdx));                             // this chunk's index (0-based)
+        wrt.write(htonl(static_cast<std::uint32_t>(cpy.size()))); // number of strokes
+
+        wrt.writeSpan(std::span<const char>{
+            strokeData.data() + strokeDataOffset, payloadSize });
+
+        strokeDataOffset += payloadSize;
+        chunks.push_back(std::move(chunk));
+    }
+
+    assert(strokeDataOffset == strokeData.size() && "Not all stroke data was chunked");
+
+    // 4. Per-client: patch session id into each chunk, register into pending
+    std::lock_guard ntfLock(_pendingNtfStrokeHistoryMutex);
+    LOCK_clientStorage([&](const auto& map) {
+        auto now = std::chrono::steady_clock::now();
+        for (const auto& [ssiho, client] : map)
+        {
+            if (!client.inGame) continue;
+
+            // Patch session id into every chunk for this client
+            std::uint32_t sessionIdNet = htonl(ssiho);
+            std::vector<std::vector<char>> clientChunks = chunks; // copy shared chunks
+            for (auto& chunk : clientChunks)
+                std::memcpy(chunk.data() + OFF_SESSION_ID, &sessionIdNet, sizeof(sessionIdNet));
+
+            // Send chunk 0 immediately
+            sockaddr_in clientSa = client.sa;
+            sendto(_socket, clientChunks[0].data(), static_cast<int>(clientChunks[0].size()), 0,
+                reinterpret_cast<sockaddr*>(&clientSa), sizeof(clientSa));
+
+            // Register into pending — _data starts as chunk 0, _nextChunkToSend starts at 0
+            PendingNTF& pending = _pendingNtfStrokeHistory[NtfKey{ ssiho, _strokeHistoryIdServer }];
+            pending._chunks = std::move(clientChunks);
+            pending._data = pending._chunks[0];       // safe: assigned after _chunks
+            pending._clientAddr = client.sa;
+            pending._targetSessionId = ssiho;
+            pending._ntfId = _strokeHistoryIdServer;
+            pending._nextChunkToSend = 0;
+            pending._nextSendTime = now + std::chrono::milliseconds(100);
+            pending._giveUpTime = now + std::chrono::seconds(10);
+        }
+        _strokeHistoryIdServer++;
+        });
+}
 
 // ============================================================
 // Helper - Send with retry
@@ -1684,4 +1857,31 @@ bool Server::sendWithRetry(std::span<const char> data, const sockaddr_in& sa)
         }
     }
     return success;
+}
+
+// ============================================================
+// Helper - Tick pending ntf
+// ============================================================
+
+void Server::tickPendingNtf(std::mutex& mut, std::unordered_map<NtfKey, PendingNTF, NtfKeyHash>& map, std::string_view name)
+{
+    auto now = std::chrono::steady_clock::now();
+    std::lock_guard lock(mut);
+    for (auto it = map.begin(); it != map.end();)
+    {
+        if (now >= it->second._giveUpTime)
+        {
+            log(std::cerr, std::format("[Server] {} to session {} timed out", name, it->first.sessionId));
+            it = map.erase(it);
+            continue;
+        }
+        if (now >= it->second._nextSendTime)
+        {
+            sockaddr_in sa = it->second._clientAddr;
+            sendto(_socket, it->second._data.data(), static_cast<int>(it->second._data.size()), 0,
+                reinterpret_cast<sockaddr*>(&sa), sizeof(sa));
+            it->second._nextSendTime = now + std::chrono::milliseconds(100);
+        }
+        ++it;
+    }
 }
