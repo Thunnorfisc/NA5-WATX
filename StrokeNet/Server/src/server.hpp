@@ -65,7 +65,7 @@ public:
 
     void stopGame();
     void startGame();
-    void resetRound(std::int64_t newEpoch);
+    void resetRound();
     bool gameStarted();
 
     // This locks both game and client storage mutexes
@@ -79,10 +79,10 @@ public:
     std::size_t getNumberOfPlayers();
 
     // Round reset commands
-    void sendNewRoundEndTime(std::int64_t time);
-    void sendClearCanvasCommand();
-    void sendNewWordLen();
-    void sendNewWord();
+    void LOCK_sendNewRoundEndTime();
+    void LOCK_sendClearCanvasCommand();
+    void LOCK_sendNewWordLen();
+    void LOCK_sendNewWord();
 private:
     // ============================================================
     // Game State

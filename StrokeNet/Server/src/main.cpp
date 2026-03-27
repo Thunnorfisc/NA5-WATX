@@ -31,6 +31,7 @@
     /*! \brief Loads the UDP configuration, collects server startup input, and launches the server.
         \return Process exit code supplied by the operating system.
     */
+std::int64_t _roundEndTime{};
 int main()
 {
     try
@@ -57,6 +58,8 @@ int main()
         const double budgetAdvanceTurn = 15.0; // advance turn every 15 seconds, just for testing
         const int budgetAdvanceTurnInt = static_cast<int>(budgetAdvanceTurn);
         auto advanceTurnNow = std::chrono::steady_clock::now();
+
+
         while (!server.isListeningThreadFinished())
         {
             auto now = std::chrono::steady_clock::now();
@@ -64,11 +67,11 @@ int main()
             if (!server.gameStarted() && server.getNumberOfPlayers() >= 1)
             {
                 server.startGame();
-                std::int64_t nowMs =
+                _roundEndTime =
                     std::chrono::duration_cast<std::chrono::milliseconds>
                     (std::chrono::steady_clock::now().time_since_epoch()).count();
-                nowMs += (budgetAdvanceTurnInt * 1000);
-                server.resetRound(nowMs);
+                _roundEndTime += (budgetAdvanceTurnInt * 1000);
+                server.resetRound();
             }
             if (!server.gameStarted()) continue;
 
@@ -79,11 +82,11 @@ int main()
 
             if (std::chrono::duration<double>(std::chrono::steady_clock::now() - advanceTurnNow).count() >= budgetAdvanceTurn)
             {
-                std::int64_t newEndRoundTimeMs =
+                _roundEndTime =
                     std::chrono::duration_cast<std::chrono::milliseconds>
                     (std::chrono::steady_clock::now().time_since_epoch()).count();
-                newEndRoundTimeMs += (budgetAdvanceTurnInt * 1000);
-                server.resetRound(newEndRoundTimeMs);
+                _roundEndTime += (budgetAdvanceTurnInt * 1000);
+                server.resetRound();
                 advanceTurnNow = std::chrono::steady_clock::now();
             }
         }

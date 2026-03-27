@@ -19,6 +19,7 @@
 #define _WINSOCK_DEPRECATED_NO_WARNINGS
 
 #include "server.hpp"
+#include "main.hpp"
 #include "shared_protocol.hpp"
 
 #include <mutex>
@@ -375,6 +376,8 @@ void Server::handle_reqPlayGame(std::span<const char> udpPacketWithoutMID, socka
     }
 
     LOCK_broadcastScoreboard();
+    LOCK_sendNewWordLen();
+    LOCK_sendNewRoundEndTime();
 }
 
 // ============================================================
@@ -406,6 +409,7 @@ void Server::handle_reqQuitGame(std::span<const char> udpPacketWithoutMID, socka
         if (gameRunning && drawerSessionOpt && drawerSessionOpt == sessionIdHost)
         {
             NO_LOCK_advanceDrawer();
+
         }
 
         // update scoreboard no matter wat
@@ -918,7 +922,7 @@ void Server::handle_reqClearCanvas(std::span<const char> udpPacketWithoutMID, so
     }
 
     // Now NTF all clients to clear their canvas
-    sendClearCanvasCommand();
+    LOCK_sendClearCanvasCommand();
 }
 
 // ============================================================
@@ -1451,7 +1455,7 @@ bool Server::gameStarted()
 // Reset Round
 // ============================================================
 
-void Server::resetRound(std::int64_t newEpoch)
+void Server::resetRound()
 {
     // local server stuff
 
@@ -1462,10 +1466,10 @@ void Server::resetRound(std::int64_t newEpoch)
         });
 
     // send client stuff
-    sendNewWord();
-    sendNewWordLen();
-    sendNewRoundEndTime(newEpoch);
-    sendClearCanvasCommand();
+    LOCK_sendNewWord();
+    LOCK_sendNewWordLen();
+    LOCK_sendNewRoundEndTime();
+    LOCK_sendClearCanvasCommand();
 
 }
 
@@ -1485,12 +1489,12 @@ std::size_t Server::getNumberOfPlayers()
 // Send new round end time
 // ============================================================
 
-void Server::sendNewRoundEndTime(std::int64_t time)
+void Server::LOCK_sendNewRoundEndTime()
 {
     // broadcast to all clients ntf
     std::lock_guard ntfLock(_pendingNtfRETMutex);
-    LOCK_clientStorage([&time,this](const auto& map) {
-        time = time < std::int64_t{0} ? 0 : time;
+    LOCK_clientStorage([this](const auto& map) {
+        _roundEndTime = _roundEndTime < std::int64_t{0} ? 0 : _roundEndTime;
         auto now = std::chrono::steady_clock::now();
         for(const auto& [ssiho, client] : map)
         {
@@ -1501,7 +1505,7 @@ void Server::sendNewRoundEndTime(std::int64_t time)
             wrt.write(static_cast<char>(MessageType::NTF_ROUND_END_TIME));
             wrt.write(htonl(ssiho));
             wrt.write(htonl(_roundEndTimeIdServer));
-            wrt.write(htonll(static_cast<std::uint64_t>(time)));
+            wrt.write(htonll(static_cast<std::uint64_t>(_roundEndTime)));
 
             // Send immediately once
             sockaddr_in clientSa = client.sa;
@@ -1523,10 +1527,10 @@ void Server::sendNewRoundEndTime(std::int64_t time)
 }
 
 // ============================================================
-// Send clear canvas command
+// Send clear canvas command - LOCK
 // ============================================================
 
-void Server::sendClearCanvasCommand()
+void Server::LOCK_sendClearCanvasCommand()
 {
     std::lock_guard ntfLock(_pendingNtfClearCanvasMutex);
 
@@ -1560,7 +1564,45 @@ void Server::sendClearCanvasCommand()
         });
 }
 
-void Server::sendNewWordLen()
+// ============================================================
+// Send clear canvas command - NO LOCK
+// ============================================================
+
+void Server::NO_LOCK_sendClearCanvasCommand()
+{
+    std::lock_guard ntfLock(_pendingNtfClearCanvasMutex);
+
+    LOCK_clientStorage([this](const auto& map) {
+        auto now = std::chrono::steady_clock::now();
+        for (const auto& [ssiho, client] : map)
+        {
+            if (!client.inGame)continue;
+            std::vector<char> ntfPkt(PacketSize::NTF_CLEAR_CANVAS);
+            ByteWriter ntfWrt{ .buffer = ntfPkt };
+            ntfWrt.write(static_cast<char>(MessageType::NTF_CLEAR_CANVAS));
+            ntfWrt.write(htonl(ssiho));       // target's session ID
+            ntfWrt.write(htonl(_clearCanvasIdServer));
+
+            // Send immediately once
+            sockaddr_in clientSa = client.sa;
+            sendto(_socket, ntfPkt.data(), static_cast<int>(ntfPkt.size()), 0,
+                reinterpret_cast<sockaddr*>(&clientSa), sizeof(clientSa));
+
+            // Add to pending for retry
+            _pendingNtfClearCanvases[NtfKey{ ssiho, _clearCanvasIdServer }] = PendingNTF{
+                ._data = std::move(ntfPkt),
+                ._clientAddr = client.sa,
+                ._targetSessionId = ssiho,
+                ._ntfId = _clearCanvasIdServer,
+                ._nextSendTime = now + std::chrono::milliseconds(100),
+                ._giveUpTime = now + std::chrono::seconds(2),
+            };
+        }
+        _clearCanvasIdServer++;
+        });
+}
+
+void Server::LOCK_sendNewWordLen()
 {
     std::lock_guard ntfLock(_pendingNtfNewWordLenMutex);
 
@@ -1596,7 +1638,7 @@ void Server::sendNewWordLen()
 }
 
 
-void Server::sendNewWord()
+void Server::LOCK_sendNewWord()
 {
     LOCK_gameVariablesANDclientStorage([this](const auto& map, const auto&, const auto& drawerSesssionIdOpt)
         {
@@ -1644,6 +1686,11 @@ void Server::sendNewWord()
             };
             _sendNewWordIdServer++;
     });
+}
+
+void Server::NO_LOCK_sendNewWordLen()
+{
+
 }
 
 
