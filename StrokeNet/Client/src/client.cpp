@@ -388,7 +388,7 @@ void Client::handle_NTF_UpdateScoreboard(std::span<const char> msg)
         log(std::cerr, "[Client] Unable to send NTF_RCV_UPDATE_SCOREBOARD back to server");
 
     // Now read each player entry
-    ScoreBoard sb;
+    ReceivedScoreBoard sb;
     sb._users.resize(numPlayers);
     for (std::size_t i = 0; i < numPlayers; ++i)
     {
@@ -1101,15 +1101,15 @@ std::queue<Client::ReceivedChatMessage> Client::getReceivedChatMessages()
     return cpy;
 }
 
-std::optional<Client::ScoreBoard> Client::getLatestScoreboard()
+std::optional<Client::ReceivedScoreBoard> Client::getLatestScoreboard()
 {
     std::unique_lock lock(_scoreboardReceivedMut, std::try_to_lock);
     if (!lock.owns_lock() || _scoreboardReceived.empty())
         return std::nullopt;
 
     // Grab only the latest, discard older ones
-    ScoreBoard latest = std::move(_scoreboardReceived.back());
-    std::queue<ScoreBoard>().swap(_scoreboardReceived); // clear
+    ReceivedScoreBoard latest = std::move(_scoreboardReceived.back());
+    std::queue<ReceivedScoreBoard>().swap(_scoreboardReceived); // clear
     return latest;
 }
 

@@ -61,7 +61,7 @@ public:
         std::string _name;
         std::string _message;
     };
-    struct ScoreBoard 
+    struct ReceivedScoreBoard 
     {
         std::vector<std::pair<std::string, std::uint16_t>> _users;
         std::string _currentDrawer;
@@ -94,7 +94,7 @@ public:
     // ============================================================
     static std::queue<ReceivedChatMessage> getReceivedChatMessages();
 
-    static std::optional<ScoreBoard> getLatestScoreboard();
+    static std::optional<ReceivedScoreBoard> getLatestScoreboard();
 
     // ============================================================
     // Round end time - receive
@@ -215,7 +215,7 @@ private:
     static inline std::queue<ReceivedChatMessage> _msgesReceived;
 
     static inline std::mutex _scoreboardReceivedMut;
-    static inline std::queue<ScoreBoard> _scoreboardReceived;
+    static inline std::queue<ReceivedScoreBoard> _scoreboardReceived;
 
     // ============================================================
     // Listening thread
