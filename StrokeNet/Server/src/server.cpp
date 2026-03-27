@@ -194,6 +194,8 @@ void Server::handle_reqLogin(std::span<const char> udpPacketWithoutMID, sockaddr
         return;
     }
 
+    
+
     ByteReader rdr{ .buffer = udpPacketWithoutMID };
     auto userBuf = rdr.read<std::array<char, MAX_USERNAME_LEN>>();
     auto passBuf = rdr.read<std::array<char, MAX_PASSWORD_LEN>>();
@@ -203,6 +205,29 @@ void Server::handle_reqLogin(std::span<const char> udpPacketWithoutMID, sockaddr
 
     LoginStatus status;
     SessionId sessionIdHostOrder = InvalidSessionId;
+
+    // CHECK USER LOGGED IN AHHH
+    if (LOCK_clientStorage([&username](const auto& map) {
+        for (const auto& [_ignore, client] : map)
+        {
+            if (client.username == username) return true;
+        }
+        return false;
+        })) {
+        log(std::cout,
+            std::format("[Server] Client {}: Username '{}' is already logged in, rejecting", ipStrAndPort, username));
+
+        // send rejection response
+        auto sessionIdNetworkOrder = htonl(InvalidSessionId);
+        std::vector<char> sendPacket;
+        sendPacket.resize(PacketSize::RSP_LOGIN_AND_CREATE_ACCOUNT);
+        ByteWriter wrt{ .buffer = sendPacket };
+        wrt.write(static_cast<char>(MessageType::RSP_LOGIN_AND_CREATE_ACCOUNT));
+        wrt.write(sessionIdNetworkOrder);
+        wrt.write(static_cast<char>(LoginStatus::ALREADY_LOGGED_IN));
+        sendWithRetry(sendPacket, *sa);
+        return;
+    }
 
     if (_userStore.authenticate(username, password))
     {
