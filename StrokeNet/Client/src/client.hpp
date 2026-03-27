@@ -61,10 +61,18 @@ public:
         std::string _name;
         std::string _message;
     };
-    struct ScoreBoard 
+    struct ReceivedScoreBoard 
     {
         std::vector<std::pair<std::string, std::uint16_t>> _users;
         std::string _currentDrawer;
+    };
+    struct ReceivedStrokeHistory
+    {
+        std::vector<ReceivedStrokeCommand> _strokeHistory;
+    };
+    struct ReceivedChatMessageHistory
+    {
+        std::vector<ReceivedChatMessage> _chatMessageHistory;
     };
     // ============================================================
     // Drawing canvas thingies - send
@@ -94,7 +102,7 @@ public:
     // ============================================================
     static std::queue<ReceivedChatMessage> getReceivedChatMessages();
 
-    static std::optional<ScoreBoard> getLatestScoreboard();
+    static std::optional<ReceivedScoreBoard> getLatestScoreboard();
 
     // ============================================================
     // Round end time - receive
@@ -102,14 +110,24 @@ public:
     static std::int64_t getRoundEndTimeMs();
 
     // ============================================================
-    // Round end time - receive
+    // Word length - receive
     // ============================================================
     static std::int32_t getWordLength();
 
     // ============================================================
-    // Round end time - receive
+    // Word - receive
     // ============================================================
     static std::string getWord();
+
+    // ============================================================
+    // Stroke history - receive
+    // ============================================================
+    static std::optional<ReceivedStrokeHistory> getStrokeHistory();
+
+    // ============================================================
+    // Message history - receive
+    // ============================================================
+    static std::optional<ReceivedChatMessageHistory> getMessageHistory();
 private:
     // ============================================================
     // Socket / session
@@ -140,7 +158,7 @@ private:
     // ============================================================
     // Word
     // ============================================================
-    static inline std::int32_t _word_len = 0;
+    static inline std::atomic<std::int32_t> _word_len = 0;
     static inline std::string _word{};
 
     // ============================================================
@@ -215,7 +233,13 @@ private:
     static inline std::queue<ReceivedChatMessage> _msgesReceived;
 
     static inline std::mutex _scoreboardReceivedMut;
-    static inline std::queue<ScoreBoard> _scoreboardReceived;
+    static inline std::queue<ReceivedScoreBoard> _scoreboardReceived;
+
+    static inline std::mutex _strokeHistoryReceivedMut;
+    static inline std::queue<ReceivedStrokeHistory> _strokeHistoryReceived;
+
+    static inline std::mutex _msgHistoryReceivedMut;
+    static inline std::queue<ReceivedChatMessageHistory> _msgHistoryReceived;
 
     // ============================================================
     // Listening thread
@@ -235,30 +259,35 @@ private:
 
     static void handle_NTF_RoundEndTime(std::span<const char> msg); // < send back ack to server
     
-    static void handle_NTF_NewWordLen(std::span<const char> msg); // < update word len
-    
-    static void handle_NTF_NewWord(std::span<const char> msg); // < update word len
+    static void handle_NTF_NewWordLen(std::span<const char> msg);   // < update word len and send ack back to server
+    static void handle_NTF_NewWord(std::span<const char> msg);      // < update word len and send ack back to server
+
+    static void handle_NTF_StrokeHistory(std::span<const char> msg);   // < send ack back to server
+    static void handle_NTF_MsgHistory(std::span<const char> msg);      // < send ack back to server
 
     static void startListening(std::stop_token st);
 
     using ListenMsgFn = void(*)(std::span<const char>);
     static inline std::unordered_map<MessageType, ListenMsgFn> _listenMsgFns
     {
-        { MessageType::RSP_START_STROKE, &Client::handle_RSP_StartStroke },
-        { MessageType::RSP_END_STROKE, &Client::handle_RSP_EndStroke },
-        { MessageType::RSP_CLEAR_CANVAS, &Client::handle_RSP_ClearCanvas },
-        { MessageType::RSP_MSG, &Client::handle_RSP_Msg },
+        { MessageType::RSP_START_STROKE,        &Client::handle_RSP_StartStroke         },
+        { MessageType::RSP_END_STROKE,          &Client::handle_RSP_EndStroke           },
+        { MessageType::RSP_CLEAR_CANVAS,        &Client::handle_RSP_ClearCanvas         },
+        { MessageType::RSP_MSG,                 &Client::handle_RSP_Msg                 },
 
-        { MessageType::SVR_START_STROKE, &Client::handle_SVR_StartStroke },
-        { MessageType::SVR_END_STROKE, &Client::handle_SVR_EndStroke },
-        { MessageType::SVR_EXTEND_STROKE, &Client::handle_SVR_ExtendStroke },
+        { MessageType::SVR_START_STROKE,        &Client::handle_SVR_StartStroke         },
+        { MessageType::SVR_END_STROKE,          &Client::handle_SVR_EndStroke           },
+        { MessageType::SVR_EXTEND_STROKE,       &Client::handle_SVR_ExtendStroke        },
 
-        { MessageType::NTF_MSG, &Client::handle_NTF_Msg },
-        { MessageType::NTF_CLEAR_CANVAS, &Client::handle_NTF_ClearCanvas },
-        { MessageType::NTF_UPDATE_SCOREBOARD, &Client::handle_NTF_UpdateScoreboard },
-        { MessageType::NTF_ROUND_END_TIME, &Client::handle_NTF_RoundEndTime },
-        { MessageType::NTF_SEND_WORD_LEN, &Client::handle_NTF_NewWordLen },
-        { MessageType::NTF_SEND_WORD, &Client::handle_NTF_NewWord },
+        { MessageType::NTF_MSG,                 &Client::handle_NTF_Msg                 },
+        { MessageType::NTF_CLEAR_CANVAS,        &Client::handle_NTF_ClearCanvas         },
+        { MessageType::NTF_UPDATE_SCOREBOARD,   &Client::handle_NTF_UpdateScoreboard    },
+        { MessageType::NTF_ROUND_END_TIME,      &Client::handle_NTF_RoundEndTime        },
+        { MessageType::NTF_SEND_WORD_LEN,       &Client::handle_NTF_NewWordLen          },
+        { MessageType::NTF_SEND_WORD,           &Client::handle_NTF_NewWord             },
+
+        { MessageType::NTF_STROKE_HISTORY,      &Client::handle_NTF_StrokeHistory       },
+        { MessageType::NTF_MSG_HISTORY,         &Client::handle_NTF_MsgHistory          },
     };
 
     // ============================================================

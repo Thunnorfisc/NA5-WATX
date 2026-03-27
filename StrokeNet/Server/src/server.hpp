@@ -65,7 +65,7 @@ public:
 
     void stopGame();
     void startGame();
-    void resetRound(std::int64_t newEpoch);
+    void resetRound();
     bool gameStarted();
 
     // This locks both game and client storage mutexes
@@ -79,10 +79,10 @@ public:
     std::size_t getNumberOfPlayers();
 
     // Round reset commands
-    void sendNewRoundEndTime(std::int64_t time);
-    void sendClearCanvasCommand();
-    void sendNewWordLen();
-    void sendNewWord();
+    void LOCK_sendNewRoundEndTime();
+    void LOCK_sendClearCanvasCommand();
+    void LOCK_sendNewWordLen();
+    void LOCK_sendNewWord();
 private:
     // ============================================================
     // Game State
@@ -104,6 +104,7 @@ private:
         sockaddr_in sa;
         std::uint16_t score{};
         std::optional<std::uint32_t> currentStrokeId;
+        bool wordAlreadyGuessed = false;
         bool inGame = false;
     };
     // right now, if client misbehaves and keeps sending
@@ -267,6 +268,7 @@ private:
         std::lock_guard lock(_clientStorageMutex);
         for (auto& [sid, client] : _clientStorageMap)
         {
+            if (!client.inGame) continue;
             fill(pkt, sid);
 
             bool success = sendWithRetry(pkt, client.sa);

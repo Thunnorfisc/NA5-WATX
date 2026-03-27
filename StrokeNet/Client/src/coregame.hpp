@@ -43,6 +43,10 @@ private:
 	[[nodiscard]] bool isMouseOverTextBox() const;
     void updateLayout();
 
+    void handle_received_strokeCommands();
+    void handle_received_chatMessages();
+    void handle_received_strokeHistory();
+
     sf::RectangleShape m_backButton;
     sf::Font m_font;
     sf::Text m_titleText;

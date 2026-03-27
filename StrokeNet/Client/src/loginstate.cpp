@@ -283,6 +283,10 @@ void LoginState::attemptLogin()
         m_statusMessage = "Invalid username or password";
         m_statusColor = sf::Color(255, 100, 100);
         break;
+    case LoginStatus::ALREADY_LOGGED_IN:
+        m_statusMessage = "This account is already logged in";
+        m_statusColor = sf::Color(255, 100, 100);
+        break;
     default:
         m_statusMessage = "Login failed (server unreachable or error)";
         m_statusColor = sf::Color(255, 100, 100);

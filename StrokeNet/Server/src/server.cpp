@@ -19,6 +19,7 @@
 #define _WINSOCK_DEPRECATED_NO_WARNINGS
 
 #include "server.hpp"
+#include "main.hpp"
 #include "shared_protocol.hpp"
 
 #include <mutex>
@@ -194,6 +195,8 @@ void Server::handle_reqLogin(std::span<const char> udpPacketWithoutMID, sockaddr
         return;
     }
 
+    
+
     ByteReader rdr{ .buffer = udpPacketWithoutMID };
     auto userBuf = rdr.read<std::array<char, MAX_USERNAME_LEN>>();
     auto passBuf = rdr.read<std::array<char, MAX_PASSWORD_LEN>>();
@@ -203,6 +206,29 @@ void Server::handle_reqLogin(std::span<const char> udpPacketWithoutMID, sockaddr
 
     LoginStatus status;
     SessionId sessionIdHostOrder = InvalidSessionId;
+
+    // CHECK USER LOGGED IN AHHH
+    if (LOCK_clientStorage([&username](const auto& map) {
+        for (const auto& [_ignore, client] : map)
+        {
+            if (client.username == username) return true;
+        }
+        return false;
+        })) {
+        log(std::cout,
+            std::format("[Server] Client {}: Username '{}' is already logged in, rejecting", ipStrAndPort, username));
+
+        // send rejection response
+        auto sessionIdNetworkOrder = htonl(InvalidSessionId);
+        std::vector<char> sendPacket;
+        sendPacket.resize(PacketSize::RSP_LOGIN_AND_CREATE_ACCOUNT);
+        ByteWriter wrt{ .buffer = sendPacket };
+        wrt.write(static_cast<char>(MessageType::RSP_LOGIN_AND_CREATE_ACCOUNT));
+        wrt.write(sessionIdNetworkOrder);
+        wrt.write(static_cast<char>(LoginStatus::ALREADY_LOGGED_IN));
+        sendWithRetry(sendPacket, *sa);
+        return;
+    }
 
     if (_userStore.authenticate(username, password))
     {
@@ -242,7 +268,6 @@ void Server::handle_reqLogin(std::span<const char> udpPacketWithoutMID, sockaddr
 
         log(std::cout,
             std::format("[Server] Client {}: '{}' logged in successfully", ipStrAndPort, username));
-        LOCK_broadcastScoreboard();
     }
     else if (!success)
     {
@@ -333,6 +358,10 @@ void Server::handle_reqPlayGame(std::span<const char> udpPacketWithoutMID, socka
         it->second.inGame = true;
         return true;
         })) return;
+
+    LOCK_gameVariables([sessionIdHost](const auto& gameRunning, auto& drawerSessionIdOpt) {
+        if (!drawerSessionIdOpt.has_value() && !gameRunning) drawerSessionIdOpt = sessionIdHost;
+        });
     
     // send back ack
     std::array<char, PacketSize::RSP_PLAY_GAME> msg;
@@ -345,6 +374,10 @@ void Server::handle_reqPlayGame(std::span<const char> udpPacketWithoutMID, socka
         log(std::cerr,
             std::format("[Server] Unable to send back RSP_PLAY_GAME to client {}",sessionIdHost));
     }
+
+    LOCK_broadcastScoreboard();
+    LOCK_sendNewWordLen();
+    LOCK_sendNewRoundEndTime();
 }
 
 // ============================================================
@@ -361,13 +394,29 @@ void Server::handle_reqQuitGame(std::span<const char> udpPacketWithoutMID, socka
 
     // If it finds the id inside the map,
     // it will set inGame to false, and return true
+    // 
+    // it will also call NO_LOCK_advanceDrawer
+    // 
     // else it will return false, and we will early exit
-    if (!LOCK_clientStorage([sessionIdHost](auto& map) {
+    if (!LOCK_gameVariablesANDclientStorage(
+        [sessionIdHost,this](auto& map, const auto& gameRunning, const auto& drawerSessionOpt) {
         auto it = map.find(sessionIdHost);
         if (it == map.end()) return false;
         it->second.inGame = false;
+        it->second.score = 0;
+        it->second.currentStrokeId = std::nullopt;
+
+        if (gameRunning && drawerSessionOpt && drawerSessionOpt == sessionIdHost)
+        {
+            NO_LOCK_advanceDrawer();
+
+        }
+
+        // update scoreboard no matter wat
+        NO_LOCK_broadcastScoreboard();
         return true;
         })) return;
+
 
     // send back ack
     std::array<char, PacketSize::RSP_PLAY_GAME> msg;
@@ -716,8 +765,11 @@ void Server::handle_reqMsg(std::span<const char> udpPacketWithoutMID, sockaddr_i
         std::transform(str_msg.begin(), str_msg.end(), str_msg.begin(), [](char c) {return std::toupper(c); });
         std::transform(word.second.begin(), word.second.end(), word.second.begin(), [](char c) {return std::toupper(c); });
 
-        if (str_msg == word.second) {
+        if (drawerSessionIdOpt == sessionIdHostOrder) return ErrorRetVal::OK_BUT_NOT_GUESSED_WORD;
+
+        if (!it->second.wordAlreadyGuessed && str_msg == word.second) {
             it->second.score += 75;
+            it->second.wordAlreadyGuessed = true;
             NO_LOCK_broadcastScoreboard();
             return ErrorRetVal::OK_AND_GUESSED_WORD;
         }
@@ -742,7 +794,6 @@ void Server::handle_reqMsg(std::span<const char> udpPacketWithoutMID, sockaddr_i
 
     // CHECK IF ITS NOT CURRENT DRAWER + IF ACTUAL MSG IS THE GUESS, THEN SEND BACK
     // "USER GUESSED THE WORD" @TODOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO
-
 
 
     // validated its good REQ_MSG packet, send back RSP_MSG
@@ -873,7 +924,7 @@ void Server::handle_reqClearCanvas(std::span<const char> udpPacketWithoutMID, so
     }
 
     // Now NTF all clients to clear their canvas
-    sendClearCanvasCommand();
+    LOCK_sendClearCanvasCommand();
 }
 
 // ============================================================
@@ -998,6 +1049,7 @@ void Server::actualStartListening(std::stop_token st) noexcept
             {
                 if (WSAGetLastError() == WSAEWOULDBLOCK) break; // fully drained
                 log(std::cerr, std::format("[Server] recvfrom() failed: {}", wsaErrorStr()));
+
                 break;
             }
             else if (bytesReceived == 0) continue; // move on with our lives
@@ -1176,10 +1228,23 @@ void Server::LOCK_advanceDrawer()
 
 void Server::NO_LOCK_advanceDrawer()
 {
+    if (!_gameRunning)
+    {
+        log(std::cerr,
+            std::format("[Server] Tried to advance drawer, but game is not started"));
+        return;
+    }
     if (_clientStorageMap.empty())
     {
         log(std::cerr,
             std::format("[Server] Tried to advance drawer, but server has no clients to choose from"));
+        //stopGame();
+        return;
+    }
+    if (_clientStorageMap.size() == 1 && _drawerSessionId.has_value())
+    {
+        log(std::cerr,
+            std::format("[Server] Tried to advance drawer, but no drawers to choose from, sticking with current player"));
         return;
     }
 
@@ -1281,6 +1346,7 @@ void Server::NO_LOCK_broadcastScoreboard()
 
     for (const auto& [sid, client] : _clientStorageMap)
     {
+        if (!client.inGame) continue;
         std::string name = client.username;
         if (name.size() > 15)
             name = name.substr(0, 12) + "...";
@@ -1302,11 +1368,12 @@ void Server::NO_LOCK_broadcastScoreboard()
 
     for (const auto& [ssiho, client] : _clientStorageMap)
     {
+        if (!client.inGame) continue;
         std::vector<char> pkt(PacketSize::NTF_UPDATE_SCOREBOARD_BASE + varSize + drawer.size());
         ByteWriter wrt{ .buffer = pkt };
         wrt.write(static_cast<char>(MessageType::NTF_UPDATE_SCOREBOARD));
         wrt.write(htonl(ssiho));
-        wrt.write(htonl(_messageIdServer));
+        wrt.write(htonl(_scoreBoardIdServer));
         wrt.write(htonl(numPlayers));
 
         // Write each player's name + score
@@ -1390,22 +1457,25 @@ bool Server::gameStarted()
 // Reset Round
 // ============================================================
 
-void Server::resetRound(std::int64_t newEpoch)
+void Server::resetRound()
 {
     // local server stuff
 
-    LOCK_gameVariablesANDclientStorage([this](auto&, auto&, auto&) {
+    LOCK_gameVariablesANDclientStorage([this](auto& map, auto&, auto&) {
+        for (auto& [_sid, client] : map)
+        {
+            if (client.inGame) client.wordAlreadyGuessed = false;
+        }
         NO_LOCK_advanceDrawer();
         pick_word();
         NO_LOCK_broadcastScoreboard();
         });
 
     // send client stuff
-    sendNewWord();
-    sendNewWordLen();
-    sendNewRoundEndTime(newEpoch);
-    sendClearCanvasCommand();
-
+    LOCK_sendNewWord();
+    LOCK_sendNewWordLen();
+    LOCK_sendNewRoundEndTime();
+    LOCK_sendClearCanvasCommand();
 }
 
 // ============================================================
@@ -1424,12 +1494,12 @@ std::size_t Server::getNumberOfPlayers()
 // Send new round end time
 // ============================================================
 
-void Server::sendNewRoundEndTime(std::int64_t time)
+void Server::LOCK_sendNewRoundEndTime()
 {
     // broadcast to all clients ntf
     std::lock_guard ntfLock(_pendingNtfRETMutex);
-    LOCK_clientStorage([&time,this](const auto& map) {
-        time = time < std::int64_t{0} ? 0 : time;
+    LOCK_clientStorage([this](const auto& map) {
+        _roundEndTime = _roundEndTime < std::int64_t{0} ? 0 : _roundEndTime;
         auto now = std::chrono::steady_clock::now();
         for(const auto& [ssiho, client] : map)
         {
@@ -1440,7 +1510,7 @@ void Server::sendNewRoundEndTime(std::int64_t time)
             wrt.write(static_cast<char>(MessageType::NTF_ROUND_END_TIME));
             wrt.write(htonl(ssiho));
             wrt.write(htonl(_roundEndTimeIdServer));
-            wrt.write(htonll(static_cast<std::uint64_t>(time)));
+            wrt.write(htonll(static_cast<std::uint64_t>(_roundEndTime)));
 
             // Send immediately once
             sockaddr_in clientSa = client.sa;
@@ -1462,10 +1532,10 @@ void Server::sendNewRoundEndTime(std::int64_t time)
 }
 
 // ============================================================
-// Send clear canvas command
+// Send clear canvas command - LOCK
 // ============================================================
 
-void Server::sendClearCanvasCommand()
+void Server::LOCK_sendClearCanvasCommand()
 {
     std::lock_guard ntfLock(_pendingNtfClearCanvasMutex);
 
@@ -1499,7 +1569,8 @@ void Server::sendClearCanvasCommand()
         });
 }
 
-void Server::sendNewWordLen()
+
+void Server::LOCK_sendNewWordLen()
 {
     std::lock_guard ntfLock(_pendingNtfNewWordLenMutex);
 
@@ -1507,6 +1578,7 @@ void Server::sendNewWordLen()
         auto now = std::chrono::steady_clock::now();
         for (const auto& [ssiho, client] : map)
         {
+            if (!client.inGame) continue;
             std::vector<char> ntfPkt(PacketSize::NTF_SEND_WORD_LEN);
             ByteWriter ntfWrt{ .buffer = ntfPkt };
             ntfWrt.write(static_cast<char>(MessageType::NTF_SEND_WORD_LEN));
@@ -1534,7 +1606,7 @@ void Server::sendNewWordLen()
 }
 
 
-void Server::sendNewWord()
+void Server::LOCK_sendNewWord()
 {
     LOCK_gameVariablesANDclientStorage([this](const auto& map, const auto&, const auto& drawerSesssionIdOpt)
         {

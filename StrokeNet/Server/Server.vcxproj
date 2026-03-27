@@ -95,6 +95,7 @@
   <ItemGroup>
     <ClInclude Include="..\shared\shared_protocol.hpp" />
     <ClInclude Include="src\login.hpp" />
+    <ClInclude Include="src\main.hpp" />
     <ClInclude Include="src\server.hpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

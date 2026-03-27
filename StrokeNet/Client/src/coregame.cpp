@@ -156,64 +156,9 @@ void CoreGameState::update(sf::Time)
     m_wasLeftDown = leftDown;
     m_lastMousePos = pos;
 
-    auto strokeCommands = Client::getReceivedStrokeCommands();
-    while (!strokeCommands.empty())
-    {
-        auto scmd = strokeCommands.front();
-        strokeCommands.pop();
-        ByteReader rdr{ .buffer = scmd._data };
-        switch (scmd._type)
-        {
-            using enum Client::ReceivedStrokeCommand::Type;
-        case START_STROKE:
-        {
-            auto mousePos = rdr.read<MousePosition>();
-            auto rgbat = rdr.read<std::array<char, 5>>();
-            m_canvas.beginStroke(
-                sf::Vector2f{
-                    static_cast<float>(mousePos[0]),
-                    static_cast<float>(mousePos[1])
-                },
-                sf::Color{
-                    static_cast<std::uint8_t>(rgbat[0]),
-                    static_cast<std::uint8_t>(rgbat[1]),
-                    static_cast<std::uint8_t>(rgbat[2]),
-                    static_cast<std::uint8_t>(rgbat[3])
-                },
-                static_cast<float>(rgbat[4])
-            );
-            break;
-        }
-        case EXTEND_STROKE:
-        {
-            auto mousePos = rdr.read<MousePosition>();
-            m_canvas.extendStroke(
-                sf::Vector2f{
-                    static_cast<float>(mousePos[0]),
-                    static_cast<float>(mousePos[1])
-                });
-            break;
-        }
-        case END_STROKE:
-        {
-            m_canvas.endStroke();
-            break;
-        }
-        case CLEAR_CANVAS: 
-        {
-            m_canvas.clear();
-            break;
-        }
-        }
-    }
-
-    auto chatMsges = Client::getReceivedChatMessages();
-    while (!chatMsges.empty())
-    {
-        auto chatmsg = chatMsges.front();
-        chatMsges.pop();
-        m_chatBox.receiveMessageFromServer(chatmsg._name, chatmsg._message);
-    }
+    handle_received_chatMessages();
+    handle_received_strokeCommands();
+    handle_received_strokeHistory();
 
     if (m_shouldReturnToMenu)
     {
@@ -303,4 +248,127 @@ void CoreGameState::updateLayout()
         m_canvas.bounds.position.x + (m_canvas.bounds.size.x - pickerWidth) / 2.f,
         m_canvas.bounds.position.y + m_canvas.bounds.size.y + 10.f
         });
+}
+
+void CoreGameState::handle_received_strokeCommands()
+{
+    auto strokeCommands = Client::getReceivedStrokeCommands();
+    while (!strokeCommands.empty())
+    {
+        auto scmd = strokeCommands.front();
+        strokeCommands.pop();
+        ByteReader rdr{ .buffer = scmd._data };
+        switch (scmd._type)
+        {
+            using enum Client::ReceivedStrokeCommand::Type;
+        case START_STROKE:
+        {
+            auto mousePos = rdr.read<MousePosition>();
+            auto rgbat = rdr.read<std::array<char, 5>>();
+            m_canvas.beginStroke(
+                sf::Vector2f{
+                    static_cast<float>(mousePos[0]),
+                    static_cast<float>(mousePos[1])
+                },
+                sf::Color{
+                    static_cast<std::uint8_t>(rgbat[0]),
+                    static_cast<std::uint8_t>(rgbat[1]),
+                    static_cast<std::uint8_t>(rgbat[2]),
+                    static_cast<std::uint8_t>(rgbat[3])
+                },
+                static_cast<float>(rgbat[4])
+            );
+            break;
+        }
+        case EXTEND_STROKE:
+        {
+            auto mousePos = rdr.read<MousePosition>();
+            m_canvas.extendStroke(
+                sf::Vector2f{
+                    static_cast<float>(mousePos[0]),
+                    static_cast<float>(mousePos[1])
+                });
+            break;
+        }
+        case END_STROKE:
+        {
+            m_canvas.endStroke();
+            break;
+        }
+        case CLEAR_CANVAS:
+        {
+            m_canvas.clear();
+            break;
+        }
+        }
+    }
+}
+
+void CoreGameState::handle_received_chatMessages()
+{
+    auto chatMsges = Client::getReceivedChatMessages();
+    while (!chatMsges.empty())
+    {
+        auto chatmsg = chatMsges.front();
+        chatMsges.pop();
+        m_chatBox.receiveMessageFromServer(chatmsg._name, chatmsg._message);
+    }
+}
+
+void CoreGameState::handle_received_strokeHistory()
+{
+    auto strokeHistory = Client::getStrokeHistory();
+    if (strokeHistory)
+    {
+        // there is a stroke history for us to interpret
+        m_canvas.clear();
+
+        for (const auto& strokeCmd : strokeHistory->_strokeHistory)
+        {
+            ByteReader rdr{ .buffer = strokeCmd._data };
+            switch (strokeCmd._type)
+            {
+                using enum Client::ReceivedStrokeCommand::Type;
+            case START_STROKE:
+            {
+                auto mousePos = rdr.read<MousePosition>();
+                auto rgbat = rdr.read<std::array<char, 5>>();
+                m_canvas.beginStroke(
+                    sf::Vector2f{
+                        static_cast<float>(mousePos[0]),
+                        static_cast<float>(mousePos[1])
+                    },
+                    sf::Color{
+                        static_cast<std::uint8_t>(rgbat[0]),
+                        static_cast<std::uint8_t>(rgbat[1]),
+                        static_cast<std::uint8_t>(rgbat[2]),
+                        static_cast<std::uint8_t>(rgbat[3])
+                    },
+                    static_cast<float>(rgbat[4])
+                );
+                break;
+            }
+            case EXTEND_STROKE:
+            {
+                auto mousePos = rdr.read<MousePosition>();
+                m_canvas.extendStroke(
+                    sf::Vector2f{
+                        static_cast<float>(mousePos[0]),
+                        static_cast<float>(mousePos[1])
+                    });
+                break;
+            }
+            case END_STROKE:
+            {
+                m_canvas.endStroke();
+                break;
+            }
+            case CLEAR_CANVAS:
+            {
+                m_canvas.clear();
+                break;
+            }
+            }
+        }
+    }
 }
