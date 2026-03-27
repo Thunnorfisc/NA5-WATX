@@ -403,11 +403,13 @@ void Server::handle_reqQuitGame(std::span<const char> udpPacketWithoutMID, socka
         it->second.score = 0;
         it->second.currentStrokeId = std::nullopt;
 
-        if (gameRunning)
+        if (gameRunning && drawerSessionOpt && drawerSessionOpt == sessionIdHost)
         {
             NO_LOCK_advanceDrawer();
-            NO_LOCK_broadcastScoreboard();
         }
+
+        // update scoreboard no matter wat
+        NO_LOCK_broadcastScoreboard();
         return true;
         })) return;
 
