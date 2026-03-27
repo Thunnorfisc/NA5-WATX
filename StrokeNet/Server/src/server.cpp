@@ -765,8 +765,11 @@ void Server::handle_reqMsg(std::span<const char> udpPacketWithoutMID, sockaddr_i
         std::transform(str_msg.begin(), str_msg.end(), str_msg.begin(), [](char c) {return std::toupper(c); });
         std::transform(word.second.begin(), word.second.end(), word.second.begin(), [](char c) {return std::toupper(c); });
 
-        if (str_msg == word.second) {
+        if (drawerSessionIdOpt == sessionIdHostOrder) return ErrorRetVal::OK_BUT_NOT_GUESSED_WORD;
+
+        if (!it->second.wordAlreadyGuessed && str_msg == word.second) {
             it->second.score += 75;
+            it->second.wordAlreadyGuessed = true;
             NO_LOCK_broadcastScoreboard();
             return ErrorRetVal::OK_AND_GUESSED_WORD;
         }
@@ -791,7 +794,6 @@ void Server::handle_reqMsg(std::span<const char> udpPacketWithoutMID, sockaddr_i
 
     // CHECK IF ITS NOT CURRENT DRAWER + IF ACTUAL MSG IS THE GUESS, THEN SEND BACK
     // "USER GUESSED THE WORD" @TODOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO
-
 
 
     // validated its good REQ_MSG packet, send back RSP_MSG
@@ -1459,7 +1461,9 @@ void Server::resetRound()
 {
     // local server stuff
 
-    LOCK_gameVariablesANDclientStorage([this](auto&, auto&, auto&) {
+    LOCK_gameVariablesANDclientStorage([this](auto& map, auto&, auto&) {
+        for (auto& [_sid, client] : map)
+            client.wordAlreadyGuessed = false;
         NO_LOCK_advanceDrawer();
         pick_word();
         NO_LOCK_broadcastScoreboard();
@@ -1564,43 +1568,6 @@ void Server::LOCK_sendClearCanvasCommand()
         });
 }
 
-// ============================================================
-// Send clear canvas command - NO LOCK
-// ============================================================
-
-void Server::NO_LOCK_sendClearCanvasCommand()
-{
-    std::lock_guard ntfLock(_pendingNtfClearCanvasMutex);
-
-    LOCK_clientStorage([this](const auto& map) {
-        auto now = std::chrono::steady_clock::now();
-        for (const auto& [ssiho, client] : map)
-        {
-            if (!client.inGame)continue;
-            std::vector<char> ntfPkt(PacketSize::NTF_CLEAR_CANVAS);
-            ByteWriter ntfWrt{ .buffer = ntfPkt };
-            ntfWrt.write(static_cast<char>(MessageType::NTF_CLEAR_CANVAS));
-            ntfWrt.write(htonl(ssiho));       // target's session ID
-            ntfWrt.write(htonl(_clearCanvasIdServer));
-
-            // Send immediately once
-            sockaddr_in clientSa = client.sa;
-            sendto(_socket, ntfPkt.data(), static_cast<int>(ntfPkt.size()), 0,
-                reinterpret_cast<sockaddr*>(&clientSa), sizeof(clientSa));
-
-            // Add to pending for retry
-            _pendingNtfClearCanvases[NtfKey{ ssiho, _clearCanvasIdServer }] = PendingNTF{
-                ._data = std::move(ntfPkt),
-                ._clientAddr = client.sa,
-                ._targetSessionId = ssiho,
-                ._ntfId = _clearCanvasIdServer,
-                ._nextSendTime = now + std::chrono::milliseconds(100),
-                ._giveUpTime = now + std::chrono::seconds(2),
-            };
-        }
-        _clearCanvasIdServer++;
-        });
-}
 
 void Server::LOCK_sendNewWordLen()
 {
@@ -1686,11 +1653,6 @@ void Server::LOCK_sendNewWord()
             };
             _sendNewWordIdServer++;
     });
-}
-
-void Server::NO_LOCK_sendNewWordLen()
-{
-
 }
 
 
