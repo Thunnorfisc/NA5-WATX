@@ -1230,7 +1230,13 @@ void Server::NO_LOCK_advanceDrawer()
     {
         log(std::cerr,
             std::format("[Server] Tried to advance drawer, but server has no clients to choose from"));
-        stopGame();
+        //stopGame();
+        return;
+    }
+    if (_clientStorageMap.size() == 1 && _drawerSessionId.has_value())
+    {
+        log(std::cerr,
+            std::format("[Server] Tried to advance drawer, but no drawers to choose from, sticking with current player"));
         return;
     }
 
