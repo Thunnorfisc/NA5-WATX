@@ -348,6 +348,7 @@ private:
         return fn(_gameRunning, _drawerSessionId);
     }
 
+    public:
     template <typename Fn>
     auto LOCK_gameVariablesANDclientStorage(Fn fn)
         -> decltype(fn(_clientStorageMap, _gameRunning, _drawerSessionId))

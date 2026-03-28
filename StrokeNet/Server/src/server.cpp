@@ -413,22 +413,30 @@ void Server::handle_reqQuitGame(std::span<const char> udpPacketWithoutMID, socka
     // else it will return false, and we will early exit
     std::string username;
     if (!LOCK_gameVariablesANDclientStorage(
-        [sessionIdHost,&username,this](auto& map, const auto& gameRunning, const auto& drawerSessionOpt) {
-        auto it = map.find(sessionIdHost);
-        if (it == map.end()) return false;
-        it->second.inGame = false;
-        it->second.score = 0;
-        it->second.currentStrokeId = std::nullopt;
-        username = it->second.username;
-        if (gameRunning && drawerSessionOpt && drawerSessionOpt == sessionIdHost)
-        {
-            NO_LOCK_advanceDrawer();
-            NO_LOCK_forceEndStroke();
-        }
-        // update scoreboard no matter wat
-        NO_LOCK_broadcastScoreboard();
-        return true;
-        })) return;
+        [sessionIdHost, &username, this](auto& map, const auto& gameRunning, const auto& drawerSessionOpt) {
+            auto it = map.find(sessionIdHost);
+            if (it == map.end()) return false;
+            it->second.inGame = false;
+            it->second.score = 0;
+            it->second.currentStrokeId = std::nullopt;
+            username = it->second.username;
+            if (gameRunning && drawerSessionOpt && drawerSessionOpt == sessionIdHost)
+            {
+                NO_LOCK_advanceDrawer();
+                NO_LOCK_forceEndStroke();
+                pick_word();
+            }
+            // update scoreboard no matter wat
+            NO_LOCK_broadcastScoreboard();
+            return true;
+        })) {
+
+        LOCK_sendNewWord();
+        LOCK_sendNewWordLen();
+        LOCK_sendNewRoundEndTime();
+        LOCK_sendClearCanvasCommand();
+        return;
+    };
 
 
     // send back ack
@@ -877,7 +885,10 @@ void Server::handle_reqMsg(std::span<const char> udpPacketWithoutMID, sockaddr_i
     // and call NON_LOCK_BROADCAST
     // =======================================================================
     std::string username;
-    enum class ErrorRetVal { OK_BUT_NOT_GUESSED_WORD,OK_AND_GUESSED_WORD, CANT_FIND, NOT_IN_GAME, GAME_NOT_RUNNING };
+    enum class ErrorRetVal { 
+        OK_AND_GUESSED_WORD, OK_BUT_NOT_GUESSED_WORD,  // OKAYS 
+        CANT_FIND, NOT_IN_GAME, GAME_NOT_RUNNING       // ERRORS
+    };
     auto erv = LOCK_gameVariablesANDclientStorage([sessionIdHostOrder, &username,&actualmsg,this](auto& map, const auto& gameRunning, auto& drawerSessionIdOpt) {
         if (!gameRunning) return ErrorRetVal::GAME_NOT_RUNNING;
         auto it = map.find(sessionIdHostOrder);
@@ -892,16 +903,19 @@ void Server::handle_reqMsg(std::span<const char> udpPacketWithoutMID, sockaddr_i
 
         if (drawerSessionIdOpt == sessionIdHostOrder) return ErrorRetVal::OK_BUT_NOT_GUESSED_WORD;
 
-        if (!it->second.wordAlreadyGuessed && str_msg == word.second) {
-            it->second.score += 75;
-            it->second.wordAlreadyGuessed = true;
-            NO_LOCK_broadcastScoreboard();
+        if (str_msg == word.second) {
+            if (!it->second.wordAlreadyGuessed) {
+                it->second.score += 75;
+                it->second.wordAlreadyGuessed = true;
+                NO_LOCK_broadcastScoreboard();
+            }
             return ErrorRetVal::OK_AND_GUESSED_WORD;
         }
         return ErrorRetVal::OK_BUT_NOT_GUESSED_WORD;
         });
 
-    if (erv != ErrorRetVal::OK_BUT_NOT_GUESSED_WORD && erv != ErrorRetVal::OK_AND_GUESSED_WORD)
+    //if (erv != ErrorRetVal::OK_BUT_NOT_GUESSED_WORD && erv != ErrorRetVal::OK_AND_GUESSED_WORD && erv != ErrorRetVal::HIDE_MSG) // essenncialy dis
+    if (erv > ErrorRetVal::OK_BUT_NOT_GUESSED_WORD)
     {
         std::string errmsg;
         switch (erv)
@@ -916,7 +930,6 @@ void Server::handle_reqMsg(std::span<const char> udpPacketWithoutMID, sockaddr_i
             std::format("[Server] Received REQ_MSG but {}", errmsg));
         return;
     }
-
     // CHECK IF ITS NOT CURRENT DRAWER + IF ACTUAL MSG IS THE GUESS, THEN SEND BACK
     // "USER GUESSED THE WORD" @TODOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO
 
@@ -929,6 +942,11 @@ void Server::handle_reqMsg(std::span<const char> udpPacketWithoutMID, sockaddr_i
     rspwrt.write(htonl(msgIdHostOrder));
     bool successRsp = sendWithRetry(rspmsg, *sa);
 
+    if (erv == ErrorRetVal::OK_AND_GUESSED_WORD) {
+        return;
+    }
+
+    // what is dis block for?
     auto nameLength = static_cast<std::uint8_t>(username.length());
     if (nameLength > MAX_SHOWN_USERNAME_LEN)
     {

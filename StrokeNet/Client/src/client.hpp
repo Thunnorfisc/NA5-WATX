@@ -162,7 +162,7 @@ private:
     // Word
     // ============================================================
     static inline std::atomic<std::int32_t> _word_len = 0;
-    static inline std::string _word{};
+    static inline std::atomic<std::shared_ptr<std::string>> _word{};
 
     // ============================================================
     // Chat messages thingies - Seen msges id

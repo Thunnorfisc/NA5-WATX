@@ -476,6 +476,8 @@ void Client::handle_NTF_NewWordLen(std::span<const char> msg)
     _word_len = static_cast<int32_t>(rdr.read<std::uint8_t>());
     std::cout << _word_len << '\n';
 
+    _word = std::make_shared<std::string>(std::string{}); // Reset to blank for client word display logic
+
     // Prepare ack to send back to server
     std::array<char, PacketSize:: NTF_RCV_SEND_WORD_LEN> ntfRcvRET;
     ByteWriterN wrt{ .buffer = ntfRcvRET };
@@ -511,8 +513,8 @@ void Client::handle_NTF_NewWord(std::span<const char> msg)
     _word_len = static_cast<int32_t>(rdr.read<std::uint8_t>());
 
     auto temp_word = rdr.readBytes(_word_len);
-    _word = std::string(temp_word.begin(), temp_word.end());
-    std::cout << _word << '\n';
+    _word = std::make_shared<std::string>(std::string(temp_word.begin(), temp_word.end()));
+    std::cout << *(_word.load().get()) << '\n';
 
     // Prepare ack to send back to server
     std::array<char, PacketSize::NTF_RCV_SEND_WORD> ntfRcvRET;
@@ -1348,7 +1350,7 @@ std::int32_t Client::getWordLength()
 
 std::string Client::getWord()
 {
-    return _word;
+    return *(_word.load().get());
 }
 
 // ============================================================
