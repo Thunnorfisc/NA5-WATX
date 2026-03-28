@@ -41,7 +41,7 @@ inline constexpr std::size_t MAX_PASSWORD_LEN = 32;
 inline constexpr std::uint16_t ServerUdpPort = 32112;
 
 inline constexpr std::size_t MAX_WORD_LEN = 255;
-inline constexpr std::size_t MAX_PLAYERS_IN_GAME = 8;
+inline constexpr std::size_t MAX_PLAYERS_IN_GAME = 6;
 inline constexpr std::size_t MAX_CHAT_HISTORY_SHOWN = 15;
 inline constexpr std::size_t MAX_SHOWN_USERNAME_LEN = 15;
 inline constexpr std::size_t MAX_CHARS_PER_CHAT_MSG = 84;
