@@ -40,11 +40,11 @@ inline constexpr std::size_t MAX_USERNAME_LEN = 32;
 inline constexpr std::size_t MAX_PASSWORD_LEN = 32;
 inline constexpr std::uint16_t ServerUdpPort = 32112;
 
+inline constexpr std::size_t MAX_WORD_LEN = 255;
 inline constexpr std::size_t MAX_PLAYERS_IN_GAME = 8;
+inline constexpr std::size_t MAX_CHAT_HISTORY_SHOWN = 15;
 inline constexpr std::size_t MAX_SHOWN_USERNAME_LEN = 15;
 inline constexpr std::size_t MAX_CHARS_PER_CHAT_MSG = 84;
-
-inline constexpr std::size_t MAX_WORD_LEN = 255;
 
 namespace PacketSize
 {
@@ -194,13 +194,13 @@ namespace PacketSize
     // [NTF_RCV_STROKE_HISTORY][SESSION_ID][NTF_STROKE_HISTORY_ID][NTF_STROKE_CHUNK_NUMBER]
     constexpr inline std::size_t NTF_RCV_STROKE_HISTORY = 11;
 
-    //  1                4           4                                2                    NUMBER_OF_MESSAGES 
-    // [NTF_MSG_HISTORY][SESSION_ID][NTF_MSG_HISTORY_WITHOUT_DATA_ID][NUMBER_OF_MESSAGES]{ MSG_LEN(1) | MSG_BUFFER | NAME_LEN(1) | NAME_BUFFER }
-    constexpr inline std::size_t NTF_MSG_HISTORY_WITHOUT_DATA = 11;
+    //  1                4           4                   4                                        2                     2                    NUMBER_OF_MESSAGES 
+    // [NTF_MSG_HISTORY][SESSION_ID][NTF_MSG_HISTORY_ID][NUMBER_OF_TOTAL_BYTES_IN_ALL_MSG_CHUNKS][NTF_MSG_CHUNK_NUMBER][NUMBER_OF_MESSAGES]{ MSG_LEN(1) | MSG_BUFFER | NAME_LEN(1) | NAME_BUFFER }
+    constexpr inline std::size_t NTF_MSG_HISTORY_WITHOUT_DATA = 17;
 
-    //  1                    4           4
-    // [NTF_RCV_MSG_HISTORY][SESSION_ID][NTF_MSG_HISTORY_WITHOUT_DATA_ID]    
-    constexpr inline std::size_t NTF_RCV_MSG_HISTORY = 9;
+    //  1                    4           4                   2
+    // [NTF_RCV_MSG_HISTORY][SESSION_ID][NTF_MSG_HISTORY_ID][NTF_MSG_CHUNK_NUMBER] 
+    constexpr inline std::size_t NTF_RCV_MSG_HISTORY = 11;
 
     //  4          5
     // [MOUSE_POS][RGBAT]
@@ -295,6 +295,12 @@ struct PastStroke
     enum class Type : std::uint8_t { START_STROKE, EXTEND_STROKE, END_STROKE };
     Type _type;
     std::vector<char> _data;
+};
+
+struct PastMessage
+{
+    std::string _message;
+    std::string _name;
 };
 
 // ========================================== helpers for input bits

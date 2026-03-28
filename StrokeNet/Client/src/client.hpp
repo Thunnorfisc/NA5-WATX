@@ -72,7 +72,7 @@ public:
     };
     struct ReceivedChatMessageHistory
     {
-        std::vector<ReceivedChatMessage> _chatMessageHistory;
+        std::vector<PastMessage> _chatMessageHistory;
     };
     // ============================================================
     // Drawing canvas thingies - send
@@ -254,6 +254,8 @@ private:
     // ============================================================
     static inline std::mutex _msgHistoryReceivedMut;
     static inline std::queue<ReceivedChatMessageHistory> _msgHistoryReceived;
+    static inline std::pair<std::uint32_t, std::vector<char>> _msgHistoryId_AND_bufferedChatMsgChunks;
+    static inline std::uint16_t _expectedMsgChunkId = 0;
 
     // ============================================================
     // Listening thread

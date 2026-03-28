@@ -181,6 +181,7 @@ void ChatBox::handleEvent(const sf::Event& event)
 				currentInput.clear();
 				text.setString("");
 			}
+			setTyping(false);
 		}
 		else if ((ch == 32 || ch >= 65 && ch <= 90 || ch >= 97 && ch <= 122) && currentInput.size() < MAX_MESSAGE_LENGTH) {
 			currentInput += static_cast<char>(ch);

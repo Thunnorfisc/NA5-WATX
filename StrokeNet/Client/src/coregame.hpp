@@ -46,6 +46,7 @@ private:
     void handle_received_strokeCommands();
     void handle_received_chatMessages();
     void handle_received_strokeHistory();
+    void handle_received_msgHistory();
 
     sf::RectangleShape m_backButton;
     sf::Font m_font;
