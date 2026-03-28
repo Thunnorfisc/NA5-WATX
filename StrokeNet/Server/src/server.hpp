@@ -91,6 +91,8 @@ public:
 
     void LOCK_forceEndStroke();
     void NO_LOCK_forceEndStroke();
+
+    void LOCK_sendMessage(const std::string& username, const std::string& message);
 private:
     // ============================================================
     // Game State

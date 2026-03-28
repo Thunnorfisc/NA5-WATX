@@ -352,10 +352,12 @@ void Server::handle_reqPlayGame(std::span<const char> udpPacketWithoutMID, socka
     // If it finds the id inside the map,
     // it will set inGame to true, and return true
     // else it will return false, and we will early exit
-    if (!LOCK_clientStorage([sessionIdHost](auto& map) {
+    std::string username;
+    if (!LOCK_clientStorage([sessionIdHost,&username](auto& map) {
         auto it = map.find(sessionIdHost);
         if (it == map.end()) return false;
         it->second.inGame = true;
+        username = it->second.username;
         return true;
         })) return;
 
@@ -374,12 +376,21 @@ void Server::handle_reqPlayGame(std::span<const char> udpPacketWithoutMID, socka
         log(std::cerr,
             std::format("[Server] Unable to send back RSP_PLAY_GAME to client {}",sessionIdHost));
     }
+    auto nameLength = static_cast<std::uint8_t>(username.length());
+    if (nameLength > MAX_SHOWN_USERNAME_LEN)
+    {
+        username = username.substr(0, MAX_SHOWN_USERNAME_LEN - 3); // trunc it
+        username += "...";
+        nameLength = MAX_SHOWN_USERNAME_LEN;
+    }
+    LOCK_sendMessage("Server",std::format("{} has joined the lobby",username));
 
     LOCK_broadcastScoreboard();
     LOCK_sendNewWordLen();
     LOCK_sendNewRoundEndTime();
     LOCK_sendStrokeHistory();
     LOCK_sendMessageHistory();
+
 }
 
 // ============================================================
@@ -400,14 +411,15 @@ void Server::handle_reqQuitGame(std::span<const char> udpPacketWithoutMID, socka
     // it will also call NO_LOCK_advanceDrawer
     // 
     // else it will return false, and we will early exit
+    std::string username;
     if (!LOCK_gameVariablesANDclientStorage(
-        [sessionIdHost,this](auto& map, const auto& gameRunning, const auto& drawerSessionOpt) {
+        [sessionIdHost,&username,this](auto& map, const auto& gameRunning, const auto& drawerSessionOpt) {
         auto it = map.find(sessionIdHost);
         if (it == map.end()) return false;
         it->second.inGame = false;
         it->second.score = 0;
         it->second.currentStrokeId = std::nullopt;
-
+        username = it->second.username;
         if (gameRunning && drawerSessionOpt && drawerSessionOpt == sessionIdHost)
         {
             NO_LOCK_advanceDrawer();
@@ -430,6 +442,15 @@ void Server::handle_reqQuitGame(std::span<const char> udpPacketWithoutMID, socka
         log(std::cerr,
             std::format("[Server] Unable to send back RSP_QUIT_GAME to client {}", sessionIdHost));
     }
+
+    auto nameLength = static_cast<std::uint8_t>(username.length());
+    if (nameLength > MAX_SHOWN_USERNAME_LEN)
+    {
+        username = username.substr(0, MAX_SHOWN_USERNAME_LEN - 3); // trunc it
+        username += "...";
+        nameLength = MAX_SHOWN_USERNAME_LEN;
+    }
+    LOCK_sendMessage("Server", std::format("{} has left the lobby",username));
 }
 
 // ============================================================
@@ -916,56 +937,9 @@ void Server::handle_reqMsg(std::span<const char> udpPacketWithoutMID, sockaddr_i
         nameLength = MAX_SHOWN_USERNAME_LEN;
     }
 
-
-    std::string msgString = std::string(actualmsg.begin(), actualmsg.end());
-    // push into message history
-    {
-        std::lock_guard chatmsgLock(_pastChatMsgMutex);
-        _pastChatMsg_NEED_MUTEX.push_back(PastMessage{ ._message = msgString, ._name = username });
-
-        // make sure it is within the size constraints
-        while (_pastChatMsg_NEED_MUTEX.size() > MAX_CHAT_HISTORY_SHOWN)
-        {
-            _pastChatMsg_NEED_MUTEX.pop_front();
-        }
-    }
-
+    std::string actualmsgstr = std::string(actualmsg.begin(), actualmsg.end());
     // Now NTF all clients for msg
-    std::lock_guard ntfLock(_pendingNtfMsgMutex);
-    LOCK_clientStorage([this, msgLength, nameLength,&actualmsg,&username](const auto& map)
-        {
-            auto now = std::chrono::steady_clock::now();
-            for (const auto& [ssiho, client] : map)
-            {
-                if (!client.inGame) continue;
-                std::vector<char> svrmsg;
-                svrmsg.resize(PacketSize::NTF_MSG_WITHOUT_BUFFER + msgLength + nameLength);
-                ByteWriter svrwrt{ .buffer = svrmsg };
-                svrwrt.write(static_cast<char>(MessageType::NTF_MSG));
-                svrwrt.write(htonl(ssiho));
-                svrwrt.write(htonl(_messageIdServer));
-                svrwrt.write(msgLength);
-                svrwrt.writeSpan(actualmsg);
-                svrwrt.write(nameLength);
-                svrwrt.writeSpan(username);
-
-                // Send immediately once
-                sockaddr_in clientSa = client.sa;
-                sendto(_socket, svrmsg.data(), static_cast<int>(svrmsg.size()), 0,
-                    reinterpret_cast<sockaddr*>(&clientSa), sizeof(clientSa));
-
-                // Add to pending for retry
-                _pendingNtfMsg[NtfKey{ ssiho, _messageIdServer }] = PendingNTF{
-                    ._data = std::move(svrmsg),
-                    ._clientAddr = client.sa,
-                    ._targetSessionId = ssiho,
-                    ._ntfId = _messageIdServer,
-                    ._nextSendTime = now + std::chrono::milliseconds(100),
-                    ._giveUpTime = now + std::chrono::seconds(2),
-                };
-            }
-            _messageIdServer++;
-        });
+    LOCK_sendMessage(username, actualmsgstr);
 }
 
 // ============================================================
@@ -2038,6 +2012,58 @@ void Server::NO_LOCK_forceEndStroke()
     ps._type = PastStroke::Type::END_STROKE;
     std::lock_guard lock(_pastStrokesMutex);
     _pastStrokes_NEED_MUTEX.push_back(std::move(ps));
+}
+
+void Server::LOCK_sendMessage(const std::string& username, const std::string& message)
+{
+    std::lock_guard ntfLock(_pendingNtfMsgMutex);
+    LOCK_clientStorage([this, &message, &username](const auto& map)
+        {
+            std::uint8_t msgLength = static_cast<std::uint8_t>(message.length());
+            std::uint8_t nameLength = static_cast<std::uint8_t>(username.length());
+            auto now = std::chrono::steady_clock::now();
+            for (const auto& [ssiho, client] : map)
+            {
+                if (!client.inGame) continue;
+                std::vector<char> svrmsg;
+                svrmsg.resize(PacketSize::NTF_MSG_WITHOUT_BUFFER + msgLength + nameLength);
+                ByteWriter svrwrt{ .buffer = svrmsg };
+                svrwrt.write(static_cast<char>(MessageType::NTF_MSG));
+                svrwrt.write(htonl(ssiho));
+                svrwrt.write(htonl(_messageIdServer));
+                svrwrt.write(msgLength);
+                svrwrt.writeSpan(message);
+                svrwrt.write(nameLength);
+                svrwrt.writeSpan(username);
+
+                // Send immediately once
+                sockaddr_in clientSa = client.sa;
+                sendto(_socket, svrmsg.data(), static_cast<int>(svrmsg.size()), 0,
+                    reinterpret_cast<sockaddr*>(&clientSa), sizeof(clientSa));
+
+                // Add to pending for retry
+                _pendingNtfMsg[NtfKey{ ssiho, _messageIdServer }] = PendingNTF{
+                    ._data = std::move(svrmsg),
+                    ._clientAddr = client.sa,
+                    ._targetSessionId = ssiho,
+                    ._ntfId = _messageIdServer,
+                    ._nextSendTime = now + std::chrono::milliseconds(100),
+                    ._giveUpTime = now + std::chrono::seconds(2),
+                };
+            }
+            _messageIdServer++;
+        });
+    // push into message history
+    {
+        std::lock_guard chatmsgLock(_pastChatMsgMutex);
+        _pastChatMsg_NEED_MUTEX.push_back(PastMessage{ ._message = message, ._name = username });
+
+        // make sure it is within the size constraints
+        while (_pastChatMsg_NEED_MUTEX.size() > MAX_CHAT_HISTORY_SHOWN)
+        {
+            _pastChatMsg_NEED_MUTEX.pop_front();
+        }
+    }
 }
 
 // ============================================================
