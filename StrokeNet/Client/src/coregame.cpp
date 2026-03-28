@@ -199,7 +199,7 @@ void CoreGameState::render()
         wordText.setOutlineColor(sf::Color(220, 70, 70));
 		wordText.setPosition({ 400.f, 20.f });
 #ifdef _DEBUG
-		std::cout << "Word:" << wordText.getString().toAnsiString() << std::endl;
+		//std::cout << "Word:" << wordText.getString().toAnsiString() << std::endl;
 #endif
 		window.draw(wordText);
     }
@@ -211,7 +211,7 @@ void CoreGameState::render()
         wordHintText.setOutlineColor(sf::Color(220, 70, 70));
 		wordHintText.setPosition({ 400.f, 20.f + wordHintText.getLocalBounds().size.y }); // seems to not be able to display underscore '_' so i use dash and lower the height to make it look like an underscore uwu
 #ifdef _DEBUG
-		std::cout << "Word Hint:" << wordHintText.getString().toAnsiString() << std::endl;
+		//std::cout << "Word Hint:" << wordHintText.getString().toAnsiString() << std::endl;
 #endif
 		window.draw(wordHintText);
     }

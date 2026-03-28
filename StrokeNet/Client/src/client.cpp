@@ -471,12 +471,12 @@ void Client::handle_NTF_NewWordLen(std::span<const char> msg)
             std::format("[Client] Received an invalid session id [{}] from the server, ignoring packet", sessionIdHost));
         return;
     }
+    _word = std::make_shared<std::string>(std::string{}); // Reset to blank for client word display logic
 
     auto sendWordIdHost = ntohl(rdr.read<std::uint32_t>());
     _word_len = static_cast<int32_t>(rdr.read<std::uint8_t>());
     std::cout << _word_len << '\n';
 
-    _word = std::make_shared<std::string>(std::string{}); // Reset to blank for client word display logic
 
     // Prepare ack to send back to server
     std::array<char, PacketSize:: NTF_RCV_SEND_WORD_LEN> ntfRcvRET;
@@ -1350,7 +1350,8 @@ std::int32_t Client::getWordLength()
 
 std::string Client::getWord()
 {
-    return *(_word.load().get());
+    auto ptr = _word.load().get();
+    return ptr ? *ptr : std::string{};
 }
 
 // ============================================================

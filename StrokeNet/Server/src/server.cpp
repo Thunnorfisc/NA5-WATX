@@ -424,19 +424,12 @@ void Server::handle_reqQuitGame(std::span<const char> udpPacketWithoutMID, socka
             {
                 NO_LOCK_advanceDrawer();
                 NO_LOCK_forceEndStroke();
-                pick_word();
+                //pick_word();
             }
             // update scoreboard no matter wat
             NO_LOCK_broadcastScoreboard();
             return true;
-        })) {
-
-        LOCK_sendNewWord();
-        LOCK_sendNewWordLen();
-        LOCK_sendNewRoundEndTime();
-        LOCK_sendClearCanvasCommand();
-        return;
-    };
+        }))return;
 
 
     // send back ack
@@ -1695,7 +1688,7 @@ void Server::LOCK_sendNewWordLen()
         auto now = std::chrono::steady_clock::now();
         for (const auto& [ssiho, client] : map)
         {
-            if (!client.inGame) continue;
+            if (!client.inGame || ssiho == _drawerSessionId) continue;
             std::vector<char> ntfPkt(PacketSize::NTF_SEND_WORD_LEN);
             ByteWriter ntfWrt{ .buffer = ntfPkt };
             ntfWrt.write(static_cast<char>(MessageType::NTF_SEND_WORD_LEN));
