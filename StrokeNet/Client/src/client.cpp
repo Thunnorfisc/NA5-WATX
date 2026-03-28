@@ -44,6 +44,11 @@ void log(std::ostream& os, std::string_view msg)
 
 void Client::initalize()
 {
+    _strokeHistoryId_AND_bufferedStrokeHistoryMsgChunks.second.reserve(30'000);
+    _strokeHistoryId_AND_bufferedStrokeHistoryMsgChunks.first = 0;
+
+    _msgHistoryId_AND_bufferedChatMsgChunks.second.reserve(30'000);
+    _expectedMsgChunkId = 0;
     WSADATA wsaData;
     if(int r = WSAStartup(MAKEWORD(2, 2), &wsaData); r != 0)
         throw std::runtime_error(std::format("[Client] WSAStartup failed: {}", r));
@@ -203,7 +208,7 @@ void Client::handle_SVR_StartStroke(std::span<const char> msg)
     mousePositionHostOrder[1] = ntohs(mousePositionHostOrder[1]);
     wrt.write(mousePositionHostOrder);
 
-    auto rgbat = rdr.read<std::array<char, 5>>();
+    auto rgbat = rdr.read<std::array<std::uint8_t, 5>>();
     wrt.write(rgbat);
 
     ReceivedStrokeCommand rcs;
@@ -533,6 +538,11 @@ void Client::handle_NTF_StrokeHistory(std::span<const char> msg)
 {
     ByteReader rdr{ .buffer = msg };
     auto sessionIdHost = ntohl(rdr.read<SessionId>());
+    auto strokeHistoryIdHost = ntohl(rdr.read<std::uint32_t>());
+    auto totalRawStrokeBytesHost = ntohl(rdr.read<std::uint32_t>());
+    auto strokeChunkNumberHost = ntohs(rdr.read<std::uint16_t>());
+    auto numberOfHistoryHost = ntohl(rdr.read<std::uint32_t>());
+
     if (sessionIdHost != _sessionId)
     {
         log(std::cerr,
@@ -540,31 +550,85 @@ void Client::handle_NTF_StrokeHistory(std::span<const char> msg)
         return;
     }
 
-    auto strokeHistoryIdNetwork = rdr.read<std::uint32_t>();
-    auto numberOfHistoryHost = ntohl(rdr.read<std::uint32_t>());
+    // If this is a new history id, reset accumulation buffer
+    if (_strokeHistoryId_AND_bufferedStrokeHistoryMsgChunks.first != strokeHistoryIdHost)
+    {
+        _strokeHistoryId_AND_bufferedStrokeHistoryMsgChunks.second.clear();
+        _strokeHistoryId_AND_bufferedStrokeHistoryMsgChunks.first = strokeHistoryIdHost;
+        _expectedStrokeChunkId = 0;
+    }
 
+    if (strokeChunkNumberHost != _expectedStrokeChunkId) return; // ignore
+
+    // Append this chunk's payload — msg already has MID stripped, so header is WITHOUT_DATA - 1
+    auto payloadSize = msg.size() - (PacketSize::NTF_STROKE_HISTORY_WITHOUT_DATA - 1);
+    auto rawStrokeData = rdr.readBytes(payloadSize);
+    _strokeHistoryId_AND_bufferedStrokeHistoryMsgChunks.second.insert(
+        _strokeHistoryId_AND_bufferedStrokeHistoryMsgChunks.second.end(),
+        rawStrokeData.begin(), rawStrokeData.end());
+
+    auto& accumulated = _strokeHistoryId_AND_bufferedStrokeHistoryMsgChunks.second;
+
+    // Always ack this chunk regardless of whether we're done
+    std::array<char, PacketSize::NTF_RCV_STROKE_HISTORY> ack;
+    ByteWriterN ackWrt{ .buffer = ack };
+    ackWrt.write(static_cast<char>(MessageType::NTF_RCV_STROKE_HISTORY));
+    ackWrt.write(htonl(_sessionId));
+    ackWrt.write(htonl(strokeHistoryIdHost));
+    ackWrt.write(htons(strokeChunkNumberHost)); // echo back in network order
+    if (!sendWithRetry(ack))
+        log(std::cerr, "[Client] Failed to send NTF_RCV_STROKE_HISTORY back to server");
+
+    _expectedStrokeChunkId++;
+    // Not done yet
+    if (accumulated.size() < totalRawStrokeBytesHost)
+        return;
+
+    assert(accumulated.size() == totalRawStrokeBytesHost && "Received more chunk data than expected");
+
+    // Reassemble all strokes from the accumulated buffer
     ReceivedStrokeHistory rsh;
     rsh._strokeHistory.resize(numberOfHistoryHost);
-    for (decltype(numberOfHistoryHost) i = 0; i < numberOfHistoryHost; i++)
+    ByteReader accumRdr{ .buffer = accumulated };
+    for (std::uint32_t i = 0; i < numberOfHistoryHost; i++)
     {
-        ReceivedStrokeCommand rsc;
-        // extract the type first
-        rsc._type = rdr.read<ReceivedStrokeCommand::Type>();
-        std::size_t expectedBytesInData = 0;
-        switch (rsc._type)
+        PastStroke ps;
+        ps._type = accumRdr.read<PastStroke::Type>();
+        switch (ps._type)
         {
-            using enum ReceivedStrokeCommand::Type;
-        case START_STROKE: expectedBytesInData = 9; break;
-        case END_STROKE: expectedBytesInData = 0; break;
-        case EXTEND_STROKE: expectedBytesInData = 4; break;
-        case CLEAR_CANVAS: expectedBytesInData = 0; break;
-        default: assert(false && "Missing switch case handled in handle_NTF_StrokeHistory");
+            using enum PastStroke::Type;
+        case START_STROKE:
+        {
+            ps._data.resize(PacketSize::PAST_HISTORY_START_STROKE);
+            ByteWriter psWrt{ .buffer = ps._data };
+            auto mousePosHostOrder = accumRdr.read<MousePosition>();
+            mousePosHostOrder[0] = ntohs(mousePosHostOrder[0]);
+            mousePosHostOrder[1] = ntohs(mousePosHostOrder[1]);
+            psWrt.write(mousePosHostOrder);
+            psWrt.write(accumRdr.read<std::array<std::uint8_t, 5>>());
+            break;
         }
-
-        rsc._data = rdr.readBytes(expectedBytesInData);
-        rsh._strokeHistory[i] = std::move(rsc);
+        case EXTEND_STROKE:
+        {
+            ps._data.resize(PacketSize::PAST_HISTORY_EXTEND_STROKE);
+            ByteWriter psWrt{ .buffer = ps._data };
+            auto mousePosHostOrder = accumRdr.read<MousePosition>();
+            mousePosHostOrder[0] = ntohs(mousePosHostOrder[0]);
+            mousePosHostOrder[1] = ntohs(mousePosHostOrder[1]);
+            psWrt.write(mousePosHostOrder);
+            break;
+        }
+        case END_STROKE:
+            break; // no data
+        default:
+            assert(false && "Missing switch case in handle_NTF_StrokeHistory");
+        }
+        rsh._strokeHistory[i] = std::move(ps);
     }
-    
+
+    accumulated.clear();
+    _strokeHistoryId_AND_bufferedStrokeHistoryMsgChunks.first = 0; // reset id, ready for next
+
     std::lock_guard lock(_strokeHistoryReceivedMut);
     _strokeHistoryReceived.push(std::move(rsh));
 }
@@ -575,7 +639,76 @@ void Client::handle_NTF_StrokeHistory(std::span<const char> msg)
 
 void Client::handle_NTF_MsgHistory(std::span<const char> msg)
 {
-    // @TODO ========================================================================================= !!!!!!!!
+    ByteReader rdr{ .buffer = msg };
+    auto sessionIdHost = ntohl(rdr.read<SessionId>());
+    auto msgHistoryIdHost = ntohl(rdr.read<std::uint32_t>());
+    auto totalRawMsgBytesHost = ntohl(rdr.read<std::uint32_t>());
+    auto msgChunkNumberHost = ntohs(rdr.read<std::uint16_t>());
+    auto numberOfMsgesHost = ntohs(rdr.read<std::uint16_t>());
+
+    if (sessionIdHost != _sessionId)
+    {
+        log(std::cerr,
+            std::format("[Client] Received an invalid session id [{}] from the server, ignoring packet", sessionIdHost));
+        return;
+    }
+
+    // If this is a new history id, reset accumulation buffer
+    if (_msgHistoryId_AND_bufferedChatMsgChunks.first != msgHistoryIdHost)
+    {
+        _msgHistoryId_AND_bufferedChatMsgChunks.second.clear();
+        _msgHistoryId_AND_bufferedChatMsgChunks.first = msgHistoryIdHost;
+        _expectedMsgChunkId = 0;
+    }
+
+    if (msgChunkNumberHost != _expectedMsgChunkId) return; // ignore
+
+    // Append this chunk's payload — msg already has MID stripped, so header is WITHOUT_DATA - 1
+    auto payloadSize = msg.size() - (PacketSize::NTF_MSG_HISTORY_WITHOUT_DATA - 1);
+    auto rawMsgData = rdr.readBytes(payloadSize);
+    _msgHistoryId_AND_bufferedChatMsgChunks.second.insert(
+        _msgHistoryId_AND_bufferedChatMsgChunks.second.end(),
+        rawMsgData.begin(), rawMsgData.end());
+
+    auto& accumulated = _msgHistoryId_AND_bufferedChatMsgChunks.second;
+
+    // Always ack this chunk regardless of whether we're done
+    std::array<char, PacketSize::NTF_RCV_MSG_HISTORY> ack;
+    ByteWriterN ackWrt{ .buffer = ack };
+    ackWrt.write(static_cast<char>(MessageType::NTF_RCV_MSG_HISTORY));
+    ackWrt.write(htonl(_sessionId));
+    ackWrt.write(htonl(msgHistoryIdHost));
+    ackWrt.write(htons(msgChunkNumberHost)); // echo back in network order
+    if (!sendWithRetry(ack))
+        log(std::cerr, "[Client] Failed to send NTF_RCV_MSG_HISTORY back to server");
+
+    _expectedMsgChunkId++;
+    // Not done yet
+    if (accumulated.size() < totalRawMsgBytesHost)
+        return;
+
+    assert(accumulated.size() == totalRawMsgBytesHost && "Received more chunk data than expected");
+
+    // Reassemble all messages from the accumulated buffer
+    ReceivedChatMessageHistory rcmh;
+    rcmh._chatMessageHistory.resize(numberOfMsgesHost);
+    ByteReader accumRdr{ .buffer = accumulated };
+    for (std::uint16_t i = 0; i < numberOfMsgesHost; i++)
+    {
+        auto& rcm = rcmh._chatMessageHistory[i];
+        std::uint8_t msgLen = accumRdr.read<std::uint8_t>();
+        std::vector<char> msg = accumRdr.readBytes(static_cast<std::size_t>(msgLen));
+        rcm._message = std::string(msg.begin(), msg.end());
+        std::uint8_t nameLen = accumRdr.read<std::uint8_t>();
+        std::vector<char> name = accumRdr.readBytes(static_cast<std::size_t>(nameLen));
+        rcm._name = std::string(name.begin(), name.end());
+    }
+
+    accumulated.clear();
+    _msgHistoryId_AND_bufferedChatMsgChunks.first = 0; // reset id, ready for next
+
+    std::lock_guard lock(_msgHistoryReceivedMut);
+    _msgHistoryReceived.push(std::move(rcmh));
 }
 
 // ============================================================

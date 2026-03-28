@@ -352,10 +352,12 @@ void Server::handle_reqPlayGame(std::span<const char> udpPacketWithoutMID, socka
     // If it finds the id inside the map,
     // it will set inGame to true, and return true
     // else it will return false, and we will early exit
-    if (!LOCK_clientStorage([sessionIdHost](auto& map) {
+    std::string username;
+    if (!LOCK_clientStorage([sessionIdHost,&username](auto& map) {
         auto it = map.find(sessionIdHost);
         if (it == map.end()) return false;
         it->second.inGame = true;
+        username = it->second.username;
         return true;
         })) return;
 
@@ -374,10 +376,21 @@ void Server::handle_reqPlayGame(std::span<const char> udpPacketWithoutMID, socka
         log(std::cerr,
             std::format("[Server] Unable to send back RSP_PLAY_GAME to client {}",sessionIdHost));
     }
+    auto nameLength = static_cast<std::uint8_t>(username.length());
+    if (nameLength > MAX_SHOWN_USERNAME_LEN)
+    {
+        username = username.substr(0, MAX_SHOWN_USERNAME_LEN - 3); // trunc it
+        username += "...";
+        nameLength = MAX_SHOWN_USERNAME_LEN;
+    }
+    LOCK_sendMessage("Server",std::format("{} has joined the lobby",username));
 
     LOCK_broadcastScoreboard();
     LOCK_sendNewWordLen();
     LOCK_sendNewRoundEndTime();
+    LOCK_sendStrokeHistory();
+    LOCK_sendMessageHistory();
+
 }
 
 // ============================================================
@@ -398,20 +411,20 @@ void Server::handle_reqQuitGame(std::span<const char> udpPacketWithoutMID, socka
     // it will also call NO_LOCK_advanceDrawer
     // 
     // else it will return false, and we will early exit
+    std::string username;
     if (!LOCK_gameVariablesANDclientStorage(
-        [sessionIdHost,this](auto& map, const auto& gameRunning, const auto& drawerSessionOpt) {
+        [sessionIdHost,&username,this](auto& map, const auto& gameRunning, const auto& drawerSessionOpt) {
         auto it = map.find(sessionIdHost);
         if (it == map.end()) return false;
         it->second.inGame = false;
         it->second.score = 0;
         it->second.currentStrokeId = std::nullopt;
-
+        username = it->second.username;
         if (gameRunning && drawerSessionOpt && drawerSessionOpt == sessionIdHost)
         {
             NO_LOCK_advanceDrawer();
-
+            NO_LOCK_forceEndStroke();
         }
-
         // update scoreboard no matter wat
         NO_LOCK_broadcastScoreboard();
         return true;
@@ -429,6 +442,15 @@ void Server::handle_reqQuitGame(std::span<const char> udpPacketWithoutMID, socka
         log(std::cerr,
             std::format("[Server] Unable to send back RSP_QUIT_GAME to client {}", sessionIdHost));
     }
+
+    auto nameLength = static_cast<std::uint8_t>(username.length());
+    if (nameLength > MAX_SHOWN_USERNAME_LEN)
+    {
+        username = username.substr(0, MAX_SHOWN_USERNAME_LEN - 3); // trunc it
+        username += "...";
+        nameLength = MAX_SHOWN_USERNAME_LEN;
+    }
+    LOCK_sendMessage("Server", std::format("{} has left the lobby",username));
 }
 
 // ============================================================
@@ -504,9 +526,8 @@ void Server::handle_ntfRcvUpdateScoreboard(std::span<const char> udpPacketWithou
     _pendingNtfUpdateScoreboards.erase(NtfKey{ sessionIdHostOrder, scoreIdHostOrder });
 }
 
-
 // ============================================================
-// NTF_RCV_RET
+// NTF_RCV_ROUND_END_TIME
 // ============================================================
 
 void Server::handle_ntfRcvRET(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
@@ -521,6 +542,10 @@ void Server::handle_ntfRcvRET(std::span<const char> udpPacketWithoutMID, sockadd
     _pendingNtfRET.erase(NtfKey{sessionIdHostOrder, retIdHostOrder});
 }
 
+// ============================================================
+// NTF_RCV_SEND_WORD_LEN
+// ============================================================
+
 void Server::handle_ntfRcvSendWordLen(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
 {
     assert((udpPacketWithoutMID.size() == PacketSize::NTF_RCV_SEND_WORD_LEN - 1) &&
@@ -533,6 +558,10 @@ void Server::handle_ntfRcvSendWordLen(std::span<const char> udpPacketWithoutMID,
     _pendingNtfNewWordsLen.erase(NtfKey{ sessionIdHostOrder, retIdHostOrder });
 }
 
+// ============================================================
+// NTF_RCV_SEND_WORD
+// ============================================================
+
 void Server::handle_ntfRcvSendWord(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
 {
     assert((udpPacketWithoutMID.size() == PacketSize::NTF_RCV_SEND_WORD - 1) &&
@@ -543,6 +572,82 @@ void Server::handle_ntfRcvSendWord(std::span<const char> udpPacketWithoutMID, so
 
     std::lock_guard lock(_pendingNtfNewWordMutex);
     _pendingNtfNewWords.erase(NtfKey{ sessionIdHostOrder, retIdHostOrder });
+}
+
+// ============================================================
+// NTF_RCV_STROKE_HISTORY
+// ============================================================
+
+void Server::handle_ntfRcvStrokeHistory(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
+{
+    assert((udpPacketWithoutMID.size() == PacketSize::NTF_RCV_STROKE_HISTORY - 1) &&
+        "Size of NTF_RCV_STROKE_HISTORY packet received is wrong");
+
+    ByteReader rdr{ .buffer = udpPacketWithoutMID };
+    auto sessionIdHostOrder = ntohl(rdr.read<SessionId>());
+    auto historyIdHostOrder = ntohl(rdr.read<std::uint32_t>());
+    auto chunkIdxHostOrder = ntohs(rdr.read<std::uint16_t>());
+
+    std::lock_guard lock(_pendingNtfStrokeHistoryMutex);
+    auto it = _pendingNtfStrokeHistory.find(NtfKey{ sessionIdHostOrder, historyIdHostOrder });
+    if (it == _pendingNtfStrokeHistory.end()) return; // stale ack, ignore
+
+    auto& p = it->second;
+
+    // Ignore if not the chunk we're currently waiting on
+    if (chunkIdxHostOrder != p._nextChunkToSend) return;
+
+    // Advance
+    p._nextChunkToSend++;
+
+    // All chunks delivered
+    if (p._nextChunkToSend >= static_cast<std::uint16_t>(p._chunks.size()))
+    {
+        _pendingNtfStrokeHistory.erase(it);
+        return;
+    }
+
+    // Point _data at next chunk and reset timers
+    auto now = std::chrono::steady_clock::now();
+    p._data = p._chunks[p._nextChunkToSend];
+    p._nextSendTime = now; // send on next tick immediately
+    p._giveUpTime = now + std::chrono::seconds(2);
+}
+
+void Server::handle_ntfRcvMsgHistory(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
+{
+    assert((udpPacketWithoutMID.size() == PacketSize::NTF_RCV_MSG_HISTORY - 1) &&
+        "Size of NTF_RCV_MSG_HISTORY packet received is wrong");
+
+    ByteReader rdr{ .buffer = udpPacketWithoutMID };
+    auto sessionIdHostOrder = ntohl(rdr.read<SessionId>());
+    auto historyIdHostOrder = ntohl(rdr.read<std::uint32_t>());
+    auto chunkIdxHostOrder = ntohs(rdr.read<std::uint16_t>());
+
+    std::lock_guard lock(_pendingNtfMessageHistoryMutex);
+    auto it = _pendingNtfMessageHistory.find(NtfKey{ sessionIdHostOrder, historyIdHostOrder });
+    if (it == _pendingNtfMessageHistory.end()) return; // stale ack, ignore
+
+    auto& p = it->second;
+
+    // Ignore if not the chunk we're currently waiting on
+    if (chunkIdxHostOrder != p._nextChunkToSend) return;
+
+    // Advance
+    p._nextChunkToSend++;
+
+    // All chunks delivered
+    if (p._nextChunkToSend >= static_cast<std::uint16_t>(p._chunks.size()))
+    {
+        _pendingNtfMessageHistory.erase(it);
+        return;
+    }
+
+    // Point _data at next chunk and reset timers
+    auto now = std::chrono::steady_clock::now();
+    p._data = p._chunks[p._nextChunkToSend];
+    p._nextSendTime = now; // send on next tick immediately
+    p._giveUpTime = now + std::chrono::seconds(2);
 }
 
 // ============================================================
@@ -605,11 +710,12 @@ void Server::handle_reqStartStroke(std::span<const char> udpPacketWithoutMID, so
         }
         log(std::cerr,
             std::format("[Server] Received REQ_START_STROKE but {}", errmsg));
+        log(std::cerr, std::format("[Server] REQ_START_STROKE rejected: {}", errmsg));
         return;
     }
 
     auto mousePosNetworkOrder = rdr.read<MousePosition>();
-    auto rgbat = rdr.read<std::array<char, 5>>();
+    auto rgbat = rdr.read<std::array<std::uint8_t, 5>>();
 
     // validated its good REQ_START_STROKE packet, send back RSP_START_STROKE
     std::array<char, PacketSize::RSP_START_STROKE> rspmsg;
@@ -628,6 +734,11 @@ void Server::handle_reqStartStroke(std::span<const char> udpPacketWithoutMID, so
         return;
     }
 
+    log(std::cout, std::format("[Server] REQ_START_STROKE accepted for session {}, stroke {}, colour {},{},{}",
+        sessionIdHostOrder, strokeIdHostOrder,
+        static_cast<uint8_t>(rgbat[0]),
+        static_cast<uint8_t>(rgbat[1]),
+        static_cast<uint8_t>(rgbat[2])));
     // just send back to all clients
     std::array<char, PacketSize::SVR_START_STROKE> svrmsg;
     ByteWriterN svrwrt{ .buffer = svrmsg };
@@ -635,12 +746,21 @@ void Server::handle_reqStartStroke(std::span<const char> udpPacketWithoutMID, so
     svrwrt.write(std::uint32_t{}); // dummy
     svrwrt.write(mousePosNetworkOrder);
     svrwrt.write(rgbat);
-    broadcastPacket(svrmsg,
+    LOCK_broadcastPacket(svrmsg,
         [&](auto& pkt, SessionId sid)
         {
             SessionId networkSID = htonl(sid);
             std::memcpy(pkt.data() + sizeof(MessageType::SVR_START_STROKE), &networkSID, sizeof(networkSID));
         });
+
+    PastStroke ps{};
+    ps._type = PastStroke::Type::START_STROKE;
+    ps._data.resize(PacketSize::PAST_HISTORY_START_STROKE);
+    ByteWriter paststartstrokeWrt{.buffer = ps._data };
+    paststartstrokeWrt.write(mousePosNetworkOrder);
+    paststartstrokeWrt.write(rgbat);
+    std::lock_guard lock(_pastStrokesMutex);
+    _pastStrokes_NEED_MUTEX.push_back(std::move(ps));
 }
 
 // ============================================================
@@ -723,12 +843,17 @@ void Server::handle_reqEndStroke(std::span<const char> udpPacketWithoutMID, sock
     ByteWriterN svrwrt{ .buffer = svrmsg };
     svrwrt.write(static_cast<char>(MessageType::SVR_END_STROKE));
     svrwrt.write(std::uint32_t{}); // dummy
-    broadcastPacket(svrmsg,
+    LOCK_broadcastPacket(svrmsg,
         [&](auto& pkt, SessionId sid)
         {
             SessionId networkSID = htonl(sid);
             std::memcpy(pkt.data() + sizeof(MessageType::SVR_END_STROKE), &networkSID, sizeof(networkSID));
         });
+
+    PastStroke ps{};
+    ps._type = PastStroke::Type::END_STROKE;
+    std::lock_guard lock(_pastStrokesMutex);
+    _pastStrokes_NEED_MUTEX.push_back(std::move(ps));
 }
 
 void Server::handle_reqMsg(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
@@ -805,49 +930,16 @@ void Server::handle_reqMsg(std::span<const char> udpPacketWithoutMID, sockaddr_i
     bool successRsp = sendWithRetry(rspmsg, *sa);
 
     auto nameLength = static_cast<std::uint8_t>(username.length());
-    if (nameLength > 15) // 15 is arbitrary here
+    if (nameLength > MAX_SHOWN_USERNAME_LEN)
     {
-        username = username.substr(0, 12); // trunc it
+        username = username.substr(0, MAX_SHOWN_USERNAME_LEN - 3); // trunc it
         username += "...";
-        nameLength = 15;
+        nameLength = MAX_SHOWN_USERNAME_LEN;
     }
 
+    std::string actualmsgstr = std::string(actualmsg.begin(), actualmsg.end());
     // Now NTF all clients for msg
-    std::lock_guard ntfLock(_pendingNtfMsgMutex);
-    LOCK_clientStorage([this, msgLength, nameLength,&actualmsg,&username](const auto& map)
-        {
-            auto now = std::chrono::steady_clock::now();
-            for (const auto& [ssiho, client] : map)
-            {
-                if (!client.inGame) continue;
-                std::vector<char> svrmsg;
-                svrmsg.resize(PacketSize::NTF_MSG_WITHOUT_BUFFER + msgLength + nameLength);
-                ByteWriter svrwrt{ .buffer = svrmsg };
-                svrwrt.write(static_cast<char>(MessageType::NTF_MSG));
-                svrwrt.write(htonl(ssiho));
-                svrwrt.write(htonl(_messageIdServer));
-                svrwrt.write(msgLength);
-                svrwrt.writeSpan(actualmsg);
-                svrwrt.write(nameLength);
-                svrwrt.writeSpan(username);
-
-                // Send immediately once
-                sockaddr_in clientSa = client.sa;
-                sendto(_socket, svrmsg.data(), static_cast<int>(svrmsg.size()), 0,
-                    reinterpret_cast<sockaddr*>(&clientSa), sizeof(clientSa));
-
-                // Add to pending for retry
-                _pendingNtfMsg[NtfKey{ ssiho, _messageIdServer }] = PendingNTF{
-                    ._data = std::move(svrmsg),
-                    ._clientAddr = client.sa,
-                    ._targetSessionId = ssiho,
-                    ._ntfId = _messageIdServer,
-                    ._nextSendTime = now + std::chrono::milliseconds(100),
-                    ._giveUpTime = now + std::chrono::seconds(2),
-                };
-            }
-            _messageIdServer++;
-        });
+    LOCK_sendMessage(username, actualmsgstr);
 }
 
 // ============================================================
@@ -925,6 +1017,9 @@ void Server::handle_reqClearCanvas(std::span<const char> udpPacketWithoutMID, so
 
     // Now NTF all clients to clear their canvas
     LOCK_sendClearCanvasCommand();
+    // When receive clear command, clear all past strokes
+    std::lock_guard lock(_pastStrokesMutex);
+    _pastStrokes_NEED_MUTEX.clear();
 }
 
 // ============================================================
@@ -987,12 +1082,20 @@ void Server::handle_fafExtendStroke(std::span<const char> udpPacketWithoutMID, s
     svrwrt.write(static_cast<char>(MessageType::SVR_EXTEND_STROKE));
     svrwrt.write(std::uint32_t{}); // dummy
     svrwrt.write(mousePosNetworkOrder);
-    broadcastPacket(svrmsg,
+    LOCK_broadcastPacket(svrmsg,
         [&](auto& pkt, SessionId sid)
         {
             SessionId networkSID = htonl(sid);
             std::memcpy(pkt.data() + sizeof(MessageType::SVR_EXTEND_STROKE), &networkSID, sizeof(networkSID));
         });
+
+    PastStroke ps{};
+    ps._type = PastStroke::Type::EXTEND_STROKE;
+    ps._data.resize(PacketSize::PAST_HISTORY_EXTEND_STROKE);
+    ByteWriter paststartstrokeWrt{ .buffer = ps._data };
+    paststartstrokeWrt.write(mousePosNetworkOrder);
+    std::lock_guard lock(_pastStrokesMutex);
+    _pastStrokes_NEED_MUTEX.push_back(std::move(ps));
 }
 
 // ============================================================
@@ -1005,10 +1108,14 @@ void Server::actualStartListening(std::stop_token st) noexcept
     udpPacket.resize(MaxUdpPacketBytes);
     while (!st.stop_requested())
     {
-        tickPendingNtf(_pendingNtfClearCanvasMutex, _pendingNtfClearCanvases, "NTF_CLEAR_CANVAS");
         tickPendingNtf(_pendingNtfMsgMutex, _pendingNtfMsg, "NTF_MSG");
-        tickPendingNtf(_pendingNtfUpdateScoreboardMutex, _pendingNtfUpdateScoreboards, "NTF_UPDATE_SCOREBOARD");
         tickPendingNtf(_pendingNtfRETMutex, _pendingNtfRET, "NTF_ROUND_END_TIME");
+        tickPendingNtf(_pendingNtfNewWordMutex, _pendingNtfNewWords, "NTF_NEW_WORD");
+        tickPendingNtf(_pendingNtfNewWordLenMutex, _pendingNtfNewWordsLen, "NTF_NEW_WORD_LEN");
+        tickPendingNtf(_pendingNtfClearCanvasMutex, _pendingNtfClearCanvases, "NTF_CLEAR_CANVAS");
+        tickPendingNtf(_pendingNtfStrokeHistoryMutex, _pendingNtfStrokeHistory, "NTF_STROKE_HISTORY");
+        tickPendingNtf(_pendingNtfMessageHistoryMutex, _pendingNtfMessageHistory, "NTF_MESSAGE_HISTORY");
+        tickPendingNtf(_pendingNtfUpdateScoreboardMutex, _pendingNtfUpdateScoreboards, "NTF_UPDATE_SCOREBOARD");
 
         fd_set readSet;
         FD_ZERO(&readSet);
@@ -1128,29 +1235,6 @@ bool Server::destroySessionIdHostOrder(SessionId id, std::string ipPort)
     return true;
 }
 
-void Server::tickPendingNtf(std::mutex& mut, std::unordered_map<NtfKey, PendingNTF, NtfKeyHash>& map, std::string_view name)
-{
-    auto now = std::chrono::steady_clock::now();
-    std::lock_guard lock(mut);
-    for (auto it = map.begin(); it != map.end();)
-    {
-        if (now >= it->second._giveUpTime)
-        {
-            log(std::cerr, std::format("[Server] {} to session {} timed out", name, it->first.sessionId));
-            it = map.erase(it);
-            continue;
-        }
-        if (now >= it->second._nextSendTime)
-        {
-            sockaddr_in sa = it->second._clientAddr;
-            sendto(_socket, it->second._data.data(), static_cast<int>(it->second._data.size()), 0,
-                reinterpret_cast<sockaddr*>(&sa), sizeof(sa));
-            it->second._nextSendTime = now + std::chrono::milliseconds(100);
-        }
-        ++it;
-    }
-}
-
 // ============================================================
 // Load word list
 // ============================================================
@@ -1212,7 +1296,7 @@ int Server::word_heuristic() {
 }
 
 // ============================================================
-// Advance drawer - LOCK
+// Advance drawer
 // ============================================================
 
 void Server::LOCK_advanceDrawer()
@@ -1223,7 +1307,7 @@ void Server::LOCK_advanceDrawer()
 }
 
 // ============================================================
-// Advance drawer - NO LOCK
+// Advance drawer
 // ============================================================
 
 void Server::NO_LOCK_advanceDrawer()
@@ -1293,7 +1377,7 @@ void Server::NO_LOCK_advanceDrawer()
 }
 
 // ============================================================
-// Broadcast Scoreboard - LOCK
+// Broadcast Scoreboard
 // ============================================================
 
 void Server::LOCK_broadcastScoreboard()
@@ -1305,7 +1389,7 @@ void Server::LOCK_broadcastScoreboard()
 }
 
 // ============================================================
-// Broadcast Scoreboard - NO LOCK
+// Broadcast Scoreboard
 // ============================================================
 
 void Server::NO_LOCK_broadcastScoreboard()
@@ -1348,8 +1432,8 @@ void Server::NO_LOCK_broadcastScoreboard()
     {
         if (!client.inGame) continue;
         std::string name = client.username;
-        if (name.size() > 15)
-            name = name.substr(0, 12) + "...";
+        if (name.size() > MAX_SHOWN_USERNAME_LEN)
+            name = name.substr(0, MAX_SHOWN_USERNAME_LEN - 3) + "...";
 
         entries.push_back({ std::move(name), client.score });
     }
@@ -1479,13 +1563,22 @@ void Server::resetRound()
 }
 
 // ============================================================
-// Get number of players
+// Get number of players - LOCK
 // ============================================================
 
-std::size_t Server::getNumberOfPlayers()
+std::size_t Server::LOCK_getNumberOfPlayers()
 {
     std::lock_guard lock(_clientStorageMutex);
-    return std::ranges::count_if(_clientStorageMap, [](std::pair<const SessionId&, const Client&> p){
+    return NO_LOCK_getNumberOfPlayers();
+}
+
+// ============================================================
+// Get number of players - NO LOCK
+// ============================================================
+
+std::size_t Server::NO_LOCK_getNumberOfPlayers()
+{
+    return std::ranges::count_if(_clientStorageMap, [](std::pair<const SessionId&, const Client&> p) {
         return p.second.inGame;
         });
 }
@@ -1532,13 +1625,16 @@ void Server::LOCK_sendNewRoundEndTime()
 }
 
 // ============================================================
-// Send clear canvas command - LOCK
+// Send clear canvas command
 // ============================================================
 
 void Server::LOCK_sendClearCanvasCommand()
 {
+    {
+        std::lock_guard lock(_pastStrokesMutex);
+        _pastStrokes_NEED_MUTEX.clear();
+    }
     std::lock_guard ntfLock(_pendingNtfClearCanvasMutex);
-
     LOCK_clientStorage([this](const auto& map) {
         auto now = std::chrono::steady_clock::now();
         for (const auto& [ssiho, client] : map)
@@ -1569,6 +1665,9 @@ void Server::LOCK_sendClearCanvasCommand()
         });
 }
 
+// ============================================================
+// Send new word length
+// ============================================================
 
 void Server::LOCK_sendNewWordLen()
 {
@@ -1605,6 +1704,9 @@ void Server::LOCK_sendNewWordLen()
         });
 }
 
+// ============================================================
+// Send new word
+// ============================================================
 
 void Server::LOCK_sendNewWord()
 {
@@ -1656,6 +1758,313 @@ void Server::LOCK_sendNewWord()
     });
 }
 
+// ============================================================
+// Send stroke history
+// ============================================================
+
+void Server::LOCK_sendStrokeHistory()
+{
+    std::vector<PastStroke> cpy;
+    {
+        std::lock_guard lock(_pastStrokesMutex);
+        cpy = _pastStrokes_NEED_MUTEX;
+    }
+
+    if (cpy.empty())
+    {
+        log(std::cerr, "[Server] Skipping send stroke history, no stroke history");
+        return;
+    }
+
+    // 1. Build raw stroke data only (no headers)
+    std::vector<char> strokeData;
+    strokeData.reserve(30'000);
+    for (const auto& stroke : cpy)
+    {
+        strokeData.emplace_back(static_cast<char>(stroke._type));
+        strokeData.insert(strokeData.end(), stroke._data.begin(), stroke._data.end());
+    }
+
+    // 2. Calculate number of chunks correctly
+    constexpr std::size_t MAX_STROKE_PAYLOAD =
+        MaxUdpPacketBytes - PacketSize::NTF_STROKE_HISTORY_WITHOUT_DATA;
+    std::size_t numChunks = (strokeData.size() + MAX_STROKE_PAYLOAD - 1) / MAX_STROKE_PAYLOAD;
+    if (numChunks == 0) numChunks = 1;
+    const std::uint16_t totalChunks = static_cast<std::uint16_t>(numChunks);
+    const std::uint32_t totalStrokeDataBytes = static_cast<std::uint32_t>(strokeData.size());
+
+    // 3. Pre-build chunks with dummy session id (0), will patch per-client later
+    //    Layout: [MID(1)][SESSION_ID(4)][HISTORY_ID(4)][TOTAL_BYTES(4)][CHUNK_NUM(2)][NUM_STROKES(4)][PAYLOAD]
+    //    Offsets:    0        1              5               9               13            15            19
+    constexpr std::size_t OFF_SESSION_ID = 1;
+    constexpr std::size_t OFF_TOTAL_BYTES = 9;
+    constexpr std::size_t OFF_CHUNK_NUM = 13;
+
+    std::vector<std::vector<char>> chunks;
+    chunks.reserve(numChunks);
+
+    std::size_t strokeDataOffset = 0;
+    for (std::uint16_t chunkIdx = 0; chunkIdx < totalChunks; chunkIdx++)
+    {
+        std::size_t bytesLeft = strokeData.size() - strokeDataOffset;
+        std::size_t payloadSize = std::min(bytesLeft, MAX_STROKE_PAYLOAD);
+
+        std::vector<char> chunk(PacketSize::NTF_STROKE_HISTORY_WITHOUT_DATA + payloadSize);
+        ByteWriter wrt{ .buffer = chunk };
+        wrt.write(static_cast<char>(MessageType::NTF_STROKE_HISTORY));
+        wrt.write(std::uint32_t{ 0 });                          // session id - dummy, patched per client
+        wrt.write(htonl(_strokeHistoryIdServer));               // history id
+        wrt.write(htonl(totalStrokeDataBytes));                 // total bytes across all chunks
+        wrt.write(htons(chunkIdx));                             // this chunk's index (0-based)
+        wrt.write(htonl(static_cast<std::uint32_t>(cpy.size()))); // number of strokes
+
+        wrt.writeSpan(std::span<const char>{
+            strokeData.data() + strokeDataOffset, payloadSize });
+
+        strokeDataOffset += payloadSize;
+        chunks.push_back(std::move(chunk));
+    }
+
+    assert(strokeDataOffset == strokeData.size() && "Not all stroke data was chunked");
+
+    // 4. Per-client: patch session id into each chunk, register into pending
+    std::lock_guard ntfLock(_pendingNtfStrokeHistoryMutex);
+    LOCK_clientStorage([&](const auto& map) {
+        auto now = std::chrono::steady_clock::now();
+        for (const auto& [ssiho, client] : map)
+        {
+            if (!client.inGame) continue;
+
+            // Patch session id into every chunk for this client
+            std::uint32_t sessionIdNet = htonl(ssiho);
+            std::vector<std::vector<char>> clientChunks = chunks; // copy shared chunks
+            for (auto& chunk : clientChunks)
+                std::memcpy(chunk.data() + OFF_SESSION_ID, &sessionIdNet, sizeof(sessionIdNet));
+
+            // Send chunk 0 immediately
+            sockaddr_in clientSa = client.sa;
+            sendto(_socket, clientChunks[0].data(), static_cast<int>(clientChunks[0].size()), 0,
+                reinterpret_cast<sockaddr*>(&clientSa), sizeof(clientSa));
+
+            // Register into pending — _data starts as chunk 0, _nextChunkToSend starts at 0
+            PendingNTF& pending = _pendingNtfStrokeHistory[NtfKey{ ssiho, _strokeHistoryIdServer }];
+            pending._chunks = std::move(clientChunks);
+            pending._data = pending._chunks[0];       // safe: assigned after _chunks
+            pending._clientAddr = client.sa;
+            pending._targetSessionId = ssiho;
+            pending._ntfId = _strokeHistoryIdServer;
+            pending._nextChunkToSend = 0;
+            pending._nextSendTime = now + std::chrono::milliseconds(100);
+            pending._giveUpTime = now + std::chrono::seconds(10);
+        }
+        _strokeHistoryIdServer++;
+        });
+}
+
+// ============================================================
+// Send Message History
+// ============================================================
+
+void Server::LOCK_sendMessageHistory()
+{
+    std::deque<PastMessage> cpy;
+    {
+        std::lock_guard lock(_pastChatMsgMutex);
+        cpy = _pastChatMsg_NEED_MUTEX;
+    }
+
+    if (cpy.empty())
+    {
+        log(std::cerr, "[Server] Skipping send message history, no message history");
+        return;
+    }
+
+    // 1. Build raw message data only (no headers)
+    std::vector<char> msgData;
+    msgData.reserve(30'000);
+    for (const auto& pastMsg : cpy)
+    {
+        msgData.emplace_back(static_cast<std::uint8_t>(pastMsg._message.length()));
+        msgData.insert(msgData.end(), pastMsg._message.begin(), pastMsg._message.end());
+        msgData.emplace_back(static_cast<std::uint8_t>(pastMsg._name.length()));
+        msgData.insert(msgData.end(), pastMsg._name.begin(), pastMsg._name.end());
+    }
+
+    // 2. Calculate number of chunks correctly
+    constexpr std::size_t MAX_MSG_PAYLOAD =
+        MaxUdpPacketBytes - PacketSize::NTF_MSG_HISTORY_WITHOUT_DATA;
+    std::size_t numChunks = (msgData.size() + MAX_MSG_PAYLOAD - 1) / MAX_MSG_PAYLOAD;
+    if (numChunks == 0) numChunks = 1;
+    const std::uint16_t totalChunks = static_cast<std::uint16_t>(numChunks);
+    const std::uint32_t totalMsgDataBytes = static_cast<std::uint32_t>(msgData.size());
+
+    // 3. Pre-build chunks with dummy session id (0), will patch per-client later
+    //    Layout: [MID(1)][SESSION_ID(4)][HISTORY_ID(4)][TOTAL_BYTES(4)][CHUNK_NUM(2)][NUM_MSG(2)][PAYLOAD]
+    //    Offsets:    0        1              5               9               13            15        17
+    constexpr std::size_t OFF_SESSION_ID = 1;
+    constexpr std::size_t OFF_TOTAL_BYTES = 9;
+    constexpr std::size_t OFF_CHUNK_NUM = 13;
+
+    std::vector<std::vector<char>> chunks;
+    chunks.reserve(numChunks);
+
+    std::size_t msgDataOffset = 0;
+    for (std::uint16_t chunkIdx = 0; chunkIdx < totalChunks; chunkIdx++)
+    {
+        std::size_t bytesLeft = msgData.size() - msgDataOffset;
+        std::size_t payloadSize = std::min(bytesLeft, MAX_MSG_PAYLOAD);
+
+        std::vector<char> chunk(PacketSize::NTF_MSG_HISTORY_WITHOUT_DATA + payloadSize);
+        ByteWriter wrt{ .buffer = chunk };
+        wrt.write(static_cast<char>(MessageType::NTF_MSG_HISTORY));
+        wrt.write(std::uint32_t{ 0 });                          // session id - dummy, patched per client
+        wrt.write(htonl(_msgHistoryIdServer));               // history id
+        wrt.write(htonl(totalMsgDataBytes));                 // total bytes across all chunks
+        wrt.write(htons(chunkIdx));                             // this chunk's index (0-based)
+        wrt.write(htons(static_cast<std::uint16_t>(cpy.size()))); // number of msges
+
+        wrt.writeSpan(std::span<const char>{
+            msgData.data() + msgDataOffset, payloadSize });
+
+        msgDataOffset += payloadSize;
+        chunks.push_back(std::move(chunk));
+    }
+
+    assert(msgDataOffset == msgData.size() && "Not all msg data was chunked");
+
+    // 4. Per-client: patch session id into each chunk, register into pending
+    std::lock_guard ntfLock(_pendingNtfMessageHistoryMutex);
+    LOCK_clientStorage([&](const auto& map) {
+        auto now = std::chrono::steady_clock::now();
+        for (const auto& [ssiho, client] : map)
+        {
+            if (!client.inGame) continue;
+
+            // Patch session id into every chunk for this client
+            std::uint32_t sessionIdNet = htonl(ssiho);
+            std::vector<std::vector<char>> clientChunks = chunks; // copy shared chunks
+            for (auto& chunk : clientChunks)
+                std::memcpy(chunk.data() + OFF_SESSION_ID, &sessionIdNet, sizeof(sessionIdNet));
+
+            // Send chunk 0 immediately
+            sockaddr_in clientSa = client.sa;
+            sendto(_socket, clientChunks[0].data(), static_cast<int>(clientChunks[0].size()), 0,
+                reinterpret_cast<sockaddr*>(&clientSa), sizeof(clientSa));
+
+            // Register into pending — _data starts as chunk 0, _nextChunkToSend starts at 0
+            PendingNTF& pending = _pendingNtfMessageHistory[NtfKey{ ssiho, _msgHistoryIdServer }];
+            pending._chunks = std::move(clientChunks);
+            pending._data = pending._chunks[0];       // safe: assigned after _chunks
+            pending._clientAddr = client.sa;
+            pending._targetSessionId = ssiho;
+            pending._ntfId = _msgHistoryIdServer;
+            pending._nextChunkToSend = 0;
+            pending._nextSendTime = now + std::chrono::milliseconds(100);
+            pending._giveUpTime = now + std::chrono::seconds(10);
+        }
+        _msgHistoryIdServer++;
+        });
+}
+
+// ============================================================
+// Force broadcast to all clients to end stroke
+// ============================================================
+
+void Server::LOCK_forceEndStroke()
+{
+    // just send back to all clients
+    std::array<char, PacketSize::SVR_END_STROKE> svrmsg;
+    ByteWriterN svrwrt{ .buffer = svrmsg };
+    svrwrt.write(static_cast<char>(MessageType::SVR_END_STROKE));
+    svrwrt.write(std::uint32_t{}); // dummy
+    LOCK_broadcastPacket(svrmsg,
+        [&](auto& pkt, SessionId sid)
+        {
+            SessionId networkSID = htonl(sid);
+            std::memcpy(pkt.data() + sizeof(MessageType::SVR_END_STROKE), &networkSID, sizeof(networkSID));
+        });
+
+    PastStroke ps{};
+    ps._type = PastStroke::Type::END_STROKE;
+    std::lock_guard lock(_pastStrokesMutex);
+    _pastStrokes_NEED_MUTEX.push_back(std::move(ps));
+}
+
+// ============================================================
+// Force broadcast to all clients to end stroke
+// ============================================================
+
+void Server::NO_LOCK_forceEndStroke()
+{
+    // just send back to all clients
+    std::array<char, PacketSize::SVR_END_STROKE> svrmsg;
+    ByteWriterN svrwrt{ .buffer = svrmsg };
+    svrwrt.write(static_cast<char>(MessageType::SVR_END_STROKE));
+    svrwrt.write(std::uint32_t{}); // dummy
+    NO_LOCK_broadcastPacket(svrmsg,
+        [&](auto& pkt, SessionId sid)
+        {
+            SessionId networkSID = htonl(sid);
+            std::memcpy(pkt.data() + sizeof(MessageType::SVR_END_STROKE), &networkSID, sizeof(networkSID));
+        });
+
+    PastStroke ps{};
+    ps._type = PastStroke::Type::END_STROKE;
+    std::lock_guard lock(_pastStrokesMutex);
+    _pastStrokes_NEED_MUTEX.push_back(std::move(ps));
+}
+
+void Server::LOCK_sendMessage(const std::string& username, const std::string& message)
+{
+    std::lock_guard ntfLock(_pendingNtfMsgMutex);
+    LOCK_clientStorage([this, &message, &username](const auto& map)
+        {
+            std::uint8_t msgLength = static_cast<std::uint8_t>(message.length());
+            std::uint8_t nameLength = static_cast<std::uint8_t>(username.length());
+            auto now = std::chrono::steady_clock::now();
+            for (const auto& [ssiho, client] : map)
+            {
+                if (!client.inGame) continue;
+                std::vector<char> svrmsg;
+                svrmsg.resize(PacketSize::NTF_MSG_WITHOUT_BUFFER + msgLength + nameLength);
+                ByteWriter svrwrt{ .buffer = svrmsg };
+                svrwrt.write(static_cast<char>(MessageType::NTF_MSG));
+                svrwrt.write(htonl(ssiho));
+                svrwrt.write(htonl(_messageIdServer));
+                svrwrt.write(msgLength);
+                svrwrt.writeSpan(message);
+                svrwrt.write(nameLength);
+                svrwrt.writeSpan(username);
+
+                // Send immediately once
+                sockaddr_in clientSa = client.sa;
+                sendto(_socket, svrmsg.data(), static_cast<int>(svrmsg.size()), 0,
+                    reinterpret_cast<sockaddr*>(&clientSa), sizeof(clientSa));
+
+                // Add to pending for retry
+                _pendingNtfMsg[NtfKey{ ssiho, _messageIdServer }] = PendingNTF{
+                    ._data = std::move(svrmsg),
+                    ._clientAddr = client.sa,
+                    ._targetSessionId = ssiho,
+                    ._ntfId = _messageIdServer,
+                    ._nextSendTime = now + std::chrono::milliseconds(100),
+                    ._giveUpTime = now + std::chrono::seconds(2),
+                };
+            }
+            _messageIdServer++;
+        });
+    // push into message history
+    {
+        std::lock_guard chatmsgLock(_pastChatMsgMutex);
+        _pastChatMsg_NEED_MUTEX.push_back(PastMessage{ ._message = message, ._name = username });
+
+        // make sure it is within the size constraints
+        while (_pastChatMsg_NEED_MUTEX.size() > MAX_CHAT_HISTORY_SHOWN)
+        {
+            _pastChatMsg_NEED_MUTEX.pop_front();
+        }
+    }
+}
 
 // ============================================================
 // Helper - Send with retry
@@ -1684,4 +2093,31 @@ bool Server::sendWithRetry(std::span<const char> data, const sockaddr_in& sa)
         }
     }
     return success;
+}
+
+// ============================================================
+// Helper - Tick pending ntf
+// ============================================================
+
+void Server::tickPendingNtf(std::mutex& mut, std::unordered_map<NtfKey, PendingNTF, NtfKeyHash>& map, std::string_view name)
+{
+    auto now = std::chrono::steady_clock::now();
+    std::lock_guard lock(mut);
+    for (auto it = map.begin(); it != map.end();)
+    {
+        if (now >= it->second._giveUpTime)
+        {
+            log(std::cerr, std::format("[Server] {} to session {} timed out", name, it->first.sessionId));
+            it = map.erase(it);
+            continue;
+        }
+        if (now >= it->second._nextSendTime)
+        {
+            sockaddr_in sa = it->second._clientAddr;
+            sendto(_socket, it->second._data.data(), static_cast<int>(it->second._data.size()), 0,
+                reinterpret_cast<sockaddr*>(&sa), sizeof(sa));
+            it->second._nextSendTime = now + std::chrono::milliseconds(100);
+        }
+        ++it;
+    }
 }

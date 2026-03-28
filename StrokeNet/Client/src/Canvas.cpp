@@ -33,7 +33,7 @@ bool Canvas::contains(sf::Vector2f point) const
 void Canvas::beginStroke(sf::Vector2f pos, sf::Color colour, float thickness) {
 	isDrawing = true;
 	currentStroke = {};
-	currentStroke.id = nextId++;
+	currentStroke.id = nextId;
 	currentStroke.colour = eraseMode ? sf::Color::Transparent : colour;
 	currentStroke.thickness = thickness;
 	currentRender = {};
@@ -101,4 +101,5 @@ void Canvas::clear()
 	endStroke();
 	drawing.strokes.clear();
 	clearId++;
+	eraseMode = false;
 }

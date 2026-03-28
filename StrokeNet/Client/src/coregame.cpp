@@ -93,18 +93,21 @@ void CoreGameState::handleEvent(const sf::Event& event)
     }
 
     if (const auto* keyPressed = event.getIf<sf::Event::KeyPressed>()) {
-        if (keyPressed->code == sf::Keyboard::Key::E) {
+        if (keyPressed->code == sf::Keyboard::Key::E && !m_chatBox.m_isTyping) {
             m_canvas.eraseMode = true;
+        }
+        if (keyPressed->code == sf::Keyboard::Key::R && !m_chatBox.m_isTyping) {
+            m_canvas.eraseMode = false;
         }
     }
 
     if (const auto* keyPressed = event.getIf<sf::Event::KeyPressed>()) {
-        if (keyPressed->code == sf::Keyboard::Key::C) {
+        if (keyPressed->code == sf::Keyboard::Key::C && !m_chatBox.m_isTyping) {
             Client::sendClearCanvas(m_canvas.clearId);
         }
     }
     if (const auto* keyPressed = event.getIf<sf::Event::KeyPressed>()) {
-        if (keyPressed->code == sf::Keyboard::Key::Enter) {
+        if (keyPressed->code == sf::Keyboard::Key::Enter && !m_chatBox.m_isTyping) {
             m_chatBox.setTyping(true);
             return;
         }
@@ -134,7 +137,7 @@ void CoreGameState::update(sf::Time)
                     clr.g,
                     clr.b,
                     clr.a,
-                    6
+                    20
             });
         }
     }
@@ -159,6 +162,7 @@ void CoreGameState::update(sf::Time)
     handle_received_chatMessages();
     handle_received_strokeCommands();
     handle_received_strokeHistory();
+    handle_received_msgHistory();
 
     if (m_shouldReturnToMenu)
     {
@@ -264,7 +268,7 @@ void CoreGameState::handle_received_strokeCommands()
         case START_STROKE:
         {
             auto mousePos = rdr.read<MousePosition>();
-            auto rgbat = rdr.read<std::array<char, 5>>();
+            auto rgbat = rdr.read<std::array<std::uint8_t, 5>>();
             m_canvas.beginStroke(
                 sf::Vector2f{
                     static_cast<float>(mousePos[0]),
@@ -328,11 +332,11 @@ void CoreGameState::handle_received_strokeHistory()
             ByteReader rdr{ .buffer = strokeCmd._data };
             switch (strokeCmd._type)
             {
-                using enum Client::ReceivedStrokeCommand::Type;
+                using enum PastStroke::Type;
             case START_STROKE:
             {
                 auto mousePos = rdr.read<MousePosition>();
-                auto rgbat = rdr.read<std::array<char, 5>>();
+                auto rgbat = rdr.read<std::array<std::uint8_t, 5>>();
                 m_canvas.beginStroke(
                     sf::Vector2f{
                         static_cast<float>(mousePos[0]),
@@ -363,12 +367,20 @@ void CoreGameState::handle_received_strokeHistory()
                 m_canvas.endStroke();
                 break;
             }
-            case CLEAR_CANVAS:
-            {
-                m_canvas.clear();
-                break;
             }
-            }
+        }
+    }
+}
+
+void CoreGameState::handle_received_msgHistory()
+{
+    auto msgHistory = Client::getMessageHistory();
+    if (msgHistory)
+    {
+        m_chatBox.clearChatHistory();
+        for (const auto& msg : msgHistory->_chatMessageHistory)
+        {
+            m_chatBox.receiveMessageFromServer(msg._name, msg._message);
         }
     }
 }

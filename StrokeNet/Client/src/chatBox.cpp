@@ -12,6 +12,7 @@
 
 /* End Header
 ***********************************************************************/
+#include "shared_protocol.hpp"
 #include "chatBox.hpp"
 #include "client.hpp"
 #include <iostream>
@@ -27,7 +28,7 @@ const float MAX_TEXT_WIDTH = CHATBOX_WIDTH - (2.f * TEXT_PADDING);
 const float SCOREBOARD_BACKGROUND_POSITION_X = 20.f;
 const float SCOREBOARD_BACKGROUND_POSITION_Y = CHATBOX_POSITION_Y - 50.f;
 
-const uint8_t MAX_MESSAGE_LENGTH = 84;
+const uint8_t MAX_MESSAGE_LENGTH = static_cast<std::uint8_t>(MAX_CHARS_PER_CHAT_MSG);
 
 ChatBox::ChatBox(const std::string& fontPath) : text(font), sampleText(font), timerText(font), playerName(font), playerScore(font)
 {
@@ -185,6 +186,7 @@ void ChatBox::handleEvent(const sf::Event& event)
 				currentInput.clear();
 				text.setString("");
 			}
+			setTyping(false);
 		}
 		else if ((ch == 32 || ch >= 65 && ch <= 90 || ch >= 97 && ch <= 122) && currentInput.size() < MAX_MESSAGE_LENGTH) {
 			currentInput += static_cast<char>(ch);

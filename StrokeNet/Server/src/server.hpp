@@ -76,13 +76,23 @@ public:
     void NO_LOCK_advanceDrawer();
     void NO_LOCK_broadcastScoreboard();
 
-    std::size_t getNumberOfPlayers();
+    std::size_t LOCK_getNumberOfPlayers();
+    std::size_t NO_LOCK_getNumberOfPlayers();
 
     // Round reset commands
     void LOCK_sendNewRoundEndTime();
+
     void LOCK_sendClearCanvasCommand();
     void LOCK_sendNewWordLen();
     void LOCK_sendNewWord();
+
+    void LOCK_sendStrokeHistory();
+    void LOCK_sendMessageHistory();
+
+    void LOCK_forceEndStroke();
+    void NO_LOCK_forceEndStroke();
+
+    void LOCK_sendMessage(const std::string& username, const std::string& message);
 private:
     // ============================================================
     // Game State
@@ -114,14 +124,28 @@ private:
     std::map<SessionId, Client> _clientStorageMap;
 
     // ============================================================
+    // Stroke History
+    // ============================================================
+    std::mutex _pastStrokesMutex;
+    std::vector<PastStroke> _pastStrokes_NEED_MUTEX;
+
+    // ============================================================
+    // Chat Message History
+    // ============================================================
+    std::mutex _pastChatMsgMutex;
+    std::deque<PastMessage> _pastChatMsg_NEED_MUTEX;
+
+    // ============================================================
     // Ids for acks
     // ============================================================
     std::uint32_t _messageIdServer = 1;
-    std::uint32_t _roundEndTimeIdServer = 1;
-    std::uint32_t _clearCanvasIdServer = 1;
+    std::uint32_t _msgHistoryIdServer = 1;
     std::uint32_t _scoreBoardIdServer = 1;
-    std::uint32_t _sendNewWordLenIdServer = 1;
     std::uint32_t _sendNewWordIdServer = 1;
+    std::uint32_t _clearCanvasIdServer = 1;
+    std::uint32_t _roundEndTimeIdServer = 1;
+    std::uint32_t _strokeHistoryIdServer = 1;
+    std::uint32_t _sendNewWordLenIdServer = 1;
 
     // ============================================================
     // NTF Handling
@@ -135,6 +159,9 @@ private:
 
         std::chrono::steady_clock::time_point _nextSendTime;
         std::chrono::steady_clock::time_point _giveUpTime;
+
+        std::vector<std::vector<char>> _chunks;
+        std::uint16_t _nextChunkToSend = 1;
     };
 
     // Unordered map bs, since 1:N for ntdId:client, so need to composite
@@ -157,7 +184,7 @@ private:
     };
 
     // ============================================================
-    // Check for pending NTFs for sending new word
+    // Check for pending NTFs for sending new word length
     // ============================================================
     std::mutex _pendingNtfNewWordLenMutex;
     std::unordered_map<NtfKey, PendingNTF, NtfKeyHash> _pendingNtfNewWordsLen;
@@ -180,6 +207,9 @@ private:
     std::mutex _pendingNtfMsgMutex;
     std::unordered_map<NtfKey, PendingNTF, NtfKeyHash> _pendingNtfMsg;
 
+    // ============================================================
+    // Check for pending NTFs for scoreboard
+    // ============================================================
     std::mutex _pendingNtfUpdateScoreboardMutex;
     std::unordered_map<NtfKey, PendingNTF, NtfKeyHash> _pendingNtfUpdateScoreboards;
 
@@ -188,6 +218,18 @@ private:
     // ============================================================
     std::mutex _pendingNtfRETMutex;
     std::unordered_map<NtfKey, PendingNTF, NtfKeyHash> _pendingNtfRET;
+
+    // ============================================================
+    // Check for pending NTFs for stroke history
+    // ============================================================
+    std::mutex _pendingNtfStrokeHistoryMutex;
+    std::unordered_map<NtfKey, PendingNTF, NtfKeyHash> _pendingNtfStrokeHistory;
+
+    // ============================================================
+    // Check for pending NTFs for message history
+    // ============================================================
+    std::mutex _pendingNtfMessageHistoryMutex;
+    std::unordered_map<NtfKey, PendingNTF, NtfKeyHash> _pendingNtfMessageHistory;
 
     // ============================================================
     // Socket / session
@@ -225,6 +267,8 @@ private:
     void handle_ntfRcvRET               (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
     void handle_ntfRcvSendWordLen       (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
     void handle_ntfRcvSendWord          (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
+    void handle_ntfRcvStrokeHistory     (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
+    void handle_ntfRcvMsgHistory        (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
 
     using MessageFn = void(Server::*)(std::span<const char>, sockaddr_in*);
     const std::unordered_map<MessageType, MessageFn> _messageTypeFns
@@ -248,6 +292,8 @@ private:
         std::make_pair(MessageType::NTF_RCV_ROUND_END_TIME,     &Server::handle_ntfRcvRET               ),
         std::make_pair(MessageType::NTF_RCV_SEND_WORD_LEN,      &Server::handle_ntfRcvSendWordLen       ),
         std::make_pair(MessageType::NTF_RCV_SEND_WORD,          &Server::handle_ntfRcvSendWord          ),
+        std::make_pair(MessageType::NTF_RCV_STROKE_HISTORY,     &Server::handle_ntfRcvStrokeHistory     ),
+        std::make_pair(MessageType::NTF_RCV_MSG_HISTORY,        &Server::handle_ntfRcvMsgHistory        ),
     };
 
     // ============================================================
@@ -263,9 +309,14 @@ private:
     bool sendWithRetry(std::span<const char> data, const sockaddr_in& sa);
 
     template <typename Packet, typename FillFn>
-    void broadcastPacket(Packet& pkt,FillFn fill)
+    void LOCK_broadcastPacket(Packet& pkt,FillFn fill)
     {
         std::lock_guard lock(_clientStorageMutex);
+        NO_LOCK_broadcastPacket(pkt, fill);
+    }
+    template <typename Packet, typename FillFn>
+    void NO_LOCK_broadcastPacket(Packet& pkt, FillFn fill)
+    {
         for (auto& [sid, client] : _clientStorageMap)
         {
             if (!client.inGame) continue;
