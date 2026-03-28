@@ -109,9 +109,11 @@ void ChatBox::draw(sf::RenderWindow& window)
 		currentDrawerName = sb->_currentDrawer;
 		std::cout << "Current drawer: " << currentDrawerName << std::endl;
 		std::cout << "Scoreboard data:" << std::endl;
+#ifdef _DEBUG
 		for (const auto& [name, score] : scoreboardData) {
 			std::cout << " - " << name << ": " << score << std::endl;
 		}
+#endif
 	}
 
 	static float currentPosY = SCOREBOARD_BACKGROUND_POSITION_Y + 10.f;
@@ -188,16 +190,12 @@ void ChatBox::handleEvent(const sf::Event& event)
 			}
 			setTyping(false);
 		}
-		else if ((ch == 32 || ch >= 65 && ch <= 90 || ch >= 97 && ch <= 122) && currentInput.size() < MAX_MESSAGE_LENGTH) {
+		else if ((ch >= 32 && ch < 127) && currentInput.size() < MAX_MESSAGE_LENGTH) {
 			currentInput += static_cast<char>(ch);
 			text.setString(wrapText(currentInput));
 		}
-		else if (ch == 126) {
-			// tilde or ~ to clear chat for testing clear all chat
-			messagesReceivedFromServer.clear();
-		}
 
-#if _DEBUG
+#ifdef _DEBUG
 		std::cout << "Current input: " << currentInput << std::endl;
 #endif
 	}

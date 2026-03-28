@@ -41,8 +41,8 @@ void ColourPicker::setPosition(sf::Vector2f pos)
 {
     position = pos;
     for (size_t i{}; i < swatches.size(); ++i) {
-        int col = i % COLS;
-        int row = i / COLS;
+        int col = static_cast<int>(i) % COLS;
+        int row = static_cast<int>(i) / COLS;
         swatches[i].setPosition({
             pos.x + col * (SWATCH_SIZE + PADDING),
             pos.y + row * (SWATCH_SIZE + PADDING)
