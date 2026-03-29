@@ -1613,6 +1613,7 @@ void Server::startGame()
             log(std::cerr, "[Server] Game can't start with no players");
             return;
         }
+        log(std::cout, "[Server] Game started");
         gameRunning = true;
         NO_LOCK_advanceDrawer();
         NO_LOCK_broadcastScoreboard();
