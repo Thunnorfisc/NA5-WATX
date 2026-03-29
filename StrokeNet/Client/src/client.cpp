@@ -1028,12 +1028,14 @@ void Client::disconnect()
 // ============================================================
 // send play game
 // ============================================================
-bool Client::playGame()
+PlayGameStatus Client::playGame()
 {
+    PlayGameStatus ret;
     if(_playingGame)
     {
         log(std::cerr, "[Client] Play game called when game is already playing");
-        return true;
+        ret = PlayGameStatus::SUCCESS;
+        return ret;
     }
     std::array<char, PacketSize::REQ_PLAY_GAME> msg;
     ByteWriterN wrt{.buffer = msg};
@@ -1078,18 +1080,19 @@ bool Client::playGame()
 
                 ByteReader rdr{.buffer = std::span<const char>(recvBuf).subspan(1, n - 1)};
                 SessionId sid = ntohl(rdr.read<SessionId>());
-                if (sid == _sessionId)
+                if (sid != _sessionId) continue; // continue, maybe received wrong
+                ret = rdr.read<PlayGameStatus>();
+                switch (ret)
                 {
-                    _playingGame = true;
-                    return true;
+                case PlayGameStatus::SUCCESS: _playingGame = true; break;
+                default: _playingGame = false; break;
                 }
-                else return false;
+                return ret;
             }
         }
     }
-
-    log(std::cerr, "[Client] Play Game: no server responded");
-    return false;
+    ret = PlayGameStatus::SERVER_NO_RESPONSE;
+    return ret;
 }
 
 // ============================================================

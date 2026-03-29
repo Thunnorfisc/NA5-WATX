@@ -349,33 +349,33 @@ void Server::handle_reqPlayGame(std::span<const char> udpPacketWithoutMID, socka
     
     SessionId sessionIdHost = ntohl(rdr.read<SessionId>());
 
-    // If it finds the id inside the map,
-    // it will set inGame to true, and return true
-    // else it will return false, and we will early exit
     std::string username;
-    if (!LOCK_clientStorage([sessionIdHost,&username](auto& map) {
+    std::optional<PlayGameStatus> pgs = LOCK_gameVariablesANDclientStorage([sessionIdHost,&username,this]
+    (auto& map, const auto& gameRunning, auto& drawerSessionIdOpt) -> std::optional<PlayGameStatus>{
         auto it = map.find(sessionIdHost);
-        if (it == map.end()) return false;
+        if (it == map.end()) return std::nullopt;
+        if (NO_LOCK_getNumberOfPlayers() >= MAX_PLAYERS_IN_GAME) return PlayGameStatus::TOO_MANY_PLAYERS;
         it->second.inGame = true;
         username = it->second.username;
-        return true;
-        })) return;
-
-    LOCK_gameVariables([sessionIdHost](const auto& gameRunning, auto& drawerSessionIdOpt) {
-        if (!drawerSessionIdOpt.has_value() && !gameRunning) drawerSessionIdOpt = sessionIdHost;
+        return PlayGameStatus::SUCCESS;
         });
+
+    if (!pgs.has_value()) return; // no session id registered
     
     // send back ack
     std::array<char, PacketSize::RSP_PLAY_GAME> msg;
     ByteWriterN wrt{.buffer = msg};
     wrt.write(static_cast<char>(MessageType::RSP_PLAY_GAME));
     wrt.write(htonl(sessionIdHost));
+    wrt.write(static_cast<char>(*pgs));
     bool success = sendWithRetry(msg, *sa);
     if(!success)
     {
         log(std::cerr,
             std::format("[Server] Unable to send back RSP_PLAY_GAME to client {}",sessionIdHost));
     }
+    if (pgs == PlayGameStatus::SUCCESS)
+    {
     auto nameLength = static_cast<std::uint8_t>(username.length());
     if (nameLength > MAX_SHOWN_USERNAME_LEN)
     {
@@ -390,6 +390,7 @@ void Server::handle_reqPlayGame(std::span<const char> udpPacketWithoutMID, socka
     LOCK_sendNewRoundEndTime();
     LOCK_sendStrokeHistory();
     LOCK_sendMessageHistory();
+    }
 
 }
 
@@ -433,7 +434,7 @@ void Server::handle_reqQuitGame(std::span<const char> udpPacketWithoutMID, socka
 
 
     // send back ack
-    std::array<char, PacketSize::RSP_PLAY_GAME> msg;
+    std::array<char, PacketSize::RSP_QUIT_GAME> msg;
     ByteWriterN wrt{.buffer = msg};
     wrt.write(static_cast<char>(MessageType::RSP_QUIT_GAME));
     wrt.write(htonl(sessionIdHost));

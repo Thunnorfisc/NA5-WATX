@@ -34,7 +34,8 @@ namespace
 MainMenuState::MainMenuState(StateMachine& stateMachine, StateContext& context) :
     State(stateMachine, context),
     m_font("resources/Marvel-Bold.ttf"),
-    m_playText(m_font, "Play Game", 52)
+    m_playText(m_font, "Play Game", 52),
+    m_statusText(m_font, "", 20)
 {
     m_playButton.setRadius(180.0f);
     m_playButton.setOrigin({ 180.0f, 180.0f });
@@ -46,6 +47,9 @@ MainMenuState::MainMenuState(StateMachine& stateMachine, StateContext& context) 
     m_playText.setOutlineThickness(2.0f);
     m_playText.setOutlineColor(sf::Color(220, 70, 70));
 
+    m_statusText.setFillColor(sf::Color(230, 230, 230));
+    m_statusText.setOutlineThickness(2.0f);
+    m_statusText.setOutlineColor(sf::Color(220, 70, 70));
     updateLayout();
 }
 
@@ -55,10 +59,12 @@ void MainMenuState::handleEvent(const sf::Event& event)
 
     if (const auto* mousePressed = event.getIf<sf::Event::MouseButtonPressed>())
     {
-        if (mousePressed->button == sf::Mouse::Button::Left && isMouseOverPlayButton() &&
-            Client::playGame())
+        if (mousePressed->button == sf::Mouse::Button::Left && isMouseOverPlayButton())
         {
-            m_shouldStartGame = true;
+            auto pgs = Client::playGame();
+            if (pgs == PlayGameStatus::SUCCESS) m_shouldStartGame = true;
+            else if (pgs == PlayGameStatus::TOO_MANY_PLAYERS) m_statusText.setString("Server lobby full!");
+            else if (pgs == PlayGameStatus::SERVER_NO_RESPONSE) m_statusText.setString("Server no response! Try again later");
         }
     }
  //   else if (const auto* keyboardPressed = event.getIf<sf::Event::KeyPressed>())
@@ -86,6 +92,7 @@ void MainMenuState::render()
     auto& window = context().window;
     window.draw(m_playButton);
     window.draw(m_playText);
+    window.draw(m_statusText);
 }
 
 bool MainMenuState::isMouseOverPlayButton() const
@@ -105,4 +112,8 @@ void MainMenuState::updateLayout()
     m_playButton.setPosition(center);
 
     centerText(m_playText, m_playButton.getGlobalBounds().getCenter());
+    centerText(m_statusText, m_playButton.getGlobalBounds().getCenter());
+
+    auto stpos = m_statusText.getPosition();
+    m_statusText.setPosition(sf::Vector2f(stpos.x, stpos.y - (m_playButton.getRadius() * 1.25f)));
 }

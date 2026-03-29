@@ -98,9 +98,9 @@ namespace PacketSize
     // [REQ_PLAY_GAME][SESSION_ID]
     constexpr inline std::size_t REQ_PLAY_GAME = 5;
 
-    //  1              4
-    // [RSP_PLAY_GAME][SESSION_ID]
-    constexpr inline std::size_t RSP_PLAY_GAME = 5;
+    //  1              4           1
+    // [RSP_PLAY_GAME][SESSION_ID][PLAY_GAME_STATUS]
+    constexpr inline std::size_t RSP_PLAY_GAME = 6;
 
     //  1              4
     // [REQ_QUIT_GAME][SESSION_ID]
@@ -288,6 +288,13 @@ enum class LoginStatus: std::uint8_t
     USERNAME_TAKEN,
     USERNAME_TOO_LONG,
     ALREADY_LOGGED_IN
+};
+
+enum class PlayGameStatus : std::uint8_t
+{
+    SUCCESS = 0,
+    TOO_MANY_PLAYERS,
+    SERVER_NO_RESPONSE
 };
 
 struct PastStroke

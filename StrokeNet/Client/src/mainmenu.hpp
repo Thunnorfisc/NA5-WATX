@@ -36,4 +36,5 @@ private:
     sf::Font m_font;
     sf::Text m_playText;
     bool m_shouldStartGame = false;
+    sf::Text m_statusText;
 };
