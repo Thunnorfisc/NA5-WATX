@@ -24,6 +24,7 @@
 #include "ColourPicker.hpp"
 #include "client.hpp"
 #include "chatBox.hpp"
+#include "ToolPicker.hpp"
 #include <mutex>
 #include <queue>
 #include <variant>
@@ -42,6 +43,7 @@ private:
     [[nodiscard]] bool isMouseOverBackButton() const;
 	[[nodiscard]] bool isMouseOverTextBox() const;
     void updateLayout();
+    void setupTools();
 
     void handle_received_strokeCommands();
     void handle_received_chatMessages();
@@ -63,4 +65,12 @@ private:
     ChatBox m_chatBox;
 
     ColourPicker m_cpicker;
+
+    ToolPicker m_toolPicker;
+    float m_brushThickness = 10.f; // Laze
+
+
+    // PREVIEW SHIT
+    sf::CircleShape m_cursorPreview;
+    bool m_cursorOnCanvas = false;
 };

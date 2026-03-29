@@ -25,6 +25,7 @@
 #include <algorithm>
 
 #undef min // stupid microsoft
+#undef max // MICROSOFTTTTTTTTT
 namespace
 {
     void centerText(sf::Text& text, sf::Vector2f position)
@@ -59,6 +60,7 @@ CoreGameState::CoreGameState(StateMachine& stateMachine, StateContext& context) 
 
     m_canvas = Canvas(sf::FloatRect({ 50.f, 50.f }, { 300.f, 300.f }));
 
+    setupTools();
     updateLayout();
 }
 
@@ -124,7 +126,11 @@ void CoreGameState::update(sf::Time)
     bool leftDown = sf::Mouse::isButtonPressed(sf::Mouse::Button::Left);
 
     if (leftDown && !m_wasLeftDown) {
-        if (!m_cpicker.handleClick(pos) && m_canvas.contains(pos)) { // < start stroke
+        // Check tool picker first, then colour picker, then canvas
+        if (!m_toolPicker.handleClick(pos) &&
+            !m_cpicker.handleClick(pos) &&
+            m_canvas.contains(pos))
+        { // < start stroke
             m_drawing = true;
             auto clr = m_cpicker.getSelectedColour();
             Client::sendStartStroke(m_canvas.nextId, // < stroke id
@@ -137,7 +143,7 @@ void CoreGameState::update(sf::Time)
                     clr.g,
                     clr.b,
                     clr.a,
-                    20
+                    static_cast<std::uint8_t>(m_brushThickness)
             });
         }
     }
@@ -159,6 +165,29 @@ void CoreGameState::update(sf::Time)
     m_wasLeftDown = leftDown;
     m_lastMousePos = pos;
 
+    m_cursorOnCanvas = m_canvas.contains(pos) && !m_drawing;
+    if (m_cursorOnCanvas) {
+        float radius = m_brushThickness / 2.f;
+        m_cursorPreview.setRadius(radius);
+        m_cursorPreview.setOrigin({ radius, radius });
+        m_cursorPreview.setPosition(pos);
+        m_cursorPreview.setPointCount(40);
+
+        if (m_canvas.eraseMode) {
+            // Eraser: hollow white circle with dashed-style outline
+            m_cursorPreview.setFillColor(sf::Color::Transparent);
+            m_cursorPreview.setOutlineColor(sf::Color(120, 120, 120));
+            m_cursorPreview.setOutlineThickness(1.5f);
+        }
+        else {
+            // Drawing: filled circle with selected colour at half opacity
+            auto clr = m_cpicker.getSelectedColour();
+            m_cursorPreview.setFillColor(sf::Color(clr.r, clr.g, clr.b, 128));
+            m_cursorPreview.setOutlineColor(sf::Color(clr.r, clr.g, clr.b, 200));
+            m_cursorPreview.setOutlineThickness(1.f);
+        }
+    }
+
     handle_received_chatMessages();
     handle_received_strokeCommands();
     handle_received_strokeHistory();
@@ -179,6 +208,7 @@ void CoreGameState::render()
     window.draw(m_backText);
     m_canvas.draw(window);
     m_cpicker.draw(window);
+    m_toolPicker.draw(window);
 	m_chatBox.draw(window);
 
     std::int64_t retMs = Client::getRoundEndTimeMs();
@@ -214,6 +244,10 @@ void CoreGameState::render()
 		//std::cout << "Word Hint:" << wordHintText.getString().toAnsiString() << std::endl;
 #endif
 		window.draw(wordHintText);
+    }
+
+    if (m_cursorOnCanvas) {
+        window.draw(m_cursorPreview);
     }
 }
 
@@ -253,11 +287,58 @@ void CoreGameState::updateLayout()
     m_canvas.border.setPosition(canvasPos);
     m_canvas.border.setSize(canvasSize);
 
+    float belowCanvas = m_canvas.bounds.position.y + m_canvas.bounds.size.y + 10.f;
+
+    float maxToolsInGroup = 0.f;
+    for (const auto& g : m_toolPicker.groups) {
+        maxToolsInGroup = std::max(maxToolsInGroup, static_cast<float>(g.tools.size()));
+    }
+    float toolPickerWidth = maxToolsInGroup * (ToolPicker::TOOL_SIZE + ToolPicker::PADDING) - ToolPicker::PADDING;
+    m_toolPicker.setPosition({
+        m_canvas.bounds.position.x,
+        belowCanvas
+        });
+
     float pickerWidth = ColourPicker::COLS * (ColourPicker::SWATCH_SIZE + ColourPicker::PADDING) - ColourPicker::PADDING;
+
+    float belowTools = belowCanvas + m_toolPicker.getTotalHeight() + 10.f;
     m_cpicker.setPosition({
         m_canvas.bounds.position.x + (m_canvas.bounds.size.x - pickerWidth) / 2.f,
-        m_canvas.bounds.position.y + m_canvas.bounds.size.y + 10.f
+        belowTools
         });
+}
+
+void CoreGameState::setupTools()
+{
+    // === Main tools group (mutually exclusive: draw vs erase) ===
+    int mainGroup = m_toolPicker.addGroup();
+
+    m_toolPicker.addTool(mainGroup, "Pencil", "resources/sprites/drawing_pencil.png",
+        [this]() {
+            m_canvas.eraseMode = false;
+        });
+
+    m_toolPicker.addTool(mainGroup, "Eraser", "resources/sprites/drawing_eraser.png",
+        [this]() {
+            m_canvas.eraseMode = true;
+        });
+
+    // === Helper tools group (mutually exclusive: brush sizes) ===
+    int helperGroup = m_toolPicker.addGroup();
+
+    m_toolPicker.addTool(helperGroup, "Thin", "resources/sprites/dot_small.png",
+        [this]() {
+            m_brushThickness = 10.f;
+        });
+
+    m_toolPicker.addTool(helperGroup, "Thick", "resources/sprites/dot_large.png",
+        [this]() {
+            m_brushThickness = 30.f;
+        });
+
+    // Select defaults: Pencil (group 0, tool 0) and Thin (group 1, tool 0)
+    m_toolPicker.select(mainGroup, 0);
+    m_toolPicker.select(helperGroup, 0);
 }
 
 void CoreGameState::handle_received_strokeCommands()
