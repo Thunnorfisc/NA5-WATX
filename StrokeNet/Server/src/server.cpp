@@ -878,11 +878,16 @@ void Server::handle_reqMsg(std::span<const char> udpPacketWithoutMID, sockaddr_i
     // and call NON_LOCK_BROADCAST
     // =======================================================================
     std::string username;
+    std::string usernameWhoGuessedTheWord;
+    SessionId idWhoGuessedTheWord;
+    bool alreadyGuessed = false;
     enum class ErrorRetVal { 
-        OK_AND_GUESSED_WORD, OK_BUT_NOT_GUESSED_WORD,  // OKAYS 
+        OKAY_GUESSED_WORD,OKAY_DIDNT_GUESS_WORD,  // OKAYS 
         CANT_FIND, NOT_IN_GAME, GAME_NOT_RUNNING       // ERRORS
     };
-    auto erv = LOCK_gameVariablesANDclientStorage([sessionIdHostOrder, &username,&actualmsg,this](auto& map, const auto& gameRunning, auto& drawerSessionIdOpt) {
+    auto erv = LOCK_gameVariablesANDclientStorage([sessionIdHostOrder, &username,
+        &actualmsg,&usernameWhoGuessedTheWord,
+        &idWhoGuessedTheWord,&alreadyGuessed, this](auto& map, const auto& gameRunning, auto& drawerSessionIdOpt) {
         if (!gameRunning) return ErrorRetVal::GAME_NOT_RUNNING;
         auto it = map.find(sessionIdHostOrder);
         if (it == map.end()) return ErrorRetVal::CANT_FIND;
@@ -894,21 +899,22 @@ void Server::handle_reqMsg(std::span<const char> udpPacketWithoutMID, sockaddr_i
         std::transform(str_msg.begin(), str_msg.end(), str_msg.begin(), [](char c) {return std::toupper(c); });
         std::transform(word.second.begin(), word.second.end(), word.second.begin(), [](char c) {return std::toupper(c); });
 
-        if (drawerSessionIdOpt == sessionIdHostOrder) return ErrorRetVal::OK_BUT_NOT_GUESSED_WORD;
-
         if (str_msg == word.second) {
-            if (!it->second.wordAlreadyGuessed) {
+            idWhoGuessedTheWord = it->first;
+            usernameWhoGuessedTheWord = it->second.username;
+            alreadyGuessed = it->second.wordAlreadyGuessed;
+            if (!it->second.wordAlreadyGuessed && drawerSessionIdOpt != sessionIdHostOrder) {
                 it->second.score += 75;
                 it->second.wordAlreadyGuessed = true;
                 NO_LOCK_broadcastScoreboard();
             }
-            return ErrorRetVal::OK_AND_GUESSED_WORD;
+            return ErrorRetVal::OKAY_GUESSED_WORD;
         }
-        return ErrorRetVal::OK_BUT_NOT_GUESSED_WORD;
+        return ErrorRetVal::OKAY_DIDNT_GUESS_WORD;
         });
 
     //if (erv != ErrorRetVal::OK_BUT_NOT_GUESSED_WORD && erv != ErrorRetVal::OK_AND_GUESSED_WORD && erv != ErrorRetVal::HIDE_MSG) // essenncialy dis
-    if (erv > ErrorRetVal::OK_BUT_NOT_GUESSED_WORD)
+    if (erv > ErrorRetVal::OKAY_DIDNT_GUESS_WORD)
     {
         std::string errmsg;
         switch (erv)
@@ -923,9 +929,6 @@ void Server::handle_reqMsg(std::span<const char> udpPacketWithoutMID, sockaddr_i
             std::format("[Server] Received REQ_MSG but {}", errmsg));
         return;
     }
-    // CHECK IF ITS NOT CURRENT DRAWER + IF ACTUAL MSG IS THE GUESS, THEN SEND BACK
-    // "USER GUESSED THE WORD" @TODOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO
-
 
     // validated its good REQ_MSG packet, send back RSP_MSG
     std::array<char, PacketSize::RSP_MSG> rspmsg;
@@ -935,11 +938,6 @@ void Server::handle_reqMsg(std::span<const char> udpPacketWithoutMID, sockaddr_i
     rspwrt.write(htonl(msgIdHostOrder));
     bool successRsp = sendWithRetry(rspmsg, *sa);
 
-    if (erv == ErrorRetVal::OK_AND_GUESSED_WORD) {
-        return;
-    }
-
-    // what is dis block for?
     auto nameLength = static_cast<std::uint8_t>(username.length());
     if (nameLength > MAX_SHOWN_USERNAME_LEN)
     {
@@ -950,7 +948,104 @@ void Server::handle_reqMsg(std::span<const char> udpPacketWithoutMID, sockaddr_i
 
     std::string actualmsgstr = std::string(actualmsg.begin(), actualmsg.end());
     // Now NTF all clients for msg
-    LOCK_sendMessage(username, actualmsgstr);
+    
+    if (erv == ErrorRetVal::OKAY_DIDNT_GUESS_WORD) LOCK_sendMessage(username, actualmsgstr);
+    else
+    {
+        auto nL = static_cast<std::uint8_t>(usernameWhoGuessedTheWord.length());
+        if (nL > MAX_SHOWN_USERNAME_LEN)
+        {
+            usernameWhoGuessedTheWord = usernameWhoGuessedTheWord.substr(0, MAX_SHOWN_USERNAME_LEN - 3); // trunc it
+            usernameWhoGuessedTheWord += "...";
+            nL = MAX_SHOWN_USERNAME_LEN;
+        }
+        LOCK_gameVariablesANDclientStorage([this, &actualmsgstr, &username,
+            &usernameWhoGuessedTheWord,
+            &idWhoGuessedTheWord,
+            erv, sessionIdHostOrder,&alreadyGuessed](const auto& map, const auto&, const auto& drawerSessionIdOpt)
+            {
+                std::uint8_t msgLength = static_cast<std::uint8_t>(actualmsgstr.length());
+                std::uint8_t nameLength = static_cast<std::uint8_t>(username.length());
+                auto now = std::chrono::steady_clock::now();
+                for (const auto& [ssiho, client] : map)
+                {
+                    if (!client.inGame) continue;
+
+                    std::string actual_actualmsgstr = actualmsgstr;
+                    std::uint8_t actual_actualmsglen = msgLength;
+
+                    enum class SendType { NameHasGuessed, Secret, Nothing };
+                    SendType st = SendType::Nothing;
+                    if (erv == ErrorRetVal::OKAY_GUESSED_WORD) // word was guessed
+                    {
+                        // now we can choose directions to go from here
+                        enum class ClientType { Drawer, Guesser,EveryoneElse };
+                        ClientType ct = (ssiho == drawerSessionIdOpt) ? ClientType::Drawer :
+                            (ssiho == sessionIdHostOrder) ? ClientType::Guesser :
+                            ClientType::EveryoneElse;
+
+                        // we are sending to drawer
+                        if (ct == ClientType::Drawer)
+                        {
+                            // if person who guessed is not the drawer, and is first time
+                            // send NameHasGuessed
+                            if (!alreadyGuessed && idWhoGuessedTheWord != drawerSessionIdOpt) st = SendType::NameHasGuessed;
+                            else st = SendType::Nothing;
+                        }
+                        else if (ct == ClientType::Guesser)
+                        {
+                            if (!alreadyGuessed && idWhoGuessedTheWord != drawerSessionIdOpt) st = SendType::NameHasGuessed;
+                            else st = SendType::Nothing;
+                        }
+                        else if (ct == ClientType::EveryoneElse)
+                        {
+                            if (!alreadyGuessed && idWhoGuessedTheWord != drawerSessionIdOpt) st = SendType::NameHasGuessed;
+                            else st = SendType::Secret;
+                        }
+                    }
+
+                    if (st == SendType::NameHasGuessed)
+                    {
+                        actual_actualmsgstr = std::format("{} has guessed the word!", usernameWhoGuessedTheWord);
+                        actual_actualmsglen = static_cast<std::uint8_t>(actual_actualmsgstr.length());
+                        username = "Server";
+                        nameLength = static_cast<std::uint8_t>(username.length());
+                    }
+                    else if (st == SendType::Secret)
+                    {
+                        actual_actualmsgstr = "********";
+                        actual_actualmsglen = static_cast<std::uint8_t>(actual_actualmsgstr.length());
+                    }
+
+                    std::vector<char> svrmsg;
+                    svrmsg.resize(PacketSize::NTF_MSG_WITHOUT_BUFFER + actual_actualmsglen + nameLength);
+                    ByteWriter svrwrt{ .buffer = svrmsg };
+                    svrwrt.write(static_cast<char>(MessageType::NTF_MSG));
+                    svrwrt.write(htonl(ssiho));
+                    svrwrt.write(htonl(_messageIdServer));
+                    svrwrt.write(actual_actualmsglen);
+                    svrwrt.writeSpan(actual_actualmsgstr);
+                    svrwrt.write(nameLength);
+                    svrwrt.writeSpan(username);
+
+                    // Send immediately once
+                    sockaddr_in clientSa = client.sa;
+                    sendto(_socket, svrmsg.data(), static_cast<int>(svrmsg.size()), 0,
+                        reinterpret_cast<sockaddr*>(&clientSa), sizeof(clientSa));
+
+                    // Add to pending for retry
+                    _pendingNtfMsg[NtfKey{ ssiho, _messageIdServer }] = PendingNTF{
+                        ._data = std::move(svrmsg),
+                        ._clientAddr = client.sa,
+                        ._targetSessionId = ssiho,
+                        ._ntfId = _messageIdServer,
+                        ._nextSendTime = now + std::chrono::milliseconds(100),
+                        ._giveUpTime = now + std::chrono::seconds(2),
+                    };
+                }
+                _messageIdServer++;
+            });
+    }
 }
 
 // ============================================================
