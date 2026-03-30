@@ -61,6 +61,7 @@ public:
 
     std::mutex roundsMutex;
     std::pair<uint8_t, uint8_t> rounds{};
+    const uint8_t MAX_ROUNDS = 2;
 
     void pick_word();
     void load_wordlist();

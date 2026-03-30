@@ -1677,6 +1677,9 @@ void Server::startGame()
         gameRunning = true;
         NO_LOCK_advanceDrawer();
         NO_LOCK_broadcastScoreboard();
+
+        rounds.second = MAX_ROUNDS;
+        rounds.first = rounds.second;
         });
 }
 
@@ -1728,6 +1731,8 @@ void Server::resetRound()
     LOCK_sendNewWordLen();
     LOCK_sendNewRoundEndTime();
     LOCK_sendClearCanvasCommand();
+
+    rounds.first = rounds.first > 1? rounds.first - 1 : 0;
 }
 
 // ============================================================

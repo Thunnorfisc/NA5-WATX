@@ -1422,7 +1422,7 @@ std::int32_t Client::getWordLength()
 
 std::string Client::getWord()
 {
-    auto ptr = _word.load().get();
+    auto ptr = _word.load(); 
     return ptr ? *ptr : std::string{};
 }
 

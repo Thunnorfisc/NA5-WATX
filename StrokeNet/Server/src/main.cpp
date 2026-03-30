@@ -59,7 +59,7 @@ int main()
 
         while (!server.isListeningThreadFinished())
         {
-            auto now = std::chrono::steady_clock::now();
+
 
             if (!server.gameStarted() && server.LOCK_getNumberOfPlayers() >= 1)
             {
@@ -73,6 +73,16 @@ int main()
             else if (server.gameStarted() && server.LOCK_getNumberOfPlayers() == 0) {
                 server.stopGame();
             }
+            else if (server.gameStarted() && !server.rounds.first) {
+                server.LOCK_gameVariablesANDclientStorage([&server](auto& map, auto&, auto&) {
+                    for (auto& [_sid, client] : map)
+                    {
+                        if (client.inGame) client.inGame = false;
+                    }
+                    });
+                server.stopGame();
+            }
+
             if (!server.gameStarted()) continue;
 
             //if (server.word.first) {
