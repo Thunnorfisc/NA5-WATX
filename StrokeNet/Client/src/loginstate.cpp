@@ -10,8 +10,8 @@
     Reproduction or diclosure of this file or its contents without the prior
     written consent of DigiPen Institute of Technology is prohibited. */
 
-/* End Header
-***********************************************************************/
+    /* End Header
+    ***********************************************************************/
 #include "client.hpp"
 #include "loginstate.hpp"
 #include "state_machine.hpp"
@@ -47,7 +47,10 @@ LoginState::LoginState(StateMachine& stateMachine, StateContext& context) :
     m_font("resources/Marvel-Bold.ttf"),
     m_titleText(m_font, "Login", 48),
     m_statusText(m_font, "", 20),
-    m_loginButtonText(m_font, "Login", 28),
+    m_connectViaText(m_font, "Connect via:", 22),
+    m_broadcastButtonText(m_font, "Broadcast", 28),
+    m_directButtonText(m_font, "Direct", 28),
+    m_newText(m_font, "New?", 22),
     m_createButtonText(m_font, "Create Account", 28)
 {
     m_titleText.setFillColor(sf::Color(230, 230, 230));
@@ -56,11 +59,11 @@ LoginState::LoginState(StateMachine& stateMachine, StateContext& context) :
 
     m_statusText.setFillColor(sf::Color::White);
 
-    m_fieldValues[static_cast<int>(Field::Username)] = "";
-    m_fieldValues[static_cast<int>(Field::Password)] = "";
+    for (int i = 0; i < FIELD_COUNT; ++i)
+        m_fieldValues[i] = "";
 
     const std::array<std::string, FIELD_COUNT> labelStrings = {
-        "Username:", "Password:"
+        "Username:", "Password:", "Server IP Address:", "Port:"
     };
 
     for (int i = 0; i < FIELD_COUNT; ++i)
@@ -80,12 +83,25 @@ LoginState::LoginState(StateMachine& stateMachine, StateContext& context) :
     // highlight the active field
     m_fieldBoxes[static_cast<int>(m_activeField)].setOutlineColor(sf::Color(220, 70, 70));
 
-    // login button
-    m_loginButton.setSize({ 170.f, 50.f });
-    m_loginButton.setFillColor(sf::Color(40, 120, 40));
-    m_loginButton.setOutlineThickness(2.f);
-    m_loginButton.setOutlineColor(sf::Color(60, 180, 60));
-    m_loginButtonText.setFillColor(sf::Color(230, 230, 230));
+    // "Connect via:" caption
+    m_connectViaText.setFillColor(sf::Color(180, 180, 180));
+
+    // broadcast button
+    m_broadcastButton.setSize({ 170.f, 50.f });
+    m_broadcastButton.setFillColor(sf::Color(40, 120, 40));
+    m_broadcastButton.setOutlineThickness(2.f);
+    m_broadcastButton.setOutlineColor(sf::Color(60, 180, 60));
+    m_broadcastButtonText.setFillColor(sf::Color(230, 230, 230));
+
+    // direct button
+    m_directButton.setSize({ 170.f, 50.f });
+    m_directButton.setFillColor(sf::Color(120, 80, 40));
+    m_directButton.setOutlineThickness(2.f);
+    m_directButton.setOutlineColor(sf::Color(180, 120, 60));
+    m_directButtonText.setFillColor(sf::Color(230, 230, 230));
+
+    // "New?" caption
+    m_newText.setFillColor(sf::Color(180, 180, 180));
 
     // create account button
     m_createButton.setSize({ 220.f, 50.f });
@@ -117,9 +133,14 @@ void LoginState::handleEvent(const sf::Event& event)
             }
 
             // check button clicks
-            if (m_loginButton.getGlobalBounds().contains(pos))
+            if (m_broadcastButton.getGlobalBounds().contains(pos))
             {
                 attemptLogin();
+                return;
+            }
+            if (m_directButton.getGlobalBounds().contains(pos))
+            {
+                attemptDirectConnect();
                 return;
             }
             if (m_createButton.getGlobalBounds().contains(pos))
@@ -151,11 +172,31 @@ void LoginState::handleEvent(const sf::Event& event)
         }
         else if (ch >= 32 && ch < 127) // printable ASCII
         {
-            std::size_t maxLen = (m_activeField == Field::Username)
-                ? MAX_USERNAME_LEN - 1
-                : MAX_PASSWORD_LEN - 1;
+            std::size_t maxLen = 0;
+            switch (m_activeField)
+            {
+            case Field::Username:  maxLen = MAX_USERNAME_LEN - 1; break;
+            case Field::Password:  maxLen = MAX_PASSWORD_LEN - 1; break;
+            case Field::ServerIP:  maxLen = 45;  break;
+            case Field::Port:      maxLen = 5;   break;
+            default: break;
+            }
 
-            if (m_fieldValues[idx].size() < maxLen)
+            if (m_activeField == Field::ServerIP)
+            {
+                bool isDigit = (ch >= '0' && ch <= '9');
+                bool isDot = (ch == '.');
+                bool isColon = (ch == ':');
+                bool isHex = (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F');
+                if (!isDigit && !isDot && !isColon && !isHex)
+                    return;
+            }
+
+            // for the port field, only allow digits
+            if (m_activeField == Field::Port && (ch < '0' || ch > '9'))
+                return;
+
+            if (maxLen > 0 && m_fieldValues[idx].size() < maxLen)
                 m_fieldValues[idx] += static_cast<char>(ch);
         }
     }
@@ -201,10 +242,16 @@ void LoginState::render()
         window.draw(*m_fieldTexts[i]);
     }
 
-    window.draw(m_loginButton);
-    window.draw(m_loginButtonText);
+    window.draw(m_connectViaText);
+    window.draw(m_broadcastButton);
+    window.draw(m_broadcastButtonText);
+    window.draw(m_directButton);
+    window.draw(m_directButtonText);
+
+    window.draw(m_newText);
     window.draw(m_createButton);
     window.draw(m_createButtonText);
+
     window.draw(m_statusText);
 }
 
@@ -212,7 +259,7 @@ void LoginState::updateLayout()
 {
     const sf::Vector2u windowSize = context().window.getSize();
     float centerX = windowSize.x * 0.5f;
-    float startY = windowSize.y * 0.25f;
+    float startY = windowSize.y * 0.2f;
 
     centerTextHorizontally(m_titleText, centerX, startY);
 
@@ -229,22 +276,38 @@ void LoginState::updateLayout()
         centerTextInBox(*m_fieldTexts[i], m_fieldBoxes[i]);
     }
 
-    float buttonY = fieldStartY + FIELD_COUNT * fieldSpacing + 20.f;
+    // --- "Connect via:" caption + Broadcast / Direct buttons ---
+    float connectCaptionY = fieldStartY + FIELD_COUNT * fieldSpacing + 10.f;
+    centerTextHorizontally(m_connectViaText, centerX, connectCaptionY);
+
+    float connectButtonY = connectCaptionY + 25.f;
     float gap = 20.f;
-    float totalButtonWidth = m_loginButton.getSize().x + m_createButton.getSize().x + gap;
+    float connectTotalWidth = m_broadcastButton.getSize().x + m_directButton.getSize().x + gap;
 
-    m_loginButton.setPosition({ centerX - totalButtonWidth * 0.5f, buttonY });
-    centerTextHorizontally(m_loginButtonText,
-        m_loginButton.getPosition().x + m_loginButton.getSize().x * 0.5f,
-        buttonY + m_loginButton.getSize().y * 0.5f);
+    m_broadcastButton.setPosition({ centerX - connectTotalWidth * 0.5f, connectButtonY });
+    centerTextHorizontally(m_broadcastButtonText,
+        m_broadcastButton.getPosition().x + m_broadcastButton.getSize().x * 0.5f,
+        connectButtonY + m_broadcastButton.getSize().y * 0.5f);
 
+    m_directButton.setPosition({
+        m_broadcastButton.getPosition().x + m_broadcastButton.getSize().x + gap, connectButtonY });
+    centerTextHorizontally(m_directButtonText,
+        m_directButton.getPosition().x + m_directButton.getSize().x * 0.5f,
+        connectButtonY + m_directButton.getSize().y * 0.5f);
+
+    // --- "New?" caption + Create Account button ---
+    float newCaptionY = connectButtonY + m_broadcastButton.getSize().y + 25.f;
+    centerTextHorizontally(m_newText, centerX, newCaptionY);
+
+    float createButtonY = newCaptionY + 25.f;
     m_createButton.setPosition({
-        m_loginButton.getPosition().x + m_loginButton.getSize().x + gap, buttonY });
+        centerX - m_createButton.getSize().x * 0.5f, createButtonY });
     centerTextHorizontally(m_createButtonText,
-        m_createButton.getPosition().x + m_createButton.getSize().x * 0.5f,
-        buttonY + m_createButton.getSize().y * 0.5f);
+        centerX,
+        createButtonY + m_createButton.getSize().y * 0.5f);
 
-    float statusY = buttonY + 70.f;
+    // status text below everything
+    float statusY = createButtonY + m_createButton.getSize().y + 25.f;
     centerTextHorizontally(m_statusText, centerX, statusY);
 }
 
@@ -292,6 +355,95 @@ void LoginState::attemptLogin()
         m_statusColor = sf::Color(255, 100, 100);
         break;
     }
+}
+
+void LoginState::attemptDirectConnect()
+{
+    const auto& user = m_fieldValues[static_cast<int>(Field::Username)];
+    const auto& pass = m_fieldValues[static_cast<int>(Field::Password)];
+    const auto& ip = m_fieldValues[static_cast<int>(Field::ServerIP)];
+    const auto& port = m_fieldValues[static_cast<int>(Field::Port)];
+
+    if (user.empty() || pass.empty())
+    {
+        m_statusMessage = "Username and password are required";
+        m_statusColor = sf::Color(255, 100, 100);
+        return;
+    }
+
+    if (ip.empty() || port.empty())
+    {
+        m_statusMessage = "Server IP and port are required for direct connect";
+        m_statusColor = sf::Color(255, 100, 100);
+        return;
+    }
+
+    // validate IP address format
+    if (ip.find(':') == std::string::npos)
+    {
+        // IPv4 validation
+        bool validIP = true;
+        int dotCount = 0;
+        int octetStart = 0;
+
+        for (std::size_t i = 0; i <= ip.size(); ++i)
+        {
+            if (i == ip.size() || ip[i] == '.')
+            {
+                int octetLen = static_cast<int>(i) - octetStart;
+                if (octetLen < 1 || octetLen > 3) { validIP = false; break; }
+
+                int octet = 0;
+                for (int j = octetStart; j < static_cast<int>(i); ++j)
+                {
+                    if (ip[j] < '0' || ip[j] > '9') { validIP = false; break; }
+                    octet = octet * 10 + (ip[j] - '0');
+                }
+                if (!validIP || octet > 255) { validIP = false; break; }
+
+                // reject leading zeros (e.g. "01", "001") except plain "0"
+                if (octetLen > 1 && ip[octetStart] == '0') { validIP = false; break; }
+
+                if (i < ip.size()) ++dotCount;
+                octetStart = static_cast<int>(i) + 1;
+            }
+        }
+
+        if (dotCount != 3) validIP = false;
+
+        if (!validIP)
+        {
+            m_statusMessage = "Invalid IPv4 address (e.g. 192.168.1.1)";
+            m_statusColor = sf::Color(255, 100, 100);
+            return;
+        }
+    }
+
+    // validate port is a valid number in range
+    int portNum = 0;
+    try { portNum = std::stoi(port); }
+    catch (...)
+    {
+        m_statusMessage = "Invalid port number";
+        m_statusColor = sf::Color(255, 100, 100);
+        return;
+    }
+
+    if (portNum < 1 || portNum > 65535)
+    {
+        m_statusMessage = "Port must be between 1 and 65535";
+        m_statusColor = sf::Color(255, 100, 100);
+        return;
+    }
+
+    m_statusMessage = "Connecting to " + ip + ":" + port + "...";
+    m_statusColor = sf::Color(200, 200, 100);
+
+    // TODO: TIMMMMMMMMMMMMMMMMMMMMMMMMM/NICHTSSSSSSS HERE
+
+    // TODO: placeholder until direct connect is implemented
+    m_statusMessage = "Direct connect not yet implemented";
+    m_statusColor = sf::Color(255, 200, 100);
 }
 
 void LoginState::attemptCreateAccount()
