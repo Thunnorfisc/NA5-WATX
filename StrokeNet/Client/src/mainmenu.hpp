@@ -33,16 +33,18 @@ public:
 
 
 private:
-    [[nodiscard]] bool isMouseOverPlayButton() const;
+    [[nodiscard]] bool isMouseOverButton(sf::RectangleShape shape) const;
     void updateLayout();
 
     sf::RectangleShape m_playButton;
+	sf::RectangleShape m_quitButton;
     sf::RectangleShape m_leaderboardBackground;
     sf::RectangleShape m_leaderboardEntriesBackground;
 
     sf::Font m_font;
 
     sf::Text m_playText;
+    sf::Text m_quitText;
     sf::Text m_statusText;
     sf::Text m_GAMTITLE;
 	sf::Text m_leaderboardTitleText;
