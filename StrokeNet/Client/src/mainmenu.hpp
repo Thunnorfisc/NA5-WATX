@@ -17,7 +17,7 @@
 #pragma once
 
 #include "state.hpp"
-
+#include "client.hpp"
 class StateMachine;
 
 class MainMenuState final : public State
@@ -40,4 +40,6 @@ private:
     sf::Text m_playText;
     bool m_shouldStartGame = false;
     sf::Text m_statusText;
+
+    Client::ReceivedLeaderboard m_lastestLeaderboard;
 };

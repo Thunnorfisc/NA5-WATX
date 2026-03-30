@@ -28,6 +28,7 @@
 #include <chrono>
 #include <string>
 #include <format>
+#include <ranges>
 #include <vector>
 #include <ostream>
 #include <cstring>
@@ -255,12 +256,19 @@ void Server::handle_reqLogin(std::span<const char> udpPacketWithoutMID, sockaddr
 
     if (success && status == LoginStatus::SUCCESS)
     {
-        Client newClient{ .ipPort = ipStrAndPort,.username = username, .sa = *sa };
+        std::uint16_t highScore = 0;
+        auto highscoreOpt = _userStore.getHighscore(username);
+        if (highscoreOpt) highScore = static_cast<std::uint16_t>(*highscoreOpt);
+
+        Client newClient{ .ipPort = ipStrAndPort,
+            .username = username, .sa = *sa,
+        .highscore = highScore };
         
         bool succeedAddingNewClient = LOCK_clientStorage(
-            [sessionIdHostOrder, client = std::move(newClient)](auto& map) mutable 
+            [sessionIdHostOrder, client = std::move(newClient),this](auto& map) mutable 
             {
             auto [_ignore, succeed] = map.emplace(sessionIdHostOrder, std::move(client));
+            NO_LOCK_sendLeaderboard();
             return succeed;
             });
 
@@ -414,6 +422,7 @@ void Server::handle_reqQuitGame(std::span<const char> udpPacketWithoutMID, socka
     // else it will return false, and we will early exit
     std::string username;
     std::atomic_bool to_resetRound{};
+
     if (!LOCK_gameVariablesANDclientStorage(
         [sessionIdHost, &username, &to_resetRound, this](auto& map, const auto& gameRunning, const auto& drawerSessionOpt) {
             auto it = map.find(sessionIdHost);
@@ -421,6 +430,10 @@ void Server::handle_reqQuitGame(std::span<const char> udpPacketWithoutMID, socka
             it->second.inGame = false;
             it->second.score = 0;
             it->second.currentStrokeId = std::nullopt;
+
+            if (it->second.score > it->second.highscore) it->second.highscore = it->second.score;
+            it->second.score = 0; // reset
+
             username = it->second.username;
             if (gameRunning && drawerSessionOpt && drawerSessionOpt == sessionIdHost)
             {
@@ -451,6 +464,7 @@ void Server::handle_reqQuitGame(std::span<const char> udpPacketWithoutMID, socka
         to_resetRound = false;
     }
     
+    LOCK_sendLeaderboard();
 
     // send back ack
     std::array<char, PacketSize::RSP_QUIT_GAME> msg;
@@ -2198,6 +2212,128 @@ void Server::LOCK_sendMessage(const std::string& username, const std::string& me
             _pastChatMsg_NEED_MUTEX.pop_front();
         }
     }
+}
+
+// ============================================================
+// Send leaderboard - LOCK
+// ============================================================
+
+void Server::LOCK_sendLeaderboard()
+{
+    std::lock_guard lock(_clientStorageMutex);
+    NO_LOCK_sendLeaderboard();
+}
+
+// ============================================================
+// Send leaderboard - LOCK
+// ============================================================
+
+void Server::NO_LOCK_sendLeaderboard()
+{
+    std::vector<std::pair<std::string, std::uint16_t>> leaderboardEntries;
+    leaderboardEntries.reserve(MAX_LEADERBOARD_ENTRIES);
+
+    std::uint32_t playerIndexHost = 0;
+    std::uint16_t playerScoreHost = 0;
+    for (auto& [_ignore, client] : _clientStorageMap)
+    {
+        std::string username = client.username;
+        if (username.length() > MAX_SHOWN_USERNAME_LEN)
+        {
+            username = username.substr(0, MAX_SHOWN_USERNAME_LEN - 3);
+            username += "...";
+        }
+        leaderboardEntries.emplace_back(std::make_pair(username, client.highscore));
+    }
+
+    std::ranges::sort(leaderboardEntries,
+        [](const std::pair<std::string, std::uint16_t>& lhs,
+            const std::pair<std::string, std::uint16_t>& rhs) {
+                return lhs.second > rhs.second;
+        });;
+
+    decltype(leaderboardEntries) truncEntries = leaderboardEntries;
+
+    // take top entries
+    if (truncEntries.size() > MAX_LEADERBOARD_ENTRIES) truncEntries.resize(MAX_LEADERBOARD_ENTRIES);
+
+    // first pass to get total var bytes
+    std::size_t totalMsgBytes = PacketSize::NTF_LEADERBOARD_BASE;
+    for (auto& [name, _ignore] : truncEntries)
+        totalMsgBytes += (1 + 2 + name.length());
+
+    std::vector<char> msg;
+    msg.resize(totalMsgBytes);
+    ByteWriter wrt{.buffer = msg};
+
+    wrt.write(static_cast<char>(MessageType::NTF_UPDATE_LEADERBOARD));
+    wrt.write(std::uint32_t{ 0 }); // will update client session id later
+    wrt.write(htonl(_sendLeaderboardIdServer));
+    wrt.write(static_cast<std::uint8_t>(truncEntries.size()));
+    
+    for (auto& [name, highscore] : truncEntries)
+    {
+        wrt.write(static_cast<std::uint8_t>(name.length()));
+        wrt.writeSpan(name);
+        wrt.write(htons(highscore));
+    }
+
+    std::size_t offsetAtEndOfVars = wrt.offset;
+
+    wrt.write(std::uint32_t{ 0 }); // will update player index later
+    wrt.write(std::uint16_t{ 0 }); // will update player score later
+
+    auto now = std::chrono::steady_clock::now();
+    for (const auto& [ssiho, client] : _clientStorageMap)
+    {
+        // update session id in message
+        SessionId ssidNetwork = htonl(ssiho);
+        std::memcpy(msg.data() + 1, &ssidNetwork, sizeof(ssidNetwork));
+
+        std::string truncUsername = client.username;
+        if (truncUsername.length() > MAX_SHOWN_USERNAME_LEN)
+        {
+            truncUsername = truncUsername.substr(0, MAX_SHOWN_USERNAME_LEN - 3);
+            truncUsername += "...";
+        }
+        std::uint32_t playerIndexHost = 0;
+        std::uint16_t playerScoreHost = 0;
+        // update player index 
+        auto it = std::ranges::find_if(leaderboardEntries, [&truncUsername](const std::pair<std::string, std::uint16_t>& entry)
+            {
+                return entry.first == truncUsername;
+            });
+        if (it != leaderboardEntries.end())
+        {
+            playerIndexHost = static_cast<std::uint32_t>(std::distance(leaderboardEntries.begin(), it));
+            playerScoreHost = it->second;
+        }
+
+        std::uint32_t playerIndexNetwork = htonl(playerIndexHost);
+        std::uint16_t playerScoreNetwork = htons(playerScoreHost);
+
+        std::memcpy(msg.data() + offsetAtEndOfVars, &playerIndexNetwork, sizeof(playerIndexNetwork));
+        std::memcpy(msg.data() + offsetAtEndOfVars + sizeof(playerIndexNetwork),
+            &playerScoreNetwork, sizeof(playerScoreNetwork));
+
+        // Send immediately once
+        sockaddr_in clientSa = client.sa;
+        sendto(_socket, msg.data(), static_cast<int>(msg.size()), 0,
+            reinterpret_cast<sockaddr*>(&clientSa), sizeof(clientSa));
+
+        // Add to pending for retry
+        _pendingNtfMsg[NtfKey{ ssiho, _messageIdServer }] = PendingNTF{
+            ._data = std::move(msg),
+            ._clientAddr = client.sa,
+            ._targetSessionId = ssiho,
+            ._ntfId = _messageIdServer,
+            ._nextSendTime = now + std::chrono::milliseconds(100),
+            ._giveUpTime = now + std::chrono::seconds(2),
+        };
+    }
+
+
+    _sendLeaderboardIdServer++;
 }
 
 // ============================================================
