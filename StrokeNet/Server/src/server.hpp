@@ -59,7 +59,6 @@ public:
     std::vector<std::string> word_list{};
     std::pair<bool, std::string> word{ 1,{} };
 
-    std::mutex roundsMutex;
     std::pair<uint8_t, uint8_t> rounds{};
     const uint8_t MAX_ROUNDS = 2;
 
@@ -104,6 +103,8 @@ public:
 
     void LOCK_sendLeaderboard();
     void NO_LOCK_sendLeaderboard();
+
+    std::uint8_t LOCK_getCurrentRound();
 private:
     // ============================================================
     // Game State

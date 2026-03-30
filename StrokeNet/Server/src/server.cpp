@@ -377,7 +377,7 @@ void Server::handle_reqPlayGame(std::span<const char> udpPacketWithoutMID, socka
     wrt.write(htonl(sessionIdHost));
     wrt.write(static_cast<char>(*pgs));
     {
-        std::lock_guard lock(roundsMutex);
+        std::lock_guard lock(_gameMutex);
         wrt.write(rounds.first);
         wrt.write(rounds.second);
     }
@@ -1732,6 +1732,7 @@ void Server::resetRound()
     LOCK_sendNewRoundEndTime();
     LOCK_sendClearCanvasCommand();
 
+    std::lock_guard lock(_gameMutex);
     rounds.first = rounds.first > 1? rounds.first - 1 : 0;
 }
 
@@ -2353,6 +2354,12 @@ void Server::NO_LOCK_sendLeaderboard()
 
 
     _sendLeaderboardIdServer++;
+}
+
+std::uint8_t Server::LOCK_getCurrentRound()
+{
+    std::lock_guard lock(_gameMutex);
+    return rounds.first;
 }
 
 // ============================================================

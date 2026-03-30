@@ -59,8 +59,7 @@ int main()
 
         while (!server.isListeningThreadFinished())
         {
-
-
+            
             if (!server.gameStarted() && server.LOCK_getNumberOfPlayers() >= 1)
             {
                 server.startGame();
@@ -73,7 +72,7 @@ int main()
             else if (server.gameStarted() && server.LOCK_getNumberOfPlayers() == 0) {
                 server.stopGame();
             }
-            else if (server.gameStarted() && !server.rounds.first) {
+            else if (server.gameStarted() && !server.LOCK_getCurrentRound()) {
                 server.LOCK_gameVariablesANDclientStorage([&server](auto& map, auto&, auto&) {
                     for (auto& [_sid, client] : map)
                     {
