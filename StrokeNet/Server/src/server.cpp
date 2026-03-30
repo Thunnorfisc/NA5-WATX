@@ -1760,11 +1760,11 @@ void Server::startGame()
         }
         log(std::cout, "[Server] Game started");
         gameRunning = true;
-        NO_LOCK_advanceDrawer();
-        NO_LOCK_broadcastScoreboard();
 
         rounds.second = MAX_ROUNDS;
         rounds.first = rounds.second;
+        NO_LOCK_advanceDrawer();
+        NO_LOCK_broadcastScoreboard();
         });
 }
 
