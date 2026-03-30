@@ -28,7 +28,8 @@
 
 static sf::SoundBuffer bgmBuffer;
 static sf::Sound bgm{ bgmBuffer };
-int main()
+
+int realMain()
 {
     // set executable path as the working directory
     // https://www.codegenes.net/blog/how-do-i-get-the-directory-that-a-program-is-running-from/
@@ -52,3 +53,15 @@ int main()
 
     bgm.stop();
 }
+
+#ifdef _DEBUG
+int main()
+{
+    return realMain();
+}
+#else
+int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
+{
+    return realMain();
+}
+#endif
