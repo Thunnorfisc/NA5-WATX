@@ -776,8 +776,8 @@ void Client::handle_NTF_MsgHistory(std::span<const char> msg)
     {
         auto& rcm = rcmh._chatMessageHistory[i];
         std::uint8_t msgLen = accumRdr.read<std::uint8_t>();
-        std::vector<char> msg = accumRdr.readBytes(static_cast<std::size_t>(msgLen));
-        rcm._message = std::string(msg.begin(), msg.end());
+        std::vector<char> msg1 = accumRdr.readBytes(static_cast<std::size_t>(msgLen));
+        rcm._message = std::string(msg1.begin(), msg1.end());
         std::uint8_t nameLen = accumRdr.read<std::uint8_t>();
         std::vector<char> name = accumRdr.readBytes(static_cast<std::size_t>(nameLen));
         rcm._name = std::string(name.begin(), name.end());
