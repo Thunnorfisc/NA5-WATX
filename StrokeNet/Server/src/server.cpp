@@ -1400,8 +1400,7 @@ void Server::actualStartListening(std::stop_token st) noexcept
             if (bytesReceived == SOCKET_ERROR)
             {
                 if (WSAGetLastError() == WSAEWOULDBLOCK) break; // fully drained
-                log(std::cerr, std::format("[Server] recvfrom() failed: {}", wsaErrorStr()));
-
+                //log(std::cerr, std::format("[Server] recvfrom() failed: {}", wsaErrorStr()));
                 break;
             }
             else if (bytesReceived == 0) continue; // move on with our lives
