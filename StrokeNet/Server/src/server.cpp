@@ -377,7 +377,7 @@ void Server::handle_reqPlayGame(std::span<const char> udpPacketWithoutMID, socka
     wrt.write(htonl(sessionIdHost));
     wrt.write(static_cast<char>(*pgs));
     {
-        std::lock_guard(roundsMutex);
+        std::lock_guard lock(roundsMutex);
         wrt.write(rounds.first);
         wrt.write(rounds.second);
     }
