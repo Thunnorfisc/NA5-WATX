@@ -413,8 +413,9 @@ void Server::handle_reqQuitGame(std::span<const char> udpPacketWithoutMID, socka
     // 
     // else it will return false, and we will early exit
     std::string username;
+    std::atomic_bool to_resetRound{};
     if (!LOCK_gameVariablesANDclientStorage(
-        [sessionIdHost, &username, this](auto& map, const auto& gameRunning, const auto& drawerSessionOpt) {
+        [sessionIdHost, &username, &to_resetRound, this](auto& map, const auto& gameRunning, const auto& drawerSessionOpt) {
             auto it = map.find(sessionIdHost);
             if (it == map.end()) return false;
             it->second.inGame = false;
@@ -425,13 +426,23 @@ void Server::handle_reqQuitGame(std::span<const char> udpPacketWithoutMID, socka
             {
                 NO_LOCK_advanceDrawer();
                 NO_LOCK_forceEndStroke();
-                //pick_word();
+                pick_word();
+                to_resetRound = true;
             }
             // update scoreboard no matter wat
             NO_LOCK_broadcastScoreboard();
             return true;
         }))return;
 
+    if (to_resetRound) {
+        // send client stuff
+        LOCK_sendNewWord();
+        LOCK_sendNewWordLen();
+        LOCK_sendNewRoundEndTime();
+        LOCK_sendClearCanvasCommand();
+        to_resetRound = false;
+    }
+    
 
     // send back ack
     std::array<char, PacketSize::RSP_QUIT_GAME> msg;
