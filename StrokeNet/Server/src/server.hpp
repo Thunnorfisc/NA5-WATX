@@ -282,6 +282,7 @@ private:
     void handle_ntfRcvClearCanvas       (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
     void handle_ntfRcvMsg               (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
     void handle_ntfRcvUpdateScoreboard  (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
+    void handle_ntfRcvUpdateLeaderboard (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
     void handle_ntfRcvRET               (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
     void handle_ntfRcvSendWordLen       (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
     void handle_ntfRcvSendWord          (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
@@ -307,6 +308,7 @@ private:
         std::make_pair(MessageType::NTF_RCV_CLEAR_CANVAS,       &Server::handle_ntfRcvClearCanvas       ),
         std::make_pair(MessageType::NTF_RCV_MSG,                &Server::handle_ntfRcvMsg               ),
         std::make_pair(MessageType::NTF_RCV_UPDATE_SCOREBOARD,  &Server::handle_ntfRcvUpdateScoreboard  ),
+        std::make_pair(MessageType::NTF_RCV_UPDATE_LEADERBOARD, &Server::handle_ntfRcvUpdateLeaderboard ),
         std::make_pair(MessageType::NTF_RCV_ROUND_END_TIME,     &Server::handle_ntfRcvRET               ),
         std::make_pair(MessageType::NTF_RCV_SEND_WORD_LEN,      &Server::handle_ntfRcvSendWordLen       ),
         std::make_pair(MessageType::NTF_RCV_SEND_WORD,          &Server::handle_ntfRcvSendWord          ),

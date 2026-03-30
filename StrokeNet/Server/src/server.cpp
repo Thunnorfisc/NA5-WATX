@@ -567,6 +567,18 @@ void Server::handle_ntfRcvUpdateScoreboard(std::span<const char> udpPacketWithou
     _pendingNtfUpdateScoreboards.erase(NtfKey{ sessionIdHostOrder, scoreIdHostOrder });
 }
 
+void Server::handle_ntfRcvUpdateLeaderboard(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
+{
+    assert((udpPacketWithoutMID.size() == PacketSize::NTF_RCV_LEADERBOARD - 1) &&
+        "Size of NTF_RCV_LEADERBOARD packet received is wrong");
+    ByteReader rdr{ .buffer = udpPacketWithoutMID };
+    auto sessionIdHostOrder = ntohl(rdr.read<SessionId>());
+    auto leaderboardIdHostOrder = ntohl(rdr.read<std::uint32_t>());
+
+    std::lock_guard lock(_pendingNtfLeaderboardMutex);
+    _pendingNtfLeaderboard.erase(NtfKey{ sessionIdHostOrder, leaderboardIdHostOrder });
+}
+
 // ============================================================
 // NTF_RCV_ROUND_END_TIME
 // ============================================================
@@ -2241,9 +2253,6 @@ void Server::NO_LOCK_sendLeaderboard()
     for (const auto& [_ignore, client] : _clientStorageMap) _userStore.saveHighscore(client.username, client.highscore);
     std::vector<std::pair<std::string, std::uint16_t>> leaderboardEntries = _userStore.getHighscoresAndName();
 
-    std::uint32_t playerIndexHost = 0;
-    std::uint16_t playerScoreHost = 0;
-
     std::ranges::sort(leaderboardEntries,
         [](const std::pair<std::string, std::uint16_t>& lhs,
             const std::pair<std::string, std::uint16_t>& rhs) {
@@ -2300,7 +2309,13 @@ void Server::NO_LOCK_sendLeaderboard()
         // update player index 
         auto it = std::ranges::find_if(leaderboardEntries, [&truncUsername](const std::pair<std::string, std::uint16_t>& entry)
             {
-                return entry.first == truncUsername;
+                std::string entryUsername = entry.first;
+                if (entryUsername.length() > MAX_SHOWN_USERNAME_LEN)
+                {
+                    entryUsername = entryUsername.substr(0, MAX_SHOWN_USERNAME_LEN - 3);
+                    entryUsername += "...";
+                }
+                return entryUsername == truncUsername;
             });
         if (it != leaderboardEntries.end())
         {
@@ -2321,11 +2336,11 @@ void Server::NO_LOCK_sendLeaderboard()
             reinterpret_cast<sockaddr*>(&clientSa), sizeof(clientSa));
 
         // Add to pending for retry
-        _pendingNtfLeaderboard[NtfKey{ ssiho, _messageIdServer }] = PendingNTF{
+        _pendingNtfLeaderboard[NtfKey{ ssiho, _sendLeaderboardIdServer }] = PendingNTF{
             ._data = msg, // NO MOVE
             ._clientAddr = client.sa,
             ._targetSessionId = ssiho,
-            ._ntfId = _messageIdServer,
+            ._ntfId = _sendLeaderboardIdServer,
             ._nextSendTime = now + std::chrono::milliseconds(100),
             ._giveUpTime = now + std::chrono::seconds(2),
         };

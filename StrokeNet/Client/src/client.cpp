@@ -434,6 +434,16 @@ void Client::handle_NTF_UpdateLeaderboard(std::span<const char> msg)
     auto leaderboardIdNetwork = rdr.read<std::uint32_t>();    
     auto numLeaderboardEntryHost = rdr.read<std::uint8_t>();
 
+    // Send ack first
+    std::array<char, PacketSize::NTF_RCV_LEADERBOARD> ntfrcvlb;
+    ByteWriterN wrt{ .buffer = ntfrcvlb };
+    wrt.write(static_cast<char>(MessageType::NTF_RCV_UPDATE_LEADERBOARD));
+    wrt.write(htonl(_sessionId));
+    wrt.write(leaderboardIdNetwork);
+
+    if (!sendWithRetry(ntfrcvlb))
+        log(std::cerr, "[Client] Unable to send NTF_RCV_UPDATE_LEADERBOARD back to server");
+
     ReceivedLeaderboard rlb;
     rlb._leaderboardEntries.resize(numLeaderboardEntryHost);
     for (std::uint8_t i = 0; i < numLeaderboardEntryHost; i++)

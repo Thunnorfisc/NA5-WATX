@@ -114,9 +114,9 @@ std::vector<std::pair<std::string, std::uint16_t>> UserStore::getHighscoresAndNa
 {
     std::vector<std::pair<std::string, std::uint16_t>> ret;
     ret.reserve(_users.size());
-    for (const auto& [name, highscore] : ret)
+    for (const auto& [name, client] : _users)
     {
-        ret.emplace_back(name, static_cast<std::uint16_t>(highscore));
+        ret.emplace_back(name, static_cast<std::uint16_t>(client._highscore));
     }
     return ret;
 }
