@@ -77,13 +77,22 @@ int main()
             //    //server.word.first = false;
             //}
 
-            if (std::chrono::duration<double>(std::chrono::steady_clock::now() - server.advanceTurnNow.load()).count() >= server.budgetAdvanceTurn)
+            if (std::chrono::duration<double>(std::chrono::steady_clock::now() - server.advanceTurnNow.load()).count() >= server.budgetAdvanceTurn ||
+                server.LOCK_gameVariablesANDclientStorage([&server](auto& map, auto&, auto& drawerSessionOpt) {
+                    bool anyInGame = false;
+                    for (auto& [_sid, client] : map) {
+                        if (!client.inGame || drawerSessionOpt == _sid) continue;
+                        anyInGame = true;
+                        if (!client.wordAlreadyGuessed) return false;
+                    }
+                    return anyInGame;
+                    }))
             {
                 _roundEndTime =
                     std::chrono::duration_cast<std::chrono::milliseconds>
                     (std::chrono::steady_clock::now().time_since_epoch()).count();
                 _roundEndTime += (server.budgetAdvanceTurnInt * 1000);
-                server.LOCK_forceEndStroke();
+                //server.LOCK_forceEndStroke();
                 server.resetRound();
                 server.advanceTurnNow = std::chrono::steady_clock::now();
             }

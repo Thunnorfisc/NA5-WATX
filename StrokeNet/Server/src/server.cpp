@@ -1698,6 +1698,7 @@ void Server::resetRound()
         {
             if (client.inGame) client.wordAlreadyGuessed = false;
         }
+        NO_LOCK_forceEndStroke();
         NO_LOCK_advanceDrawer();
         pick_word();
         NO_LOCK_broadcastScoreboard();
