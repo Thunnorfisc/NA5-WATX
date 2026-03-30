@@ -158,6 +158,12 @@ void MainMenuState::render()
 	centerSprite(backgroundSprite, { 400, 450 });
 	backgroundSprite.setScale({ 1.5f, 1.5f });
 
+	sf::Text currentRanking(m_font, "Your Ranking: (Rank) " + std::to_string(m_localPlayerIndex + 1) + "                (Score) " + std::to_string(m_localPlayerScore), 25);
+    currentRanking.setPosition({ LEADERBOARD_BACKGROUND_POSITION_X, LEADERBOARD_BACKGROUND_POSITION_Y + LEADERBOARD_BACKGROUND_HEIGHT + currentRanking.getLocalBounds().size.y - PADDING});
+	currentRanking.setFillColor(sf::Color(130, 130, 130));
+	currentRanking.setOutlineThickness(1.0f);
+	currentRanking.setOutlineColor(sf::Color(70, 70, 70));
+
 	window.draw(backgroundSprite);
     window.draw(m_drawnBy);
     window.draw(m_leaderboardBackground);
@@ -166,6 +172,9 @@ void MainMenuState::render()
     window.draw(m_playText);
     window.draw(m_statusText);
     window.draw(m_leaderboardTitleText);
+    if (m_localPlayerIndex >= leaderboardData.size()) {
+        window.draw(currentRanking);
+    }
 
 	uint8_t i = 1;
 	float currentY = LEADERBOARD_BACKGROUND_POSITION_Y + PADDING;
@@ -202,6 +211,7 @@ void MainMenuState::render()
 		entryScore.setOutlineColor(sf::Color(70, 70, 70));
 		centerText(entryScore, { LEADERBOARD_BACKGROUND_POSITION_X + LEADERBOARD_BACKGROUND_WIDTH - PADDING * 12, currentY + toAddY / 2 });
 
+
         window.draw(m_leaderboardEntriesBackground);
 		window.draw(entryRank);
 		window.draw(entryName);
@@ -210,6 +220,8 @@ void MainMenuState::render()
         currentY += toAddY + PADDING;
         i += 1;
 	}
+
+    
 
 
 }
