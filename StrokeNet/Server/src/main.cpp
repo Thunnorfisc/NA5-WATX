@@ -55,8 +55,6 @@ int realMain()
         const double fixedFps = 60.0;
         const double budget = 1.0 / 60.0;
 
-        server.advanceTurnNow = std::chrono::steady_clock::now();
-
         while (!server.isListeningThreadFinished())
         {
             
@@ -67,6 +65,7 @@ int realMain()
                     std::chrono::duration_cast<std::chrono::milliseconds>
                     (std::chrono::steady_clock::now().time_since_epoch()).count();
                 _roundEndTime += (server.budgetAdvanceTurnInt * 1000);
+                server.advanceTurnNow = std::chrono::steady_clock::now();
                 server.resetRound();
             }
             else if (server.gameStarted() && server.LOCK_getNumberOfPlayers() == 0) {
