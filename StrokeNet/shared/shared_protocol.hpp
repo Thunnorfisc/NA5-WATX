@@ -327,8 +327,8 @@ enum class PlayGameStatus : std::uint8_t
 struct PastStroke
 {
     enum class Type : std::uint8_t { START_STROKE, EXTEND_STROKE, END_STROKE };
-    Type _type;
-    std::vector<char> _data;
+    Type _type{};
+    std::vector<char> _data{};
 };
 
 struct PastMessage
