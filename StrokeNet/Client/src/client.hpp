@@ -59,7 +59,7 @@ public:
     {
         enum class Type : std::uint8_t { START_STROKE, EXTEND_STROKE, END_STROKE, CLEAR_CANVAS };
         std::vector<char> _data;
-        Type _type;
+        Type _type{};
     };
     struct ReceivedChatMessage
     {
@@ -194,7 +194,7 @@ private:
     struct BufferedToSend
     {
         std::vector<char> _data;
-        std::uint32_t _hostId;
+        std::uint32_t _hostId{};
     };
     // ============================================================
     // Drawing canvas thingies - BSSTS

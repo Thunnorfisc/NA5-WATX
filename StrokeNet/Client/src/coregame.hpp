@@ -51,9 +51,12 @@ private:
     void handle_received_msgHistory();
 
     sf::RectangleShape m_backButton;
+
     sf::Font m_font;
+
     sf::Text m_titleText;
     sf::Text m_backText;
+	sf::Text m_roundInfoText;
 
     bool m_shouldReturnToMenu = false;
     bool m_leftDown = false;

@@ -119,12 +119,7 @@ void ChatBox::draw(sf::RenderWindow& window)
 	static float toAddY = (CHATBOX_HEIGHT / 6.f) - 15.f;
 	std::uint8_t idx = 0;
 	for (const auto& [name, score] : scoreboardData) {
-		drawScoreboardOfPlayer(
-			SCOREBOARD_BACKGROUND_POSITION_X + 10.f, currentPosY,
-			CHATBOX_WIDTH - 20.f, toAddY,
-			name, score,
-			name == currentDrawerName,
-			idx == yourPlayerIndex);
+		drawScoreboardOfPlayer(SCOREBOARD_BACKGROUND_POSITION_X + 10.f, currentPosY, CHATBOX_WIDTH - 20.f, toAddY, name, score, name == currentDrawerName, idx == yourPlayerIndex);
 		window.draw(playerScoreboard);
 		window.draw(playerName);
 		window.draw(playerScore);
@@ -233,8 +228,7 @@ void ChatBox::drawScoreboardOfPlayer(float posX, float posY, float scaleX, float
 		playerName.setStyle(sf::Text::Bold);
 		playerName.setOutlineThickness(4.f);
 		playerName.setOutlineColor(sf::Color::Red);
-		drawerTitle.setPosition({ posX + scaleX - drawerTitle.getLocalBounds().size.x - TEXT_PADDING,
-								  posY + scaleY - drawerTitle.getLocalBounds().size.y - TEXT_PADDING * 2 });
+		drawerTitle.setPosition({ posX + scaleX - drawerTitle.getLocalBounds().size.x - TEXT_PADDING, posY + scaleY - drawerTitle.getLocalBounds().size.y - TEXT_PADDING * 2 });
 	}
 	else {
 		playerName.setFillColor(sf::Color::White);

@@ -39,13 +39,13 @@ namespace
     }
 }
 
-CoreGameState::CoreGameState(StateMachine& stateMachine, StateContext& context) :
-    State(stateMachine, context),
+CoreGameState::CoreGameState(StateMachine& stateMachine, StateContext& context) : State(stateMachine, context),
     m_font("resources/Marvel-Bold.ttf"),
     m_titleText(m_font, "", 32), // was "Core Game" -imma remove it cus idk what it's for -snowpuppy
     m_backText(m_font, "Main Menu", 34),
     m_chatBox("resources/Marvel-Regular.ttf"),
-    m_sliderValueText(m_font, "10", 16)
+    m_sliderValueText(m_font, "10", 16),
+	m_roundInfoText(m_font, "", 48)
 {
     m_backButton.setPosition({ 10, 830 });
     m_backButton.setSize({ 150, 50 });
@@ -72,10 +72,11 @@ CoreGameState::CoreGameState(StateMachine& stateMachine, StateContext& context) 
     m_sliderKnob.setFillColor(sf::Color(220, 70, 70));
     m_sliderKnob.setOutlineColor(sf::Color(255, 100, 100));
     m_sliderKnob.setOutlineThickness(1.f);
-
     m_sliderValueText.setFillColor(sf::Color(230, 230, 230));
+
     auto [currentRound, totalRounds] = context.roundInfo;
-    // alfred do yr thing here
+    m_roundInfoText.setString("Round " + std::to_string(currentRound) + " / " + std::to_string(totalRounds));
+	m_roundInfoText.setPosition({ 1050.f, 120.f });
 
 }
 
@@ -249,6 +250,7 @@ void CoreGameState::render()
     window.draw(m_titleText);
     window.draw(m_backButton);
     window.draw(m_backText);
+    window.draw(m_roundInfoText);
     m_canvas.draw(window);
     m_cpicker.draw(window);
     m_toolPicker.draw(window);
