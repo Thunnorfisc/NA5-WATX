@@ -60,7 +60,7 @@ public:
     std::pair<bool, std::string> word{ 1,{} };
 
     const uint8_t MAX_ROUNDS = 3;
-    std::pair<uint8_t, uint8_t> rounds{MAX_ROUNDS,MAX_ROUNDS};
+    std::pair<uint8_t, uint8_t> rounds{0,MAX_ROUNDS};
 
     void pick_word();
     void load_wordlist();
@@ -71,7 +71,7 @@ public:
     void resetRound(bool isGameStart = false);
     bool gameStarted();
 
-    const double budgetAdvanceTurn{ 50.0 }; // advance turn every 60 seconds, just for testing
+    const double budgetAdvanceTurn{ 3.0 }; // advance turn every 60 seconds, just for testing
     const int budgetAdvanceTurnInt{ static_cast<int>(budgetAdvanceTurn) };
     std::atomic<std::chrono::steady_clock::time_point> advanceTurnNow{ std::chrono::steady_clock::now() };
 
