@@ -68,7 +68,7 @@ public:
 
     void stopGame();
     void startGame();
-    void resetRound();
+    void resetRound(bool isGameStart = false);
     bool gameStarted();
 
     const double budgetAdvanceTurn{ 50.0 }; // advance turn every 60 seconds, just for testing

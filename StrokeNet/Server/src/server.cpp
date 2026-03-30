@@ -1763,7 +1763,7 @@ void Server::startGame()
 
         rounds.second = MAX_ROUNDS;
         rounds.first = rounds.second;
-        //NO_LOCK_advanceDrawer();
+        NO_LOCK_advanceDrawer();
         //NO_LOCK_broadcastScoreboard();
         });
 }
@@ -1796,19 +1796,24 @@ bool Server::gameStarted()
 // Reset Round
 // ============================================================
 
-void Server::resetRound()
+void Server::resetRound(bool isGameStart)
 {
     bool wrapped = false;
-    LOCK_gameVariablesANDclientStorage([this, &wrapped](auto& map, auto&, auto& drawerOpt) {
+    LOCK_gameVariablesANDclientStorage([this, &wrapped, isGameStart](auto& map, auto&, auto& drawerOpt) {
         for (auto& [_sid, client] : map)
             if (client.inGame) client.wordAlreadyGuessed = false;
         NO_LOCK_forceEndStroke();
 
-        auto oldDrawer = drawerOpt;
-        NO_LOCK_advanceDrawer();
+        if (!isGameStart) {
+            auto oldDrawer = drawerOpt;
 
-        if (oldDrawer.has_value() && drawerOpt.has_value() && *drawerOpt <= *oldDrawer)
-            wrapped = true;
+            NO_LOCK_advanceDrawer();
+
+            if (oldDrawer.has_value() && drawerOpt.has_value()
+                && *drawerOpt != *oldDrawer
+                && *drawerOpt <= *oldDrawer)
+                wrapped = true;
+        }
 
         pick_word();
         NO_LOCK_broadcastScoreboard();
