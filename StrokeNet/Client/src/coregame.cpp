@@ -46,8 +46,12 @@ CoreGameState::CoreGameState(StateMachine& stateMachine, StateContext& context) 
     m_chatBox("resources/Marvel-Regular.ttf"),
     m_sliderValueText(m_font, "10", 16),
     m_clearText(m_font, "CLEAR DRAWING", 22),
-    m_roundInfoText(m_font, "", 48)
+    m_roundInfoText(m_font, "", 45)
 {
+    m_gameOverTriggered = false;
+    stage2 = false;
+    stage3 = false;
+
     m_backButton.setPosition({ 10, 830 });
     m_backButton.setSize({ 150, 50 });
     m_backButton.setFillColor(sf::Color(45, 45, 45));
@@ -87,8 +91,9 @@ CoreGameState::CoreGameState(StateMachine& stateMachine, StateContext& context) 
     auto [currentRound, totalRounds] = context.roundInfo;
     m_currentRound = currentRound;
     m_maxRound = totalRounds;
-    m_roundInfoText.setString("Round " + std::to_string(m_currentRound) + " / " + std::to_string(m_maxRound));
-	m_roundInfoText.setPosition({ 1050.f, 120.f });
+
+	m_roundInfoText.setPosition({ 970.f, 120.f });
+
 }
 
 CoreGameState::~CoreGameState()
@@ -148,7 +153,7 @@ void CoreGameState::handleEvent(const sf::Event& event)
     m_chatBox.handleEvent(event);
 }
 
-void CoreGameState::update(sf::Time)
+void CoreGameState::update(sf::Time dt)
 {
     updateLayout();
 
@@ -253,6 +258,49 @@ void CoreGameState::update(sf::Time)
     handle_received_strokeHistory();
     handle_received_msgHistory();
 
+    if (m_currentRound >= 1) {
+        m_gameOverTriggered = false;
+        stage2 = false;
+        stage3 = false;
+    }
+
+    if (auto sb = Client::getLatestScoreboard()) {
+        SamplescoreboardData = sb->_users;
+    }
+
+	if (m_currentRound == 0 && SamplescoreboardData.size() >= 1) { // lerp for game over text
+        if (!m_gameOverTriggered) {
+            m_gameOverTriggered = true;
+            m_gameOverTimer = 0.f;
+            m_gameOverStartY = 450.f;
+        }
+        m_gameOverTimer += dt.asSeconds();
+
+        float targetY = 80.f;
+
+        float elapsed = std::max(0.f, m_gameOverTimer - m_gameOverDelay);
+
+        float t = std::clamp(elapsed / 1.0f, 0.f, 1.f);
+
+        t = t * t * (3.f - 2.f * t);
+
+        m_gameOverTextY = m_gameOverStartY + t * (targetY - m_gameOverStartY);
+        if (m_gameOverTextY <= targetY) {
+            stage2 = true;
+		}
+    }
+
+
+    if (stage3 && SamplescoreboardData.size() >= 1) {
+        static float endTimer = 0.f;
+        endTimer += dt.asSeconds();
+        if (endTimer >= m_returnToMenuDelay) {
+            endTimer = 0.f;
+            stage3 = false;
+            m_shouldReturnToMenu = true;
+        }
+    }
+
     if (m_shouldReturnToMenu)
     {
         m_shouldReturnToMenu = false;
@@ -263,7 +311,7 @@ void CoreGameState::update(sf::Time)
 void CoreGameState::render()
 {
     auto& window = context().window;
-    
+
     std::int64_t retMs = Client::getRoundEndTimeMs();
 
     std::int64_t now =
@@ -277,7 +325,92 @@ void CoreGameState::render()
     }
 
     m_currentRound = Client::getCurrentRound();
-    m_roundInfoText.setString("Round " + std::to_string(m_currentRound) + " / " + std::to_string(m_maxRound));
+    m_roundInfoText.setString("Rounds Left: " + std::to_string(m_currentRound) + " / " + std::to_string(m_maxRound));
+
+    if (auto sb = Client::getLatestScoreboard()) {
+        SamplescoreboardData = sb->_users;
+    }
+
+    if (m_currentRound == 0 && SamplescoreboardData.size() >= 1) {
+        sf::RectangleShape winOverlay({ static_cast<float>(window.getSize().x), static_cast<float>(window.getSize().y) });
+        winOverlay.setFillColor(sf::Color(0, 0, 0, 200));
+
+        sf::Text winText(m_font, "Game Over!", 72);
+        winText.setFillColor(sf::Color(255, 255, 255));
+        winText.setOutlineThickness(3.f);
+        winText.setOutlineColor(sf::Color(220, 70, 70));
+        centerText(winText, { window.getSize().x / 2.f, m_gameOverTextY });
+
+        window.draw(winOverlay);
+        if (!stage2) window.draw(winText);
+
+        if (stage2) {
+            winText.setString("These are your Top 3!");
+            centerText(winText, { window.getSize().x / 2.f, m_gameOverTextY });
+            window.draw(winText);
+
+            if (auto sb = Client::getLatestScoreboard()) {
+                SamplescoreboardData = sb->_users;
+            }
+            std::sort(SamplescoreboardData.begin(), SamplescoreboardData.end(), [](const auto& a, const auto& b) {
+                return a.second > b.second;
+                });
+
+            // Podium layout: 2nd (silver), 1st (gold), 3rd (bronze)
+            struct PodiumSlot { size_t index; sf::Color color; float height; };
+            std::vector<PodiumSlot> podium = {
+                { 1, sf::Color(192, 192, 192), 200.f }, // silver - left
+                { 0, sf::Color(255, 215, 0), 300.f }, // gold   - center
+                { 2, sf::Color(205, 127, 50), 120.f }, // bronze - right
+            };
+
+            float barWidth = 140.f;
+            float spacing = 120.f;
+            float baseY = window.getSize().y * 0.65f;
+            float centerX = window.getSize().x / 2.f;
+            // positions: left, center, right
+            float posX[3] = {
+                centerX - barWidth - spacing,
+                centerX - barWidth / 2.f,
+                centerX + spacing,
+            };
+
+            for (int slot = 0; slot < 3; ++slot) {
+                size_t idx = podium[slot].index;
+                sf::Color clr = podium[slot].color;
+                float height = podium[slot].height;
+                float x = posX[slot];
+
+                if (idx >= SamplescoreboardData.size()) continue;
+                const auto& [username, score] = SamplescoreboardData[idx];
+
+                sf::RectangleShape bar({ barWidth, height });
+                bar.setPosition({ x, baseY - height });
+                bar.setFillColor(sf::Color(clr.r, clr.g, clr.b, 180));
+                bar.setOutlineColor(clr);
+                bar.setOutlineThickness(3.f);
+
+                sf::Text scoreText(m_font, std::to_string(score), 22);
+                scoreText.setFillColor(sf::Color(255, 255, 255));
+                scoreText.setOutlineColor(sf::Color(0, 0, 0));
+                scoreText.setOutlineThickness(2.f);
+                centerText(scoreText, { x + barWidth / 2.f, baseY - height / 2.f });
+
+                sf::Text nameText(m_font, username, 24);
+                nameText.setFillColor(clr);
+                nameText.setOutlineColor(sf::Color(0, 0, 0));
+                nameText.setOutlineThickness(2.f);
+                centerText(nameText, { x + barWidth / 2.f, baseY - height - 24.f });
+
+                window.draw(bar);
+                window.draw(scoreText);
+                window.draw(nameText);
+            }
+			stage3 = true;
+            
+        }
+        return;
+    }
 
     window.draw(m_titleText);
     window.draw(m_backButton);
@@ -287,7 +420,6 @@ void CoreGameState::render()
     m_cpicker.draw(window);
     m_toolPicker.draw(window);
 
-    // Clear button
     window.draw(m_clearButton);
     window.draw(m_clearText);
 
@@ -306,10 +438,8 @@ void CoreGameState::render()
         wordText.setFillColor(sf::Color(0, 255, 255));
         wordText.setOutlineThickness(2.0f);
         wordText.setOutlineColor(sf::Color(220, 70, 70));
-        wordText.setPosition({ 750.f, 120.f });
-#ifdef _DEBUG
-        //std::cout << "Word:" << wordText.getString().toAnsiString() << std::endl;
-#endif
+		centerText(wordText, { 800.f, 120.f });
+
         window.draw(wordText);
     }
     else {
@@ -319,15 +449,14 @@ void CoreGameState::render()
         wordHintText.setOutlineThickness(2.0f);
         wordHintText.setOutlineColor(sf::Color(220, 70, 70));
         wordHintText.setPosition({ 750.f, 120.f + wordHintText.getLocalBounds().size.y }); // seems to not be able to display underscore '_' so i use dash and lower the height to make it look like an underscore uwu
-#ifdef _DEBUG
-        //std::cout << "Word Hint:" << wordHintText.getString().toAnsiString() << std::endl;
-#endif
+
         window.draw(wordHintText);
     }
 
     if (m_cursorOnCanvas) {
         window.draw(m_cursorPreview);
     }
+
 }
 
 bool CoreGameState::isMouseOverBackButton() const

@@ -86,6 +86,16 @@ private:
     static constexpr float SLIDER_KNOB_W = 12.f;
     static constexpr float SLIDER_KNOB_H = 20.f;
 
+    bool m_gameOverTriggered = false;
+    bool stage2 = false;
+    bool stage3 = false;
+	float m_returnToMenuDelay = 5.f;
+    float m_gameOverDelay = 0.5f;
+    float m_gameOverTimer = 0.f;
+    float m_gameOverTextY = 0.f;
+    float m_gameOverStartY = 0.f;
+
+    std::vector<std::pair<std::string, uint16_t>> SamplescoreboardData;
 
     // PREVIEW SHIT
     sf::CircleShape m_cursorPreview;
