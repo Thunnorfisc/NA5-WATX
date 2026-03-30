@@ -37,6 +37,7 @@ private:
 
     sf::CircleShape m_playButton;
     sf::CircleShape m_practiceButton;
+
     sf::Font m_font;
     sf::Text m_playText;
     bool m_shouldStartGame = false;
