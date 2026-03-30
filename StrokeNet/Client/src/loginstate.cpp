@@ -55,13 +55,19 @@ LoginState::LoginState(StateMachine& stateMachine, StateContext& context) :
     m_createButtonText(m_font, "Create Account", 28),
     m_sound(m_hoverBuffer)
 {
-    m_sound.setVolume(35.0f);
+    m_sound.setVolume(100.0f);
     m_canPlayHover = m_hoverBuffer.loadFromFile("resources/UI_Hover_v1.wav");
     m_canPlayClick = m_clickBuffer.loadFromFile("resources/UI_Select_v1.wav");
 
     m_titleText.setFillColor(sf::Color(230, 230, 230));
     m_titleText.setOutlineThickness(2.0f);
     m_titleText.setOutlineColor(sf::Color(220, 70, 70));
+
+    m_quitButton.setSize({ 200.f, 100.f });
+    m_quitButton.setPosition({ 300.f, 200.f });
+    m_quitButton.setFillColor(sf::Color::Blue);
+    m_quitButton.setOutlineThickness(2.f);
+    m_quitButton.setOutlineColor(sf::Color::White);
 
     m_statusText.setFillColor(sf::Color::White);
 
@@ -178,6 +184,17 @@ void LoginState::handleEvent(const sf::Event& event)
                 attemptCreateAccount();
                 return;
             }
+            if (m_quitButton.getGlobalBounds().contains(pos))
+            {
+                if (m_canPlayClick)
+                {
+                    m_sound.stop();
+                    m_sound.setBuffer(m_clickBuffer);
+                    m_sound.play();
+                }
+                context().window.close();
+                return;
+            }
         }
     }
 
@@ -267,7 +284,15 @@ void LoginState::update(sf::Time)
             m_sound.play();
         }
     }
-
+    if (m_isHoveringQuit && !m_wasHoveringQuit)
+    {
+        if (m_canPlayHover)
+        {
+            m_sound.stop();
+            m_sound.setBuffer(m_hoverBuffer);
+            m_sound.play();
+        }
+    }
 
 
 
@@ -275,6 +300,7 @@ void LoginState::update(sf::Time)
     m_wasHoveringBroadcast = m_isHoveringBroadcast;
     m_wasHoveringDirect = m_isHoveringDirect;
     m_wasHoveringCreate = m_isHoveringCreate;
+    m_wasHoveringQuit = m_isHoveringQuit;
 
 
     // update displayed text
