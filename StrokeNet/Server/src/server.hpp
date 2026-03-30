@@ -68,6 +68,10 @@ public:
     void resetRound();
     bool gameStarted();
 
+    const double budgetAdvanceTurn{ 50.0 }; // advance turn every 60 seconds, just for testing
+    const int budgetAdvanceTurnInt{ static_cast<int>(budgetAdvanceTurn) };
+    std::atomic<std::chrono::steady_clock::time_point> advanceTurnNow{ std::chrono::steady_clock::now() };
+
     // This locks both game and client storage mutexes
     void LOCK_advanceDrawer();
     void LOCK_broadcastScoreboard();

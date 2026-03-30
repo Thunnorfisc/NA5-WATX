@@ -55,9 +55,7 @@ int main()
         const double fixedFps = 60.0;
         const double budget = 1.0 / 60.0;
 
-        const double budgetAdvanceTurn = 50.0; // advance turn every 60 seconds, just for testing
-        const int budgetAdvanceTurnInt = static_cast<int>(budgetAdvanceTurn);
-        auto advanceTurnNow = std::chrono::steady_clock::now();
+        server.advanceTurnNow = std::chrono::steady_clock::now();
 
         while (!server.isListeningThreadFinished())
         {
@@ -69,7 +67,7 @@ int main()
                 _roundEndTime =
                     std::chrono::duration_cast<std::chrono::milliseconds>
                     (std::chrono::steady_clock::now().time_since_epoch()).count();
-                _roundEndTime += (budgetAdvanceTurnInt * 1000);
+                _roundEndTime += (server.budgetAdvanceTurnInt * 1000);
                 server.resetRound();
             }
             if (!server.gameStarted()) continue;
@@ -79,15 +77,15 @@ int main()
             //    //server.word.first = false;
             //}
 
-            if (std::chrono::duration<double>(std::chrono::steady_clock::now() - advanceTurnNow).count() >= budgetAdvanceTurn)
+            if (std::chrono::duration<double>(std::chrono::steady_clock::now() - server.advanceTurnNow.load()).count() >= server.budgetAdvanceTurn)
             {
                 _roundEndTime =
                     std::chrono::duration_cast<std::chrono::milliseconds>
                     (std::chrono::steady_clock::now().time_since_epoch()).count();
-                _roundEndTime += (budgetAdvanceTurnInt * 1000);
+                _roundEndTime += (server.budgetAdvanceTurnInt * 1000);
                 server.LOCK_forceEndStroke();
                 server.resetRound();
-                advanceTurnNow = std::chrono::steady_clock::now();
+                server.advanceTurnNow = std::chrono::steady_clock::now();
             }
         }
         server.stopGame();

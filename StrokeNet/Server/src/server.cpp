@@ -424,9 +424,17 @@ void Server::handle_reqQuitGame(std::span<const char> udpPacketWithoutMID, socka
             username = it->second.username;
             if (gameRunning && drawerSessionOpt && drawerSessionOpt == sessionIdHost)
             {
+
+                _roundEndTime =
+                    std::chrono::duration_cast<std::chrono::milliseconds>
+                    (std::chrono::steady_clock::now().time_since_epoch()).count();
+                _roundEndTime += (budgetAdvanceTurnInt * 1000);
+                advanceTurnNow = std::chrono::steady_clock::now();
+
                 NO_LOCK_advanceDrawer();
                 NO_LOCK_forceEndStroke();
                 pick_word();
+
                 to_resetRound = true;
             }
             // update scoreboard no matter wat
