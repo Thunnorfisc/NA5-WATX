@@ -2414,8 +2414,14 @@ void Server::NO_LOCK_sendLeaderboard()
     
     for (auto& [name, highscore] : truncEntries)
     {
-        wrt.write(static_cast<std::uint8_t>(name.length()));
-        wrt.writeSpan(name);
+        std::string uname = name;
+        if (uname.length() > MAX_SHOWN_USERNAME_LEN)
+        {
+            uname = uname.substr(0, MAX_SHOWN_USERNAME_LEN - 3);
+            uname += "...";
+        }
+        wrt.write(static_cast<std::uint8_t>(uname.length()));
+        wrt.writeSpan(uname);
         wrt.write(htons(highscore));
     }
 
