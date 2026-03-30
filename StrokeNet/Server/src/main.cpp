@@ -115,6 +115,7 @@ int realMain()
     {
         std::cerr << "Exception caught from main: " << e.what() << '\n';
     }
+    return 1;
 }
 
 #ifdef _DEBUG
@@ -123,7 +124,18 @@ int main()
     return realMain();
 }
 #else
-int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
+int
+#if defined(_M_CEE_PURE)
+__clrcall
+#else
+WINAPI
+#endif
+wWinMain(
+    _In_ HINSTANCE ,
+    _In_opt_ HINSTANCE ,
+    _In_ LPWSTR ,
+    _In_ int 
+)
 {
     return realMain();
 }
