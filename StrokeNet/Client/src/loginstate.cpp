@@ -15,6 +15,7 @@
 #include "client.hpp"
 #include "loginstate.hpp"
 #include "state_machine.hpp"
+#include "shared_protocol.hpp"
 #include <algorithm>
 namespace
 {
@@ -48,11 +49,16 @@ LoginState::LoginState(StateMachine& stateMachine, StateContext& context) :
     m_titleText(m_font, "Login", 48),
     m_statusText(m_font, "", 20),
     m_connectViaText(m_font, "Connect via:", 22),
-    m_broadcastButtonText(m_font, "Broadcast", 28),
-    m_directButtonText(m_font, "Direct", 28),
+    m_broadcastButtonText(m_font, "Auto Connect", 28),
+    m_directButtonText(m_font, "Direct Connect", 28),
     m_newText(m_font, "New?", 22),
-    m_createButtonText(m_font, "Create Account", 28)
+    m_createButtonText(m_font, "Create Account", 28),
+    m_sound(m_hoverBuffer)
 {
+    m_sound.setVolume(35.0f);
+    m_canPlayHover = m_hoverBuffer.loadFromFile("resources/UI_Hover_v1.wav");
+    m_canPlayClick = m_clickBuffer.loadFromFile("resources/UI_Select_v1.wav");
+
     m_titleText.setFillColor(sf::Color(230, 230, 230));
     m_titleText.setOutlineThickness(2.0f);
     m_titleText.setOutlineColor(sf::Color(220, 70, 70));
@@ -63,7 +69,7 @@ LoginState::LoginState(StateMachine& stateMachine, StateContext& context) :
         m_fieldValues[i] = "";
 
     const std::array<std::string, FIELD_COUNT> labelStrings = {
-        "Username:", "Password:", "Server IP Address:", "Port:"
+        "Username:", "Password:", "Server IP Address:", /*"Port:"*/
     };
 
     for (int i = 0; i < FIELD_COUNT; ++i)
@@ -113,6 +119,11 @@ LoginState::LoginState(StateMachine& stateMachine, StateContext& context) :
     updateLayout();
 }
 
+LoginState::~LoginState()
+{
+    m_sound.stop();
+}
+
 void LoginState::handleEvent(const sf::Event& event)
 {
     if (const auto* mousePressed = event.getIf<sf::Event::MouseButtonPressed>())
@@ -135,16 +146,35 @@ void LoginState::handleEvent(const sf::Event& event)
             // check button clicks
             if (m_broadcastButton.getGlobalBounds().contains(pos))
             {
+                if (m_canPlayClick)
+                {
+                    m_sound.stop();
+                    m_sound.setBuffer(m_clickBuffer);
+                    m_sound.play();
+                }
                 attemptLogin();
                 return;
             }
             if (m_directButton.getGlobalBounds().contains(pos))
             {
+                if (m_canPlayClick)
+                {
+                    m_sound.stop();
+                    m_sound.setBuffer(m_clickBuffer);
+                    m_sound.play();
+                }
+                
                 attemptDirectConnect();
                 return;
             }
             if (m_createButton.getGlobalBounds().contains(pos))
             {
+                if (m_canPlayClick)
+                {
+                    m_sound.stop();
+                    m_sound.setBuffer(m_clickBuffer);
+                    m_sound.play();
+                }
                 attemptCreateAccount();
                 return;
             }
@@ -178,7 +208,7 @@ void LoginState::handleEvent(const sf::Event& event)
             case Field::Username:  maxLen = MAX_USERNAME_LEN - 1; break;
             case Field::Password:  maxLen = MAX_PASSWORD_LEN - 1; break;
             case Field::ServerIP:  maxLen = 45;  break;
-            case Field::Port:      maxLen = 5;   break;
+            //case Field::Port:      maxLen = 5;   break;
             default: break;
             }
 
@@ -193,8 +223,8 @@ void LoginState::handleEvent(const sf::Event& event)
             }
 
             // for the port field, only allow digits
-            if (m_activeField == Field::Port && (ch < '0' || ch > '9'))
-                return;
+            //if (m_activeField == Field::Port && (ch < '0' || ch > '9'))
+            //    return;
 
             if (maxLen > 0 && m_fieldValues[idx].size() < maxLen)
                 m_fieldValues[idx] += static_cast<char>(ch);
@@ -204,6 +234,49 @@ void LoginState::handleEvent(const sf::Event& event)
 
 void LoginState::update(sf::Time)
 {
+    sf::Vector2i ipos = sf::Mouse::getPosition(context().window);
+    sf::Vector2f pos = context().window.mapPixelToCoords(ipos);
+    m_isHoveringBroadcast = m_broadcastButton.getGlobalBounds().contains(pos);
+    m_isHoveringDirect = m_directButton.getGlobalBounds().contains(pos);
+    m_isHoveringCreate = m_createButton.getGlobalBounds().contains(pos);
+
+    if (m_isHoveringBroadcast && !m_wasHoveringBroadcast)
+    {
+        if (m_canPlayHover)
+        {
+            m_sound.stop();
+            m_sound.setBuffer(m_hoverBuffer);
+            m_sound.play();
+        }
+    }
+    if (m_isHoveringDirect && !m_wasHoveringDirect)
+    {
+        if (m_canPlayHover)
+        {
+            m_sound.stop();
+            m_sound.setBuffer(m_hoverBuffer);
+            m_sound.play();
+        }
+    }
+    if (m_isHoveringCreate && !m_wasHoveringCreate)
+    {
+        if (m_canPlayHover)
+        {
+            m_sound.stop();
+            m_sound.setBuffer(m_hoverBuffer);
+            m_sound.play();
+        }
+    }
+
+
+
+
+
+    m_wasHoveringBroadcast = m_isHoveringBroadcast;
+    m_wasHoveringDirect = m_isHoveringDirect;
+    m_wasHoveringCreate = m_isHoveringCreate;
+
+
     // update displayed text
     for (int i = 0; i < FIELD_COUNT; ++i)
     {
@@ -350,6 +423,10 @@ void LoginState::attemptLogin()
         m_statusMessage = "This account is already logged in";
         m_statusColor = sf::Color(255, 100, 100);
         break;
+    case LoginStatus::SERVER_NO_RESPONSE:
+        m_statusMessage = "Login failed (server unreachable or error)";
+        m_statusColor = sf::Color(255, 100, 100);
+        break;
     default:
         m_statusMessage = "Login failed (server unreachable or error)";
         m_statusColor = sf::Color(255, 100, 100);
@@ -362,7 +439,7 @@ void LoginState::attemptDirectConnect()
     const auto& user = m_fieldValues[static_cast<int>(Field::Username)];
     const auto& pass = m_fieldValues[static_cast<int>(Field::Password)];
     const auto& ip = m_fieldValues[static_cast<int>(Field::ServerIP)];
-    const auto& port = m_fieldValues[static_cast<int>(Field::Port)];
+    //const auto& port = m_fieldValues[static_cast<int>(Field::Port)];
 
     if (user.empty() || pass.empty())
     {
@@ -371,9 +448,9 @@ void LoginState::attemptDirectConnect()
         return;
     }
 
-    if (ip.empty() || port.empty())
+    if (ip.empty() /*|| port.empty()*/)
     {
-        m_statusMessage = "Server IP and port are required for direct connect";
+        m_statusMessage = "Server IP is required direct connect";
         m_statusColor = sf::Color(255, 100, 100);
         return;
     }
@@ -420,30 +497,43 @@ void LoginState::attemptDirectConnect()
     }
 
     // validate port is a valid number in range
-    int portNum = 0;
-    try { portNum = std::stoi(port); }
-    catch (...)
-    {
-        m_statusMessage = "Invalid port number";
-        m_statusColor = sf::Color(255, 100, 100);
-        return;
-    }
+    //int portNum = 0;
+    //try { portNum = std::stoi(port); }
+    //catch (...)
+    //{
+    //    m_statusMessage = "Invalid port number";
+    //    m_statusColor = sf::Color(255, 100, 100);
+    //    return;
+    //}
 
-    if (portNum < 1 || portNum > 65535)
-    {
-        m_statusMessage = "Port must be between 1 and 65535";
-        m_statusColor = sf::Color(255, 100, 100);
-        return;
-    }
+    //if (portNum < 1 || portNum > 65535)
+    //{
+    //    m_statusMessage = "Port must be between 1 and 65535";
+    //    m_statusColor = sf::Color(255, 100, 100);
+    //    return;
+    //}
 
-    m_statusMessage = "Connecting to " + ip + ":" + port + "...";
+    m_statusMessage = "Connecting to " + ip + ":" + std::to_string(ServerUdpPort) + "...";
     m_statusColor = sf::Color(200, 200, 100);
 
-    // TODO: TIMMMMMMMMMMMMMMMMMMMMMMMMM/NICHTSSSSSSS HERE
+    //// TODO: TIMMMMMMMMMMMMMMMMMMMMMMMMM/NICHTSSSSSSS HERE
 
-    // TODO: placeholder until direct connect is implemented
-    m_statusMessage = "Direct connect not yet implemented";
-    m_statusColor = sf::Color(255, 200, 100);
+    //// TODO: placeholder until direct connect is implemented
+    //m_statusMessage = "Direct connect not yet implemented";
+    //m_statusColor = sf::Color(255, 200, 100);
+
+    // Ok i hear u thunderfishy boi :3
+
+    LoginStatus status = Client::loginViaIp(user, pass, ip);
+    switch (status)
+    {
+        using enum LoginStatus;
+    case SUCCESS: m_statusMessage = "Login Successful!"; m_statusColor = sf::Color(100, 255, 100); m_shouldTransition = true; break;
+    default: m_statusColor = sf::Color(255, 100, 100); [[fallthrough]];
+    case INVALID_CREDENTIALS: m_statusMessage = "Invalid username or password"; break;
+    case ALREADY_LOGGED_IN: m_statusMessage = "This account is already logged in"; break;
+    case SERVER_NO_RESPONSE: m_statusMessage = "Login failed (server unreachable or error)"; break;
+    }
 }
 
 void LoginState::attemptCreateAccount()

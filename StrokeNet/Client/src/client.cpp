@@ -14,6 +14,7 @@
 
 /* End Header
 ***********************************************************************/
+#define _WINSOCK_DEPRECATED_NO_WARNINGS
 #include "client.hpp"
 
 #include <array>
@@ -945,8 +946,110 @@ LoginStatus Client::loginViaBroadcast(const std::string& username, const std::st
         }
     }
 
-    log(std::cerr, "[Client] loginViaBroadcast: no server responded");
-    return LoginStatus::INVALID_CREDENTIALS;
+    return LoginStatus::SERVER_NO_RESPONSE;
+}
+
+// ============================================================
+// loginViaIp
+// ============================================================
+
+LoginStatus Client::loginViaIp(const std::string& username, const std::string& password, const std::string& ip)
+{
+    if (_sessionId != InvalidSessionId) return LoginStatus::INVALID_CREDENTIALS;
+
+    sockaddr_in bcast{};
+    bcast.sin_family = AF_INET;
+    bcast.sin_port = htons(ServerUdpPort);
+    bcast.sin_addr.S_un.S_addr = inet_addr(ip.c_str());
+
+    unsigned char hashed_pass[MAX_PASSWORD_LEN]{};
+    hashbrown256(password, hashed_pass);
+
+    std::vector<char> sendPkt(PacketSize::REQ_LOGIN, '\0');
+    {
+        ByteWriter wrt{ .buffer = sendPkt };
+        wrt.write(static_cast<char>(MessageType::REQ_LOGIN));
+        std::array<char, MAX_USERNAME_LEN> u{};
+        std::memcpy(u.data(), username.c_str(), username.size());
+        wrt.write(u);
+        std::array<char, MAX_PASSWORD_LEN> p{};
+        std::memcpy(p.data(), hashed_pass, sizeof(hashed_pass));
+        wrt.write(p);
+    }
+
+    /* {
+        ByteWriter wrt{.buffer = sendPkt};
+        wrt.write(static_cast<char>(MessageType::REQ_LOGIN));
+        std::array<char, MAX_USERNAME_LEN> u{};
+        std::memcpy(u.data(), username.c_str(), username.size());
+        wrt.write(u);
+        std::array<char, MAX_PASSWORD_LEN> p{};
+        std::memcpy(p.data(), password.c_str(), password.size());
+        wrt.write(p);
+    }*/
+
+    std::vector<char> recvBuf(MaxUdpPacketBytes);
+
+    for (int attempt = 0; attempt < _maxRetries; ++attempt)
+    {
+        sendto(_socket, sendPkt.data(), static_cast<int>(sendPkt.size()),
+            0, reinterpret_cast<sockaddr*>(&bcast), sizeof(bcast));
+
+        auto deadline = std::chrono::steady_clock::now() +
+            std::chrono::milliseconds(static_cast<int>(_recvTimeOut * 1000.0));
+
+        while (true)
+        {
+            auto rem = deadline - std::chrono::steady_clock::now();
+            if (rem.count() <= 0) break;
+
+            fd_set rs; FD_ZERO(&rs); FD_SET(_socket, &rs);
+            auto us = std::chrono::duration_cast<std::chrono::microseconds>(rem);
+            timeval tv{ static_cast<long>(us.count() / 1'000'000),
+                       static_cast<long>(us.count() % 1'000'000) };
+
+            if (select(0, &rs, nullptr, nullptr, &tv) <= 0) break;
+
+            sockaddr_in from{}; int fromLen = sizeof(from);
+            while (true)
+            {
+                int n = recvfrom(_socket, recvBuf.data(), static_cast<int>(recvBuf.size()),
+                    0, reinterpret_cast<sockaddr*>(&from), &fromLen);
+
+                if (n == SOCKET_ERROR)
+                {
+                    if (WSAGetLastError() == WSAEWOULDBLOCK) break;
+                    break;
+                }
+                if (n != static_cast<int>(PacketSize::RSP_LOGIN_AND_CREATE_ACCOUNT)) continue;
+                if (static_cast<MessageType>(recvBuf[0]) != MessageType::RSP_LOGIN_AND_CREATE_ACCOUNT) continue;
+
+                ByteReader rdr{ .buffer = std::span<const char>(recvBuf).subspan(1, n - 1) };
+                SessionId   sid = ntohl(rdr.read<SessionId>());
+                LoginStatus status = static_cast<LoginStatus>(rdr.read<std::uint8_t>());
+
+                if (status == LoginStatus::SUCCESS)
+                {
+                    _sessionId = sid;
+                    _serverAddr = from;
+                    char ip[INET_ADDRSTRLEN]{};
+                    inet_ntop(AF_INET, &from.sin_addr, ip, sizeof(ip));
+                    _serverIpAndPort = std::format("{}:{}", ip, ntohs(from.sin_port));
+                    _seenMsgesId.clear();
+                    //_nextSeq.store(0);
+
+                    _stopSource = std::stop_source{};
+                    _listeningThread = std::jthread([](std::stop_token st) { startListening(st); }, _stopSource.get_token());
+
+                    log(std::cout, std::format("[Client] Login OK — session {}, server {}",
+                        _sessionId.load(), _serverIpAndPort));
+                }
+                return status;
+            }
+        }
+    }
+
+    return LoginStatus::SERVER_NO_RESPONSE;
 }
 
 // ============================================================

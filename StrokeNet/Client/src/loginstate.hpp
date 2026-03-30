@@ -17,6 +17,8 @@
 #include "state.hpp"
 #include "shared_protocol.hpp"
 
+#include <SFML/Audio.hpp>
+
 #include <string>
 #include <array>
 #include <optional>
@@ -27,13 +29,13 @@ class LoginState final : public State
 {
 public:
     LoginState(StateMachine& stateMachine, StateContext& context);
-
+    ~LoginState();
     void handleEvent(const sf::Event& event) override;
     void update(sf::Time deltaTime) override;
     void render() override;
 
 private:
-    enum class Field { Username, Password, ServerIP, Port, COUNT };
+    enum class Field { Username, Password, ServerIP, COUNT };
     static constexpr int FIELD_COUNT = static_cast<int>(Field::COUNT);
 
     void updateLayout();
@@ -68,4 +70,21 @@ private:
     std::string m_statusMessage;
     sf::Color m_statusColor = sf::Color::White;
     bool m_shouldTransition = false;
+
+    sf::SoundBuffer m_hoverBuffer;
+    sf::SoundBuffer m_clickBuffer;
+    
+    bool m_canPlayHover = false;
+    bool m_canPlayClick = false;
+
+    bool m_isHoveringBroadcast = true;
+    bool m_isHoveringDirect = true;
+    bool m_isHoveringCreate = true;
+
+    bool m_wasHoveringBroadcast = true;
+    bool m_wasHoveringDirect = true;
+    bool m_wasHoveringCreate = true;
+    
+    sf::Sound m_sound;
+
 };

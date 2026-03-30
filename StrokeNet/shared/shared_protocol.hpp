@@ -302,7 +302,8 @@ enum class LoginStatus: std::uint8_t
     INVALID_CREDENTIALS,
     USERNAME_TAKEN,
     USERNAME_TOO_LONG,
-    ALREADY_LOGGED_IN
+    ALREADY_LOGGED_IN,
+    SERVER_NO_RESPONSE,
 };
 
 enum class PlayGameStatus : std::uint8_t

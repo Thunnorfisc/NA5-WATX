@@ -31,16 +31,23 @@ public:
     void render() override;
     std::vector<std::pair<std::string, uint16_t>> leaderboardData;
 
+
 private:
     [[nodiscard]] bool isMouseOverPlayButton() const;
     void updateLayout();
 
-    sf::CircleShape m_playButton;
-    sf::CircleShape m_practiceButton;
+    sf::RectangleShape m_playButton;
+    sf::RectangleShape m_leaderboardBackground;
+    sf::RectangleShape m_leaderboardEntriesBackground;
+
     sf::Font m_font;
+
     sf::Text m_playText;
-    bool m_shouldStartGame = false;
     sf::Text m_statusText;
+    sf::Text m_GAMTITLE;
+	sf::Text m_leaderboardTitleText;
+
+    bool m_shouldStartGame = false;
 
     Client::ReceivedLeaderboard m_lastestLeaderboard;
 
