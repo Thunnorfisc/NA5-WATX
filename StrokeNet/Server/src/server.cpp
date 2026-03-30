@@ -376,6 +376,11 @@ void Server::handle_reqPlayGame(std::span<const char> udpPacketWithoutMID, socka
     wrt.write(static_cast<char>(MessageType::RSP_PLAY_GAME));
     wrt.write(htonl(sessionIdHost));
     wrt.write(static_cast<char>(*pgs));
+    {
+        std::lock_guard(roundsMutex);
+        wrt.write(rounds.first);
+        wrt.write(rounds.second);
+    }
     bool success = sendWithRetry(msg, *sa);
     if(!success)
     {

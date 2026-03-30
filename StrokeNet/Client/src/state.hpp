@@ -29,6 +29,7 @@ struct StateContext
 {
     sf::RenderWindow& window;
     std::optional<sf::Event> event;
+    std::pair<std::uint8_t, std::uint8_t> roundInfo{ 255,255 };
 };
 
 class StateMachine;

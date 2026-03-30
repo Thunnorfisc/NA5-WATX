@@ -47,7 +47,11 @@ public:
     static LoginStatus createAccountViaBroadcast(const std::string& username, const std::string& password);
     static void        disconnect();
 
-    static PlayGameStatus       playGame();
+    static std::pair<PlayGameStatus,
+        std::optional<
+        std::pair<std::uint8_t,std::uint8_t>
+        >
+    > playGame();
     static bool                 quitGame();
 
     struct ReceivedStrokeCommand

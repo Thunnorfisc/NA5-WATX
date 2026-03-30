@@ -62,6 +62,10 @@ CoreGameState::CoreGameState(StateMachine& stateMachine, StateContext& context) 
 
     setupTools();
     updateLayout();
+
+    auto [currentRound, totalRounds] = context.roundInfo;
+    // alfred do yr thing here
+
 }
 
 CoreGameState::~CoreGameState()

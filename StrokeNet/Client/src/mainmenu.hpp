@@ -18,6 +18,7 @@
 
 #include "state.hpp"
 #include "client.hpp"
+#include <utility>
 class StateMachine;
 
 class MainMenuState final : public State
@@ -42,4 +43,6 @@ private:
     sf::Text m_statusText;
 
     Client::ReceivedLeaderboard m_lastestLeaderboard;
+
+    std::pair<std::uint8_t, std::uint8_t> m_currRoundAndTotalRound = std::make_pair(255, 255);
 };

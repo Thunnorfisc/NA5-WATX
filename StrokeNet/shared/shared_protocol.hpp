@@ -99,9 +99,9 @@ namespace PacketSize
     // [REQ_PLAY_GAME][SESSION_ID]
     constexpr inline std::size_t REQ_PLAY_GAME = 5;
 
-    //  1              4           1
-    // [RSP_PLAY_GAME][SESSION_ID][PLAY_GAME_STATUS]
-    constexpr inline std::size_t RSP_PLAY_GAME = 6;
+    //  1              4           1                 1              1
+    // [RSP_PLAY_GAME][SESSION_ID][PLAY_GAME_STATUS][CURRENT_ROUND][NUM_ROUNDS_TOTAL]
+    constexpr inline std::size_t RSP_PLAY_GAME = 8;
 
     //  1              4
     // [REQ_QUIT_GAME][SESSION_ID]

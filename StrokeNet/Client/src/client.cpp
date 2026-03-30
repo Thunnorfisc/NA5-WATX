@@ -1060,14 +1060,18 @@ void Client::disconnect()
 // ============================================================
 // send play game
 // ============================================================
-PlayGameStatus Client::playGame()
+std::pair<PlayGameStatus,
+    std::optional<
+    std::pair<std::uint8_t, std::uint8_t>
+    >
+> Client::playGame()
 {
     PlayGameStatus ret;
     if(_playingGame)
     {
         log(std::cerr, "[Client] Play game called when game is already playing");
         ret = PlayGameStatus::SUCCESS;
-        return ret;
+        return std::make_pair(ret,std::make_pair(255,255));
     }
     std::array<char, PacketSize::REQ_PLAY_GAME> msg;
     ByteWriterN wrt{.buffer = msg};
@@ -1097,6 +1101,7 @@ PlayGameStatus Client::playGame()
             if(select(0, &rs, nullptr, nullptr, &tv) <= 0) break;
 
             sockaddr_in from{}; int fromLen = sizeof(from);
+            std::optional<std::pair<std::uint8_t, std::uint8_t>> opt = std::nullopt;
             while(true)
             {
                 int n = recvfrom(_socket, recvBuf.data(), static_cast<int>(recvBuf.size()),
@@ -1114,17 +1119,19 @@ PlayGameStatus Client::playGame()
                 SessionId sid = ntohl(rdr.read<SessionId>());
                 if (sid != _sessionId) continue; // continue, maybe received wrong
                 ret = rdr.read<PlayGameStatus>();
+                auto currRound = rdr.read<std::uint8_t>();
+                auto totalRound = rdr.read<std::uint8_t>();
                 switch (ret)
                 {
-                case PlayGameStatus::SUCCESS: _playingGame = true; break;
+                case PlayGameStatus::SUCCESS: _playingGame = true; opt = std::make_pair(currRound,totalRound); break;
                 default: _playingGame = false; break;
                 }
-                return ret;
+                return std::make_pair(ret, opt);
             }
         }
     }
     ret = PlayGameStatus::SERVER_NO_RESPONSE;
-    return ret;
+    return std::make_pair(ret,std::nullopt);
 }
 
 // ============================================================
