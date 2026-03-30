@@ -223,11 +223,11 @@ void CoreGameState::render()
     m_chatBox.displayTimer(timeRemainingMs / 1000);
 
     if (!Client::getWord().empty()) {
-        sf::Text wordText(m_font, Client::getWord(), 28);
+        sf::Text wordText(m_font, Client::getWord(), 58);
         wordText.setFillColor(sf::Color(0, 255, 255));
         wordText.setOutlineThickness(2.0f);
         wordText.setOutlineColor(sf::Color(220, 70, 70));
-		wordText.setPosition({ 400.f, 20.f });
+		wordText.setPosition({ 750.f, 120.f });
 #ifdef _DEBUG
 		//std::cout << "Word:" << wordText.getString().toAnsiString() << std::endl;
 #endif
@@ -235,11 +235,11 @@ void CoreGameState::render()
     }
     else {
 		auto wordLen = Client::getWordLength();
-		sf::Text wordHintText(m_font, std::string(wordLen, '-') + " ", 28);
+		sf::Text wordHintText(m_font, std::string(wordLen, '-'), 58);
         wordHintText.setFillColor(sf::Color(0, 255, 255));
         wordHintText.setOutlineThickness(2.0f);
         wordHintText.setOutlineColor(sf::Color(220, 70, 70));
-		wordHintText.setPosition({ 400.f, 20.f + wordHintText.getLocalBounds().size.y }); // seems to not be able to display underscore '_' so i use dash and lower the height to make it look like an underscore uwu
+		wordHintText.setPosition({ 750.f, 120.f + wordHintText.getLocalBounds().size.y }); // seems to not be able to display underscore '_' so i use dash and lower the height to make it look like an underscore uwu
 #ifdef _DEBUG
 		//std::cout << "Word Hint:" << wordHintText.getString().toAnsiString() << std::endl;
 #endif
