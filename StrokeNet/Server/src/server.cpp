@@ -739,6 +739,18 @@ void Server::handle_ntfRcvMsgHistory(std::span<const char> udpPacketWithoutMID, 
     p._giveUpTime = now + std::chrono::seconds(2);
 }
 
+void Server::handle_ntfRcvCurrentRound(std::span<const char> udpPacketWithoutMID, sockaddr_in* sa)
+{
+    assert((udpPacketWithoutMID.size() == PacketSize::NTF_RCV_CURRENT_ROUND - 1) &&
+        "Size of NTF_RCV_CURRENT_ROUND packet received is wrong");
+    ByteReader rdr{ .buffer = udpPacketWithoutMID };
+    auto sessionIdHostOrder = ntohl(rdr.read<SessionId>());
+    auto retIdHostOrder = ntohl(rdr.read<std::uint32_t>());
+
+    std::lock_guard lock(_pendingNtfCurrentRoundMutex);
+    _pendingNtfCurrentRound.erase(NtfKey{ sessionIdHostOrder, retIdHostOrder });
+}
+
 // ============================================================
 // REQ_START_STROKE
 // ============================================================
@@ -1357,6 +1369,7 @@ void Server::actualStartListening(std::stop_token st) noexcept
         tickPendingNtf(_pendingNtfNewWordLenMutex, _pendingNtfNewWordsLen, "NTF_NEW_WORD_LEN");
         tickPendingNtf(_pendingNtfStartStrokeMutex, _pendingNtfStartStroke, "NTF_START_STROKE");
         tickPendingNtf(_pendingNtfClearCanvasMutex, _pendingNtfClearCanvases, "NTF_CLEAR_CANVAS");
+        tickPendingNtf(_pendingNtfCurrentRoundMutex, _pendingNtfCurrentRound, "NTF_CURRENT_ROUND");
         tickPendingNtf(_pendingNtfStrokeHistoryMutex, _pendingNtfStrokeHistory, "NTF_STROKE_HISTORY");
         tickPendingNtf(_pendingNtfLeaderboardMutex, _pendingNtfLeaderboard, "NTF_UPDATE_LEADERBOARD");
         tickPendingNtf(_pendingNtfMessageHistoryMutex, _pendingNtfMessageHistory, "NTF_MESSAGE_HISTORY");
@@ -1825,6 +1838,7 @@ void Server::resetRound(bool isGameStart)
     LOCK_sendClearCanvasCommand();
 
     if (wrapped) {
+
         std::lock_guard lock(_gameMutex);
         rounds.first = rounds.first > 1 ? rounds.first - 1 : 0;
     }
@@ -2499,6 +2513,47 @@ std::uint8_t Server::LOCK_getCurrentRound()
 {
     std::lock_guard lock(_gameMutex);
     return rounds.first;
+}
+
+void Server::LOCK_sendCurrentRound()
+{
+    LOCK_gameVariablesANDclientStorage([this](auto&, auto&, auto&) {
+        NO_LOCK_sendCurrentRound();
+        });
+}
+
+void Server::NO_LOCK_sendCurrentRound()
+{
+    std::vector<char> msg;
+    msg.resize(PacketSize::NTF_CURRENT_ROUND);
+    ByteWriter wrt{ .buffer = msg };
+    wrt.write(static_cast<char>(MessageType::NTF_CURRENT_ROUND));
+    wrt.write(std::uint32_t{ 0 });
+    wrt.write(htonl(_sendCurrentRoundIdServer));
+    wrt.write(static_cast<std::uint8_t>(rounds.first));
+
+    auto now = std::chrono::steady_clock::now();
+    std::lock_guard lock(_pendingNtfCurrentRoundMutex);
+    for (const auto& [ssiho, client] : _clientStorageMap)
+    {
+        SessionId ssino = htonl(ssiho);
+        std::memcpy(msg.data() + 1, &ssino, sizeof(ssino));
+        // Send immediately once
+        sockaddr_in clientSa = client.sa;
+        sendto(_socket, msg.data(), static_cast<int>(msg.size()), 0,
+            reinterpret_cast<sockaddr*>(&clientSa), sizeof(clientSa));
+
+        // Add to pending for retry
+        _pendingNtfCurrentRound[NtfKey{ ssiho, _sendCurrentRoundIdServer }] = PendingNTF{
+            ._data = msg,
+            ._clientAddr = client.sa,
+            ._targetSessionId = ssiho,
+            ._ntfId = _sendCurrentRoundIdServer,
+            ._nextSendTime = now + std::chrono::milliseconds(100),
+            ._giveUpTime = now + std::chrono::seconds(2),
+        };
+    }
+    _sendCurrentRoundIdServer++;
 }
 
 // ============================================================

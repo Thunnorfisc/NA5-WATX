@@ -71,7 +71,7 @@ public:
     void resetRound(bool isGameStart = false);
     bool gameStarted();
 
-    const double budgetAdvanceTurn{ 3.0 }; // advance turn every 60 seconds, just for testing
+    const double budgetAdvanceTurn{ 10.0 }; // advance turn every 60 seconds, just for testing
     const int budgetAdvanceTurnInt{ static_cast<int>(budgetAdvanceTurn) };
     std::atomic<std::chrono::steady_clock::time_point> advanceTurnNow{ std::chrono::steady_clock::now() };
 
@@ -105,6 +105,9 @@ public:
     void NO_LOCK_sendLeaderboard();
 
     std::uint8_t LOCK_getCurrentRound();
+
+    void LOCK_sendCurrentRound();
+    void NO_LOCK_sendCurrentRound();
 private:
     // ============================================================
     // Game State
@@ -162,6 +165,7 @@ private:
     std::uint32_t _sendNewWordLenIdServer = 1;
     std::uint32_t _sendLeaderboardIdServer = 1;
     std::uint32_t _sendStartStrokedIdServer = 1;
+    std::uint32_t _sendCurrentRoundIdServer = 1;
 
     // ============================================================
     // NTF Handling
@@ -204,6 +208,12 @@ private:
     // ============================================================
     std::mutex _pendingNtfNewWordLenMutex;
     std::unordered_map<NtfKey, PendingNTF, NtfKeyHash> _pendingNtfNewWordsLen;
+
+    // ============================================================
+    // Check for pending NTFs for sending current round
+    // ============================================================
+    std::mutex _pendingNtfCurrentRoundMutex;
+    std::unordered_map<NtfKey, PendingNTF, NtfKeyHash> _pendingNtfCurrentRound;
     
     // ============================================================
     // Check for pending NTFs for sending new word
@@ -306,6 +316,7 @@ private:
     void handle_ntfRcvStartStroke       (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
     void handle_ntfRcvEndStroke         (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
     void handle_ntfRcvMsgHistory        (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
+    void handle_ntfRcvCurrentRound      (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
 
     using MessageFn = void(Server::*)(std::span<const char>, sockaddr_in*);
     const std::unordered_map<MessageType, MessageFn> _messageTypeFns
@@ -334,6 +345,7 @@ private:
         std::make_pair(MessageType::NTF_RCV_START_STROKE,       &Server::handle_ntfRcvStartStroke       ),
         std::make_pair(MessageType::NTF_RCV_END_STROKE,         &Server::handle_ntfRcvEndStroke         ),
         std::make_pair(MessageType::NTF_RCV_MSG_HISTORY,        &Server::handle_ntfRcvMsgHistory        ),
+        std::make_pair(MessageType::NTF_RCV_CURRENT_ROUND,      &Server::handle_ntfRcvCurrentRound      ),
     };
 
     // ============================================================

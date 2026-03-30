@@ -89,7 +89,6 @@ CoreGameState::CoreGameState(StateMachine& stateMachine, StateContext& context) 
     m_maxRound = totalRounds;
     m_roundInfoText.setString("Round " + std::to_string(m_currentRound) + " / " + std::to_string(m_maxRound));
 	m_roundInfoText.setPosition({ 1050.f, 120.f });
-
 }
 
 CoreGameState::~CoreGameState()
@@ -266,19 +265,6 @@ void CoreGameState::render()
     auto& window = context().window;
     
     std::int64_t retMs = Client::getRoundEndTimeMs();
-    if (retMs != m_oldRetMs)
-    {
-        m_oldRetMs = retMs;
-        // new ret
-        if (!m_incrementedRound)
-        {
-            m_currentRound++;
-            m_currentRound = m_currentRound > m_maxRound ? m_maxRound : m_currentRound;
-            m_roundInfoText.setString("Round " + std::to_string(m_currentRound) + " / " + std::to_string(m_maxRound));
-        }
-
-        m_incrementedRound = false;
-    }
 
     std::int64_t now =
         std::chrono::duration_cast<std::chrono::milliseconds>
@@ -287,12 +273,12 @@ void CoreGameState::render()
     std::int64_t timeRemainingMs = retMs - now;
     if (timeRemainingMs <= std::int64_t{ 0 })
     {
-        m_currentRound++;
-        m_currentRound = m_currentRound > m_maxRound ? m_maxRound : m_currentRound;
-        m_roundInfoText.setString("Round " + std::to_string(m_currentRound) + " / " + std::to_string(m_maxRound));
         timeRemainingMs = std::int64_t{ 0 };
-        m_incrementedRound = true;
     }
+
+    m_currentRound = Client::getCurrentRound();
+    m_roundInfoText.setString("Round " + std::to_string(m_currentRound) + " / " + std::to_string(m_maxRound));
+
     window.draw(m_titleText);
     window.draw(m_backButton);
     window.draw(m_backText);

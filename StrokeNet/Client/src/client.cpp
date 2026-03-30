@@ -791,6 +791,34 @@ void Client::handle_NTF_MsgHistory(std::span<const char> msg)
 }
 
 // ============================================================
+// NTF_MSG_HISTORY
+// ============================================================
+
+void Client::handle_NTF_CurrentRound(std::span<const char> msg)
+{
+    assert(msg.size() == (PacketSize::NTF_CURRENT_ROUND - 1) && "Size of NTF_CURRENT_ROUND is wrong");
+
+    ByteReader rdr{ .buffer = msg };
+    auto sessionIdHost = ntohl(rdr.read<SessionId>());
+    if (sessionIdHost != _sessionId)
+    {
+        log(std::cerr,
+            std::format("[Client] Received an invalid session id [{}] from the server, ignoring packet", sessionIdHost));
+        return;
+    }
+    auto currRoundIdHost = ntohl(rdr.read<std::uint32_t>());
+    _currentRound = rdr.read<std::uint8_t>();
+
+    std::array<char, PacketSize::NTF_RCV_CURRENT_ROUND> ack;
+    ByteWriterN ackWrt{ .buffer = ack };
+    ackWrt.write(static_cast<char>(MessageType::NTF_RCV_CURRENT_ROUND));
+    ackWrt.write(htonl(_sessionId));
+    ackWrt.write(htonl(currRoundIdHost));
+    if (!sendWithRetry(ack))
+        log(std::cerr, "[Client] Failed to send NTF_RCV_CURRENT_ROUND back to server");
+}
+
+// ============================================================
 // startListening
 // ============================================================
 
@@ -1541,6 +1569,15 @@ std::optional<Client::ReceivedLeaderboard> Client::getLeaderboard()
 std::int64_t Client::getRoundEndTimeMs()
 {
     return _roundEndTimeMs;
+}
+
+// ============================================================
+// for game to retrieve current round
+// ============================================================
+
+std::uint8_t Client::getCurrentRound()
+{
+    return _currentRound;
 }
 
 

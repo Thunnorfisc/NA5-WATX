@@ -130,6 +130,11 @@ public:
     static std::int64_t getRoundEndTimeMs();
 
     // ============================================================
+    // Current round - receive
+    // ============================================================
+    static std::uint8_t getCurrentRound();
+
+    // ============================================================
     // Word length - receive
     // ============================================================
     static std::int32_t getWordLength();
@@ -174,6 +179,11 @@ private:
     // Round end time
     // ============================================================
     static inline std::atomic<std::int64_t> _roundEndTimeMs = 0;
+
+    // ============================================================
+    // Current round
+    // ============================================================
+    static inline std::atomic<std::uint8_t> _currentRound = 255;
 
     // ============================================================
     // Word
@@ -309,6 +319,7 @@ private:
 
     static void handle_NTF_StrokeHistory(std::span<const char> msg);   // < send ack back to server
     static void handle_NTF_MsgHistory(std::span<const char> msg);      // < send ack back to server
+    static void handle_NTF_CurrentRound(std::span<const char> msg);      // < send ack back to server
 
     static void startListening(std::stop_token st);
 
@@ -334,6 +345,7 @@ private:
 
         { MessageType::NTF_STROKE_HISTORY,      &Client::handle_NTF_StrokeHistory       },
         { MessageType::NTF_MSG_HISTORY,         &Client::handle_NTF_MsgHistory          },
+        { MessageType::NTF_CURRENT_ROUND,       &Client::handle_NTF_CurrentRound        },
     };
 
     // ============================================================

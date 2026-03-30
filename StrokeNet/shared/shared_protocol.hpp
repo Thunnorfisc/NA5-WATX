@@ -217,20 +217,28 @@ namespace PacketSize
     constexpr inline std::size_t PAST_HISTORY_END_STROKE = 0;
 
     //  1                 4           4                4          5
-    // [SVR_START_STROKE][SESSION_ID][START_STROKE_ID][MOUSE_POS][RGBAT]
+    // [NTF_START_STROKE][SESSION_ID][START_STROKE_ID][MOUSE_POS][RGBAT]
     constexpr inline std::size_t NTF_START_STROKE = 18;
 
     //  1               4
-    // [SVR_END_STROKE][SESSION_ID][END_STROKE_ID]
+    // [NTF_END_STROKE][SESSION_ID][END_STROKE_ID]
     constexpr inline std::size_t NTF_END_STROKE = 9;
 
-    //  1                 4           4               
-    // [SVR_START_STROKE][SESSION_ID][START_STROKE_ID]
+    //  1                     4           4               
+    // [NTF_RCV_START_STROKE][SESSION_ID][START_STROKE_ID]
     constexpr inline std::size_t NTF_RCV_START_STROKE = 9;
 
-    //  1               4
-    // [SVR_END_STROKE][SESSION_ID][END_STROKE_ID]
+    //  1                   4           4
+    // [NTF_RCV_END_STROKE][SESSION_ID][END_STROKE_ID]
     constexpr inline std::size_t NTF_RCV_END_STROKE = 9;
+
+    //  1                  4           4                 1
+    // [NTF_CURRENT_ROUND][SESSION_ID][CURRENT_ROUND_ID][CURRENT_ROUND]
+    constexpr inline std::size_t NTF_CURRENT_ROUND = 10;
+
+    //  1                      4           4                
+    // [NTF_RCV_CURRENT_ROUND][SESSION_ID][CURRENT_ROUND_ID]
+    constexpr inline std::size_t NTF_RCV_CURRENT_ROUND = 9;
 }
 enum class MessageType: std::uint8_t
 {
@@ -294,6 +302,9 @@ enum class MessageType: std::uint8_t
 
     NTF_END_STROKE,                         // < Sent by server
     NTF_RCV_END_STROKE,                     // < Ack by client
+
+    NTF_CURRENT_ROUND,                      // < Sent by server
+    NTF_RCV_CURRENT_ROUND,                  // < Ack by client
 
     // ===================================
     // Best effort - client -> server
