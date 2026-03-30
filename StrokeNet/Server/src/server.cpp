@@ -1252,6 +1252,7 @@ void Server::actualStartListening(std::stop_token st) noexcept
         tickPendingNtf(_pendingNtfNewWordLenMutex, _pendingNtfNewWordsLen, "NTF_NEW_WORD_LEN");
         tickPendingNtf(_pendingNtfClearCanvasMutex, _pendingNtfClearCanvases, "NTF_CLEAR_CANVAS");
         tickPendingNtf(_pendingNtfStrokeHistoryMutex, _pendingNtfStrokeHistory, "NTF_STROKE_HISTORY");
+        tickPendingNtf(_pendingNtfLeaderboardMutex, _pendingNtfLeaderboard, "NTF_UPDATE_LEADERBOARD");
         tickPendingNtf(_pendingNtfMessageHistoryMutex, _pendingNtfMessageHistory, "NTF_MESSAGE_HISTORY");
         tickPendingNtf(_pendingNtfUpdateScoreboardMutex, _pendingNtfUpdateScoreboards, "NTF_UPDATE_SCOREBOARD");
 
@@ -2283,6 +2284,7 @@ void Server::NO_LOCK_sendLeaderboard()
     wrt.write(std::uint16_t{ 0 }); // will update player score later
 
     auto now = std::chrono::steady_clock::now();
+    std::lock_guard lock(_pendingNtfLeaderboardMutex);
     for (const auto& [ssiho, client] : _clientStorageMap)
     {
         // update session id in message
@@ -2321,7 +2323,7 @@ void Server::NO_LOCK_sendLeaderboard()
             reinterpret_cast<sockaddr*>(&clientSa), sizeof(clientSa));
 
         // Add to pending for retry
-        _pendingNtfMsg[NtfKey{ ssiho, _messageIdServer }] = PendingNTF{
+        _pendingNtfLeaderboard[NtfKey{ ssiho, _messageIdServer }] = PendingNTF{
             ._data = msg, // NO MOVE
             ._clientAddr = client.sa,
             ._targetSessionId = ssiho,

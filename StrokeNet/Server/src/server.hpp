@@ -241,6 +241,12 @@ private:
     std::unordered_map<NtfKey, PendingNTF, NtfKeyHash> _pendingNtfMessageHistory;
 
     // ============================================================
+    // Check for pending NTFs for leaderboard
+    // ============================================================
+    std::mutex _pendingNtfLeaderboardMutex;
+    std::unordered_map<NtfKey, PendingNTF, NtfKeyHash> _pendingNtfLeaderboard;
+
+    // ============================================================
     // Socket / session
     // ============================================================
     std::string _ip;
