@@ -46,8 +46,12 @@ private:
     sf::Text m_statusText;
     sf::Text m_GAMTITLE;
 	sf::Text m_leaderboardTitleText;
+    sf::Text m_drawnBy;
 
     bool m_shouldStartGame = false;
+
+    std::uint32_t m_localPlayerIndex = UINT32_MAX;
+	std::uint16_t m_localPlayerScore = 0;
 
     Client::ReceivedLeaderboard m_lastestLeaderboard;
 

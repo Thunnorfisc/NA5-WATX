@@ -186,12 +186,12 @@ void Client::handle_RSP_Msg(std::span<const char> msg)
 }
 
 // ============================================================
-// SVR_START_STROKE
+// NTF_START_STROKE
 // ============================================================
 
-void Client::handle_SVR_StartStroke(std::span<const char> msg)
+void Client::handle_NTF_StartStroke(std::span<const char> msg)
 {
-    assert(msg.size() == (PacketSize::SVR_START_STROKE - 1) && "Size of svr_start_stroke is wrong");
+    assert(msg.size() == (PacketSize::NTF_START_STROKE - 1) && "Size of NTF_START_STROKE is wrong");
     ByteReader rdr{ .buffer = msg };
     auto sessionIdHost = ntohl(rdr.read<SessionId>());
     if (sessionIdHost != _sessionId)
@@ -200,17 +200,34 @@ void Client::handle_SVR_StartStroke(std::span<const char> msg)
             std::format("[Client] Received an invalid session id [{}] from the server, ignoring packet", sessionIdHost));
         return;
     }
+    auto msgIdHost = ntohl(rdr.read<std::uint32_t>());
+
+    // Prepare ack to send back to server
+    std::array<char, PacketSize::NTF_RCV_START_STROKE> ntfrcvmsg;
+    ByteWriterN wrt{ .buffer = ntfrcvmsg };
+    wrt.write(static_cast<char>(MessageType::NTF_RCV_START_STROKE));
+    wrt.write(htonl(_sessionId));
+    wrt.write(htonl(msgIdHost));
+
+    // if not able to send back NTF_START_STROKE,
+    // log, and continue pushing the message
+    // into the recvQueue
+    if (!sendWithRetry(ntfrcvmsg))
+    {
+        log(std::cerr, "[Client] Unable to send NTF_START_STROKE back to server");
+    }
+
     std::vector<char> towrt;
-    towrt.resize(PacketSize::SVR_START_STROKE - sizeof(SessionId) - sizeof(MessageType::SVR_START_STROKE));
-    ByteWriter wrt{ .buffer = towrt };
+    towrt.resize(PacketSize::NTF_START_STROKE - sizeof(SessionId) - sizeof(MessageType::NTF_START_STROKE));
+    ByteWriter wrtt{ .buffer = towrt };
     
     auto mousePositionHostOrder = rdr.read<MousePosition>();
     mousePositionHostOrder[0] = ntohs(mousePositionHostOrder[0]);
     mousePositionHostOrder[1] = ntohs(mousePositionHostOrder[1]);
-    wrt.write(mousePositionHostOrder);
+    wrtt.write(mousePositionHostOrder);
 
     auto rgbat = rdr.read<std::array<std::uint8_t, 5>>();
-    wrt.write(rgbat);
+    wrtt.write(rgbat);
 
     ReceivedStrokeCommand rcs;
     rcs._type = ReceivedStrokeCommand::Type::START_STROKE;
@@ -220,12 +237,12 @@ void Client::handle_SVR_StartStroke(std::span<const char> msg)
 }
 
 // ============================================================
-// SVR_END_STROKE
+// NTF_END_STROKE
 // ============================================================
 
-void Client::handle_SVR_EndStroke(std::span<const char> msg)
+void Client::handle_NTF_EndStroke(std::span<const char> msg)
 {
-    assert(msg.size() == (PacketSize::SVR_END_STROKE - 1) && "Size of svr_end_stroke is wrong");
+    assert(msg.size() == (PacketSize::NTF_END_STROKE - 1) && "Size of NTF_END_STROKE is wrong");
     ByteReader rdr{ .buffer = msg };
     auto sessionIdHost = ntohl(rdr.read<SessionId>());
     if (sessionIdHost != _sessionId)
@@ -234,6 +251,23 @@ void Client::handle_SVR_EndStroke(std::span<const char> msg)
             std::format("[Client] Received an invalid session id [{}] from the server, ignoring packet", sessionIdHost));
         return;
     }
+    auto msgIdHost = ntohl(rdr.read<std::uint32_t>());
+
+    // Prepare ack to send back to server
+    std::array<char, PacketSize::NTF_RCV_END_STROKE> ntfrcvmsg;
+    ByteWriterN wrt{ .buffer = ntfrcvmsg };
+    wrt.write(static_cast<char>(MessageType::NTF_RCV_END_STROKE));
+    wrt.write(htonl(_sessionId));
+    wrt.write(htonl(msgIdHost));
+
+    // if not able to send back NTF_END_STROKE,
+    // log, and continue pushing the message
+    // into the recvQueue
+    if (!sendWithRetry(ntfrcvmsg))
+    {
+        log(std::cerr, "[Client] Unable to send NTF_END_STROKE back to server");
+    }
+
     ReceivedStrokeCommand rcs;
     rcs._type = ReceivedStrokeCommand::Type::END_STROKE;
     std::lock_guard lock(_strokeCommandsReceivedMut);

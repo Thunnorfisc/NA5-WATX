@@ -293,8 +293,8 @@ private:
     static void handle_RSP_ClearCanvas(std::span<const char> msg);  // < drain from respective _pending
     static void handle_RSP_Msg(std::span<const char> msg);          // < drain from respective _pending
 
-    static void handle_SVR_StartStroke(std::span<const char> msg);  // < push into _strokeCommandsRecv
-    static void handle_SVR_EndStroke(std::span<const char> msg);    // < push into _strokeCommandsRecv
+    static void handle_NTF_StartStroke(std::span<const char> msg);  // < send back ack to server
+    static void handle_NTF_EndStroke(std::span<const char> msg);    // < send back ack to server
     static void handle_SVR_ExtendStroke(std::span<const char> msg); // < push into _strokeCommandsRecv
 
     static void handle_NTF_Msg(std::span<const char> msg);              // < send back ack to server
@@ -320,8 +320,8 @@ private:
         { MessageType::RSP_CLEAR_CANVAS,        &Client::handle_RSP_ClearCanvas         },
         { MessageType::RSP_MSG,                 &Client::handle_RSP_Msg                 },
 
-        { MessageType::SVR_START_STROKE,        &Client::handle_SVR_StartStroke         },
-        { MessageType::SVR_END_STROKE,          &Client::handle_SVR_EndStroke           },
+        { MessageType::NTF_START_STROKE,        &Client::handle_NTF_StartStroke         },
+        { MessageType::NTF_END_STROKE,          &Client::handle_NTF_EndStroke           },
         { MessageType::SVR_EXTEND_STROKE,       &Client::handle_SVR_ExtendStroke        },
 
         { MessageType::NTF_MSG,                 &Client::handle_NTF_Msg                 },
