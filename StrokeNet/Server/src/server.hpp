@@ -158,8 +158,10 @@ private:
     std::uint32_t _clearCanvasIdServer = 1;
     std::uint32_t _roundEndTimeIdServer = 1;
     std::uint32_t _strokeHistoryIdServer = 1;
+    std::uint32_t _sendEndStrokeIdServer = 1;
     std::uint32_t _sendNewWordLenIdServer = 1;
     std::uint32_t _sendLeaderboardIdServer = 1;
+    std::uint32_t _sendStartStrokedIdServer = 1;
 
     // ============================================================
     // NTF Handling
@@ -220,6 +222,18 @@ private:
     // ============================================================
     std::mutex _pendingNtfMsgMutex;
     std::unordered_map<NtfKey, PendingNTF, NtfKeyHash> _pendingNtfMsg;
+
+    // ============================================================
+    // Check for pending NTFs for start strokes
+    // ============================================================
+    std::mutex _pendingNtfStartStrokeMutex;
+    std::unordered_map<NtfKey, PendingNTF, NtfKeyHash> _pendingNtfStartStroke;
+
+    // ============================================================
+    // Check for pending NTFs for end strokes
+    // ============================================================
+    std::mutex _pendingNtfEndStrokeMutex;
+    std::unordered_map<NtfKey, PendingNTF, NtfKeyHash> _pendingNtfEndStroke;
 
     // ============================================================
     // Check for pending NTFs for scoreboard
@@ -289,6 +303,8 @@ private:
     void handle_ntfRcvSendWordLen       (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
     void handle_ntfRcvSendWord          (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
     void handle_ntfRcvStrokeHistory     (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
+    void handle_ntfRcvStartStroke       (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
+    void handle_ntfRcvEndStroke         (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
     void handle_ntfRcvMsgHistory        (std::span<const char> udpPacketWithoutMID, sockaddr_in* sa);
 
     using MessageFn = void(Server::*)(std::span<const char>, sockaddr_in*);
@@ -315,6 +331,8 @@ private:
         std::make_pair(MessageType::NTF_RCV_SEND_WORD_LEN,      &Server::handle_ntfRcvSendWordLen       ),
         std::make_pair(MessageType::NTF_RCV_SEND_WORD,          &Server::handle_ntfRcvSendWord          ),
         std::make_pair(MessageType::NTF_RCV_STROKE_HISTORY,     &Server::handle_ntfRcvStrokeHistory     ),
+        std::make_pair(MessageType::NTF_RCV_START_STROKE,       &Server::handle_ntfRcvStartStroke       ),
+        std::make_pair(MessageType::NTF_RCV_END_STROKE,         &Server::handle_ntfRcvEndStroke         ),
         std::make_pair(MessageType::NTF_RCV_MSG_HISTORY,        &Server::handle_ntfRcvMsgHistory        ),
     };
 

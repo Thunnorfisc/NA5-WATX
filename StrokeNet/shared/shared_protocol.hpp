@@ -119,14 +119,6 @@ namespace PacketSize
     // [FAF_DISCONNECT][SESSION_ID]
     constexpr inline std::size_t FAF_DISCONNECT = 5;
 
-    //  1                 4           4          5
-    // [SVR_START_STROKE][SESSION_ID][MOUSE_POS][RGBAT]
-    constexpr inline std::size_t SVR_START_STROKE = 14;
-
-    //  1               4
-    // [SVR_END_STROKE][SESSION_ID]
-    constexpr inline std::size_t SVR_END_STROKE = 5;
-
     //  1                  4           4
     // [SVR_EXTEND_STROKE][SESSION_ID][MOUSE_POS]
     constexpr inline std::size_t SVR_EXTEND_STROKE = 9;
@@ -223,6 +215,22 @@ namespace PacketSize
     constexpr inline std::size_t PAST_HISTORY_EXTEND_STROKE = 4;
 
     constexpr inline std::size_t PAST_HISTORY_END_STROKE = 0;
+
+    //  1                 4           4                4          5
+    // [SVR_START_STROKE][SESSION_ID][START_STROKE_ID][MOUSE_POS][RGBAT]
+    constexpr inline std::size_t NTF_START_STROKE = 18;
+
+    //  1               4
+    // [SVR_END_STROKE][SESSION_ID][END_STROKE_ID]
+    constexpr inline std::size_t NTF_END_STROKE = 9;
+
+    //  1                 4           4               
+    // [SVR_START_STROKE][SESSION_ID][START_STROKE_ID]
+    constexpr inline std::size_t NTF_RCV_START_STROKE = 9;
+
+    //  1               4
+    // [SVR_END_STROKE][SESSION_ID][END_STROKE_ID]
+    constexpr inline std::size_t NTF_RCV_END_STROKE = 9;
 }
 enum class MessageType: std::uint8_t
 {
@@ -281,6 +289,12 @@ enum class MessageType: std::uint8_t
     NTF_STROKE_HISTORY,                     // < Sent by server
     NTF_RCV_STROKE_HISTORY,                 // < Ack by client
 
+    NTF_START_STROKE,                       // < Sent by server
+    NTF_RCV_START_STROKE,                   // < Ack by client
+
+    NTF_END_STROKE,                         // < Sent by server
+    NTF_RCV_END_STROKE,                     // < Ack by client
+
     // ===================================
     // Best effort - client -> server
     // ===================================
@@ -290,10 +304,7 @@ enum class MessageType: std::uint8_t
     // ===================================
     // Best effort server -> client(s)
     // ===================================
-
-    SVR_START_STROKE,                       // < Sent by server
-    SVR_END_STROKE,                         // < Sent by server
-    SVR_EXTEND_STROKE,                      // < Sent by server
+    SVR_EXTEND_STROKE,                         // < Sent by server
 };
 
 enum class LoginStatus: std::uint8_t
