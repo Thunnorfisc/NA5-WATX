@@ -69,6 +69,19 @@ private:
     ToolPicker m_toolPicker;
     float m_brushThickness = 10.f; // Laze
 
+    // SLIDER BULLSHIT
+    bool m_showThicknessSlider = false;
+    bool m_draggingSlider = false;
+    sf::RectangleShape m_sliderTrack;
+    sf::RectangleShape m_sliderKnob;
+    sf::Text m_sliderValueText;
+    static constexpr float SLIDER_MIN = 1.f;
+    static constexpr float SLIDER_MAX = 50.f;
+    static constexpr float SLIDER_WIDTH = 180.f;
+    static constexpr float SLIDER_TRACK_H = 6.f;
+    static constexpr float SLIDER_KNOB_W = 12.f;
+    static constexpr float SLIDER_KNOB_H = 20.f;
+
 
     // PREVIEW SHIT
     sf::CircleShape m_cursorPreview;
