@@ -14,8 +14,8 @@
     Reproduction or diclosure of this file or its contents without the prior
     written consent of DigiPen Institute of Technology is prohibited. */
 
-/* End Header
-***********************************************************************/
+    /* End Header
+    ***********************************************************************/
 #pragma once
 #include "shared_protocol.hpp"
 #include "state.hpp"
@@ -41,7 +41,8 @@ public:
     void render() override;
 private:
     [[nodiscard]] bool isMouseOverBackButton() const;
-	[[nodiscard]] bool isMouseOverTextBox() const;
+    [[nodiscard]] bool isMouseOverTextBox() const;
+    [[nodiscard]] bool isMouseOverClearButton() const;
     void updateLayout();
     void setupTools();
 
@@ -86,4 +87,8 @@ private:
     // PREVIEW SHIT
     sf::CircleShape m_cursorPreview;
     bool m_cursorOnCanvas = false;
+
+    // CLEAR BUTTON
+    sf::RectangleShape m_clearButton;
+    sf::Text m_clearText;
 };

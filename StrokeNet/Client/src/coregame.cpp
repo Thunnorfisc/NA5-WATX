@@ -45,7 +45,8 @@ CoreGameState::CoreGameState(StateMachine& stateMachine, StateContext& context) 
     m_titleText(m_font, "", 32), // was "Core Game" -imma remove it cus idk what it's for -snowpuppy
     m_backText(m_font, "Main Menu", 34),
     m_chatBox("resources/Marvel-Regular.ttf"),
-    m_sliderValueText(m_font, "10", 16)
+    m_sliderValueText(m_font, "10", 16),
+    m_clearText(m_font, "CLEAR DRAWING", 22)
 {
     m_backButton.setPosition({ 10, 830 });
     m_backButton.setSize({ 150, 50 });
@@ -74,6 +75,16 @@ CoreGameState::CoreGameState(StateMachine& stateMachine, StateContext& context) 
     m_sliderKnob.setOutlineThickness(1.f);
 
     m_sliderValueText.setFillColor(sf::Color(230, 230, 230));
+
+    // Clear button visuals
+    m_clearButton.setSize({ 180.f, 40.f });
+    m_clearButton.setFillColor(sf::Color(180, 30, 30));
+    m_clearButton.setOutlineThickness(3.f);
+    m_clearButton.setOutlineColor(sf::Color(220, 70, 70));
+
+    m_clearText.setFillColor(sf::Color(255, 255, 255));
+    m_clearText.setStyle(sf::Text::Bold);
+
     auto [currentRound, totalRounds] = context.roundInfo;
     // alfred do yr thing here
 
@@ -100,6 +111,10 @@ void CoreGameState::handleEvent(const sf::Event& event)
 
             if (isMouseOverBackButton() && Client::quitGame()) {
                 m_shouldReturnToMenu = true;
+                return;
+            }
+            else if (isMouseOverClearButton()) {
+                Client::sendClearCanvas(m_canvas.clearId);
                 return;
             }
             else if (isMouseOverTextBox()) {
@@ -159,6 +174,7 @@ void CoreGameState::update(sf::Time)
 
         // Check tool picker first, then colour picker, then canvas
         if (!sliderHit &&
+            !m_clearButton.getGlobalBounds().contains(pos) &&
             !m_toolPicker.handleClick(pos) &&
             !m_cpicker.handleClick(pos) &&
             m_canvas.contains(pos))
@@ -253,6 +269,10 @@ void CoreGameState::render()
     m_cpicker.draw(window);
     m_toolPicker.draw(window);
 
+    // Clear button
+    window.draw(m_clearButton);
+    window.draw(m_clearText);
+
     if (m_showThicknessSlider) {
         window.draw(m_sliderTrack);
         window.draw(m_sliderKnob);
@@ -313,6 +333,13 @@ bool CoreGameState::isMouseOverTextBox() const
     const sf::Vector2i pixelPosition = sf::Mouse::getPosition(context().window);
     const sf::Vector2f worldPosition = context().window.mapPixelToCoords(pixelPosition);
     return m_chatBox.textTypingArea.getGlobalBounds().contains(worldPosition);
+}
+
+bool CoreGameState::isMouseOverClearButton() const
+{
+    const sf::Vector2i pixelPosition = sf::Mouse::getPosition(context().window);
+    const sf::Vector2f worldPosition = context().window.mapPixelToCoords(pixelPosition);
+    return m_clearButton.getGlobalBounds().contains(worldPosition);
 }
 
 void CoreGameState::updateLayout()
@@ -377,6 +404,15 @@ void CoreGameState::updateLayout()
         chatboxLeftX - pickerWidth - 10.f,
         belowCanvas
         });
+
+    // Position clear button centered below canvas, between tool picker and colour picker
+    {
+        float btnW = m_clearButton.getSize().x;
+        float btnH = m_clearButton.getSize().y;
+        float canvasCenterX = m_canvas.bounds.position.x + m_canvas.bounds.size.x / 2.f;
+        m_clearButton.setPosition({ canvasCenterX - btnW / 2.f, belowCanvas });
+        centerText(m_clearText, m_clearButton.getGlobalBounds().getCenter());
+    }
 }
 
 void CoreGameState::setupTools()
