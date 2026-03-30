@@ -59,8 +59,8 @@ public:
     std::vector<std::string> word_list{};
     std::pair<bool, std::string> word{ 1,{} };
 
-    std::pair<uint8_t, uint8_t> rounds{};
     const uint8_t MAX_ROUNDS = 3;
+    std::pair<uint8_t, uint8_t> rounds{MAX_ROUNDS,MAX_ROUNDS};
 
     void pick_word();
     void load_wordlist();
