@@ -49,8 +49,8 @@ LoginState::LoginState(StateMachine& stateMachine, StateContext& context) :
     m_titleText(m_font, "Login", 48),
     m_statusText(m_font, "", 20),
     m_connectViaText(m_font, "Connect via:", 22),
-    m_broadcastButtonText(m_font, "Broadcast", 28),
-    m_directButtonText(m_font, "Direct", 28),
+    m_broadcastButtonText(m_font, "Auto Connect", 28),
+    m_directButtonText(m_font, "Direct Connect", 28),
     m_newText(m_font, "New?", 22),
     m_createButtonText(m_font, "Create Account", 28)
 {
