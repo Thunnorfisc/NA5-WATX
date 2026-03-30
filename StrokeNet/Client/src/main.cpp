@@ -23,6 +23,11 @@
 #include <stdexcept>
 #include <stop_token>
 #include <filesystem>
+
+#include <SFML/Audio.hpp>
+
+static sf::SoundBuffer bgmBuffer;
+static sf::Sound bgm{ bgmBuffer };
 int main()
 {
     // set executable path as the working directory
@@ -37,8 +42,13 @@ int main()
     PathRemoveFileSpecA(buffer);
     std::filesystem::current_path(buffer);
 
+    bgm.setVolume(5.0f);
+    if (bgmBuffer.loadFromFile("resources/bgm.mp3")) bgm.play();
+
     Client::initalize();
     playGame();
     Client::disconnect();
     Client::terminate();
+
+    bgm.stop();
 }

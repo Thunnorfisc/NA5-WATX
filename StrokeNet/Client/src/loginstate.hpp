@@ -62,6 +62,8 @@ private:
     sf::RectangleShape m_directButton;
     sf::Text m_directButtonText;
 
+    sf::RectangleShape m_quitButton;
+
     // "New?" caption + create account button
     sf::Text m_newText;
     sf::RectangleShape m_createButton;
@@ -80,10 +82,12 @@ private:
     bool m_isHoveringBroadcast = true;
     bool m_isHoveringDirect = true;
     bool m_isHoveringCreate = true;
+    bool m_isHoveringQuit = true;
 
     bool m_wasHoveringBroadcast = true;
     bool m_wasHoveringDirect = true;
     bool m_wasHoveringCreate = true;
+    bool m_wasHoveringQuit = true;
     
     sf::Sound m_sound;
 
