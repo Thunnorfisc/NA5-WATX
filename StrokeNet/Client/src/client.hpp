@@ -83,8 +83,8 @@ public:
     struct ReceivedLeaderboard
     {
         std::vector<std::pair<std::string, std::uint16_t>> _leaderboardEntries;
-        std::uint32_t _playerIndex;
-        std::uint16_t _playerScore;
+        std::uint32_t _playerIndex{};
+        std::uint16_t _playerScore{};
     };
     // ============================================================
     // Drawing canvas thingies - send
