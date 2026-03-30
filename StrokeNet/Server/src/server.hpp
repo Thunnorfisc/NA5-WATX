@@ -58,6 +58,7 @@ public:
     uint32_t max_len{};
     std::vector<std::string> word_list{};
     std::pair<bool, std::string> word{ 1,{} };
+    std::pair<uint8_t, uint8_t> rounds{};
 
     void pick_word();
     void load_wordlist();

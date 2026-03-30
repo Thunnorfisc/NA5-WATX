@@ -177,6 +177,11 @@ private:
     static inline std::atomic<std::shared_ptr<std::string>> _word{};
 
     // ============================================================
+    // Round info
+    // ============================================================
+    std::pair<uint8_t, uint8_t> rounds{};
+
+    // ============================================================
     // Chat messages thingies - Seen msges id
     // ============================================================
     static inline std::set<std::uint32_t> _seenMsgesId;

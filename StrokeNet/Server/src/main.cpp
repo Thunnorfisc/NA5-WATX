@@ -70,6 +70,9 @@ int main()
                 _roundEndTime += (server.budgetAdvanceTurnInt * 1000);
                 server.resetRound();
             }
+            else if (server.gameStarted() && server.LOCK_getNumberOfPlayers() == 0) {
+                server.stopGame();
+            }
             if (!server.gameStarted()) continue;
 
             //if (server.word.first) {
