@@ -1798,27 +1798,31 @@ bool Server::gameStarted()
 
 void Server::resetRound()
 {
-    // local server stuff
-
-    LOCK_gameVariablesANDclientStorage([this](auto& map, auto&, auto&) {
+    bool wrapped = false;
+    LOCK_gameVariablesANDclientStorage([this, &wrapped](auto& map, auto&, auto& drawerOpt) {
         for (auto& [_sid, client] : map)
-        {
             if (client.inGame) client.wordAlreadyGuessed = false;
-        }
         NO_LOCK_forceEndStroke();
+
+        auto oldDrawer = drawerOpt;
         NO_LOCK_advanceDrawer();
+
+        if (oldDrawer.has_value() && drawerOpt.has_value() && *drawerOpt <= *oldDrawer)
+            wrapped = true;
+
         pick_word();
         NO_LOCK_broadcastScoreboard();
         });
 
-    // send client stuff
     LOCK_sendNewWord();
     LOCK_sendNewWordLen();
     LOCK_sendNewRoundEndTime();
     LOCK_sendClearCanvasCommand();
 
-    std::lock_guard lock(_gameMutex);
-    rounds.first = rounds.first > 1? rounds.first - 1 : 0;
+    if (wrapped) {
+        std::lock_guard lock(_gameMutex);
+        rounds.first = rounds.first > 1 ? rounds.first - 1 : 0;
+    }
 }
 
 // ============================================================
