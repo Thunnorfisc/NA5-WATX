@@ -85,7 +85,9 @@ CoreGameState::CoreGameState(StateMachine& stateMachine, StateContext& context) 
     m_clearText.setStyle(sf::Text::Bold);
 
     auto [currentRound, totalRounds] = context.roundInfo;
-    m_roundInfoText.setString("Round " + std::to_string(currentRound) + " / " + std::to_string(totalRounds));
+    m_currentRound = currentRound;
+    m_maxRound = totalRounds;
+    m_roundInfoText.setString("Round " + std::to_string(m_currentRound) + " / " + std::to_string(m_maxRound));
 	m_roundInfoText.setPosition({ 1050.f, 120.f });
 
 }
@@ -262,6 +264,35 @@ void CoreGameState::update(sf::Time)
 void CoreGameState::render()
 {
     auto& window = context().window;
+    
+    std::int64_t retMs = Client::getRoundEndTimeMs();
+    if (retMs != m_oldRetMs)
+    {
+        m_oldRetMs = retMs;
+        // new ret
+        if (!m_incrementedRound)
+        {
+            m_currentRound++;
+            m_currentRound = m_currentRound > m_maxRound ? m_maxRound : m_currentRound;
+            m_roundInfoText.setString("Round " + std::to_string(m_currentRound) + " / " + std::to_string(m_maxRound));
+        }
+
+        m_incrementedRound = false;
+    }
+
+    std::int64_t now =
+        std::chrono::duration_cast<std::chrono::milliseconds>
+        (std::chrono::steady_clock::now().time_since_epoch()).count();
+
+    std::int64_t timeRemainingMs = retMs - now;
+    if (timeRemainingMs <= std::int64_t{ 0 })
+    {
+        m_currentRound++;
+        m_currentRound = m_currentRound > m_maxRound ? m_maxRound : m_currentRound;
+        m_roundInfoText.setString("Round " + std::to_string(m_currentRound) + " / " + std::to_string(m_maxRound));
+        timeRemainingMs = std::int64_t{ 0 };
+        m_incrementedRound = true;
+    }
     window.draw(m_titleText);
     window.draw(m_backButton);
     window.draw(m_backText);
@@ -281,15 +312,6 @@ void CoreGameState::render()
     }
 
     m_chatBox.draw(window);
-
-    std::int64_t retMs = Client::getRoundEndTimeMs();
-
-    std::int64_t nowMs =
-        std::chrono::duration_cast<std::chrono::milliseconds>
-        (std::chrono::steady_clock::now().time_since_epoch()).count();
-
-    std::int64_t timeRemainingMs = retMs - nowMs;
-    if (timeRemainingMs < std::int64_t{ 0 }) timeRemainingMs = std::int64_t{ 0 };
 
     m_chatBox.displayTimer(timeRemainingMs / 1000);
 

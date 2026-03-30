@@ -70,6 +70,9 @@ private:
 
     ColourPicker m_cpicker;
 
+    std::int64_t m_oldRetMs{};
+    bool m_incrementedRound = false;
+
     ToolPicker m_toolPicker;
     float m_brushThickness = 10.f; // Laze
 
@@ -94,4 +97,8 @@ private:
     // CLEAR BUTTON
     sf::RectangleShape m_clearButton;
     sf::Text m_clearText;
+
+    // Round
+    std::uint8_t m_currentRound = 255;
+    std::uint8_t m_maxRound = 255;
 };
