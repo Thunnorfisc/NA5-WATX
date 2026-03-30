@@ -83,7 +83,8 @@ void MainMenuState::update(sf::Time)
     updateLayout();
 
     auto leaderboardOpt = Client::getLeaderboard();
-    if (leaderboardOpt) m_lastestLeaderboard = *leaderboardOpt;
+    if (leaderboardOpt) 
+        m_lastestLeaderboard = *leaderboardOpt;
 
     // render leaderboard here ig
 

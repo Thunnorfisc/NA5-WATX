@@ -141,7 +141,7 @@ Server::~Server()
 {
     _stopSource.request_stop();
     if (_thread.joinable()) _thread.join();
-
+    _userStore.save();
     if (_socket != INVALID_SOCKET) closesocket(_socket);
     WSACleanup();
 }
@@ -428,16 +428,14 @@ void Server::handle_reqQuitGame(std::span<const char> udpPacketWithoutMID, socka
             auto it = map.find(sessionIdHost);
             if (it == map.end()) return false;
             it->second.inGame = false;
+            if (it->second.score > it->second.highscore) 
+                it->second.highscore = it->second.score;
             it->second.score = 0;
             it->second.currentStrokeId = std::nullopt;
-
-            if (it->second.score > it->second.highscore) it->second.highscore = it->second.score;
-            it->second.score = 0; // reset
 
             username = it->second.username;
             if (gameRunning && drawerSessionOpt && drawerSessionOpt == sessionIdHost)
             {
-
                 _roundEndTime =
                     std::chrono::duration_cast<std::chrono::milliseconds>
                     (std::chrono::steady_clock::now().time_since_epoch()).count();
@@ -2324,7 +2322,7 @@ void Server::NO_LOCK_sendLeaderboard()
 
         // Add to pending for retry
         _pendingNtfMsg[NtfKey{ ssiho, _messageIdServer }] = PendingNTF{
-            ._data = std::move(msg),
+            ._data = msg, // NO MOVE
             ._clientAddr = client.sa,
             ._targetSessionId = ssiho,
             ._ntfId = _messageIdServer,
