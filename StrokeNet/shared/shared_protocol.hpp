@@ -166,9 +166,9 @@ namespace PacketSize
     // [NTF_RCV_SEND_WORD_LEN][SESSION_ID][WORD_ID]
     constexpr inline std::size_t NTF_RCV_SEND_WORD = 9;
 
-    // 1                      4           4         4             N                                    1           VAR
-    // [NTF_UPDATE_SCOREBOARD][SESSION_ID][SCORE_ID][NUM_PLAYERS]{ NAME_LEN(1) | NAME(VAR) | SCORE(2) }[DRAWER_LEN][DRAWER_NAME]
-    constexpr inline std::size_t NTF_UPDATE_SCOREBOARD_BASE = 14;
+    // 1                      4           4         4             N                                    1           VAR          1
+    // [NTF_UPDATE_SCOREBOARD][SESSION_ID][SCORE_ID][NUM_PLAYERS]{ NAME_LEN(1) | NAME(VAR) | SCORE(2) }[DRAWER_LEN][DRAWER_NAME][PLAYER_INDEX]
+    constexpr inline std::size_t NTF_UPDATE_SCOREBOARD_BASE = 15;
     static_assert(NTF_UPDATE_SCOREBOARD_BASE + 
         MAX_SHOWN_USERNAME_LEN +  // < drawer name
         (MAX_PLAYERS_IN_GAME * (1 * MAX_SHOWN_USERNAME_LEN + 2)) <= MaxUdpPacketBytes,

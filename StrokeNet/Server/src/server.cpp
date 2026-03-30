@@ -1551,7 +1551,7 @@ void Server::NO_LOCK_broadcastScoreboard()
 
     // Pre-build the per-player payload once (shared across all clients)
     // Each entry: 1 byte name_len + name bytes + 2 bytes score
-    struct PlayerEntry { std::string name; std::uint16_t score; };
+    struct PlayerEntry { std::string name; std::uint16_t score; SessionId sessionId; };
     std::vector<PlayerEntry> entries;
 
     for (const auto& [sid, client] : _clientStorageMap)
@@ -1561,7 +1561,7 @@ void Server::NO_LOCK_broadcastScoreboard()
         if (name.size() > MAX_SHOWN_USERNAME_LEN)
             name = name.substr(0, MAX_SHOWN_USERNAME_LEN - 3) + "...";
 
-        entries.push_back({ std::move(name), client.score });
+        entries.push_back({ std::move(name), client.score, sid });
     }
 
     // Calculate variable payload size
@@ -1587,17 +1587,24 @@ void Server::NO_LOCK_broadcastScoreboard()
         wrt.write(htonl(numPlayers));
 
         // Write each player's name + score
-        for (const auto& e : entries)
+        std::uint8_t yourIndex = 0;
+        for (std::uint8_t i = 0; i < entries.size(); ++i)
         {
+            const auto& e = entries[i];
             auto nameLen = static_cast<std::uint8_t>(e.name.size());
             wrt.write(nameLen);
             wrt.writeSpan(std::span<const char>(e.name.data(), nameLen));
             wrt.write(htons(e.score));
+
+            if (e.sessionId == ssiho)   // <--- need sessionId in entries
+                yourIndex = i;
         }
 
         auto drawerLen = static_cast<std::uint8_t>(drawer.size());
         wrt.write(drawerLen);
         wrt.writeSpan(std::span<const char>(drawer.data(), drawerLen));
+
+        wrt.write(yourIndex);
 
         sockaddr_in clientSa = client.sa;
         sendto(_socket, pkt.data(), static_cast<int>(pkt.size()), 0,

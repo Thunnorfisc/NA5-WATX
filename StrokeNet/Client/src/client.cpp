@@ -415,6 +415,7 @@ void Client::handle_NTF_UpdateScoreboard(std::span<const char> msg)
     auto drawerLen = rdr.read<std::uint8_t>();
     auto drawerByte = rdr.readBytes(drawerLen);
     sb._currentDrawer = std::string(drawerByte.data(), drawerLen);
+    sb._yourIndex = rdr.read<std::uint8_t>();
 
     std::lock_guard lock(_scoreboardReceivedMut);
     _scoreboardReceived.push(std::move(sb));

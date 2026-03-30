@@ -65,6 +65,7 @@ public:
     {
         std::vector<std::pair<std::string, std::uint16_t>> _users;
         std::string _currentDrawer;
+        std::uint8_t _yourIndex{};
     };
     struct ReceivedStrokeHistory
     {

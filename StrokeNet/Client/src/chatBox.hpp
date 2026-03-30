@@ -42,6 +42,7 @@ struct ChatBox
 
 	std::vector<sf::Text> messagesReceivedFromServer;
 	std::vector<std::pair<std::string, uint16_t>> scoreboardData;
+	std::uint8_t yourPlayerIndex{};
 
 	std::uint32_t nextMessageId = 1;
 	
@@ -56,6 +57,6 @@ struct ChatBox
 	std::string wrapText(const std::string& input);
 	void clearChatHistory();
 	void displayTimer(std::int64_t seconds);
-	void drawScoreboardOfPlayer(float posX, float posY, float scaleX, float scaleY, std::string name, uint16_t score);
+	void drawScoreboardOfPlayer(float posX, float posY, float scaleX, float scaleY, std::string name, uint16_t score, bool isDrawer, bool isYou);
 
 };
