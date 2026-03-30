@@ -1298,7 +1298,7 @@ std::pair<PlayGameStatus,
                 auto totalRound = rdr.read<std::uint8_t>();
                 switch (ret)
                 {
-                case PlayGameStatus::SUCCESS: _playingGame = true; opt = std::make_pair(currRound,totalRound); break;
+                case PlayGameStatus::SUCCESS: _playingGame = true; opt = std::make_pair(currRound, totalRound); _currentRound = currRound; break;
                 default: _playingGame = false; break;
                 }
                 return std::make_pair(ret, opt);
