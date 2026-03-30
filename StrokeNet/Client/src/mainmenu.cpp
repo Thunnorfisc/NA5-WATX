@@ -54,6 +54,7 @@ MainMenuState::MainMenuState(StateMachine& stateMachine, StateContext& context) 
     State(stateMachine, context),
     m_font("resources/Marvel-Bold.ttf"),
     m_playText(m_font, "Play Game", 48),
+	m_quitText(m_font, "Quit Game", 48),
     m_statusText(m_font, "", 20),
     m_GAMTITLE(m_font, "DigiStroke", 82),
 	m_leaderboardTitleText(m_font, "Leaderboard", 40),
@@ -69,9 +70,19 @@ MainMenuState::MainMenuState(StateMachine& stateMachine, StateContext& context) 
     m_playButton.setOutlineThickness(6.0f);
     m_playButton.setOutlineColor(sf::Color(220, 70, 70));
 
+	m_quitButton.setPosition({ 700, 600 });
+	m_quitButton.setSize({ 200, 80 });
+    m_quitButton.setFillColor(sf::Color(30, 30, 30));
+    m_quitButton.setOutlineThickness(6.0f);
+    m_quitButton.setOutlineColor(sf::Color(220, 70, 70));
+
     m_playText.setFillColor(sf::Color(230, 230, 230));
     m_playText.setOutlineThickness(2.0f);
     m_playText.setOutlineColor(sf::Color(70, 70, 70));
+
+	m_quitText.setFillColor(sf::Color(230, 230, 230));
+	m_quitText.setOutlineThickness(2.0f);
+	m_quitText.setOutlineColor(sf::Color(70, 70, 70));
 
     m_statusText.setFillColor(sf::Color(230, 230, 230));
     m_statusText.setOutlineThickness(2.0f);
@@ -99,7 +110,7 @@ void MainMenuState::handleEvent(const sf::Event& event)
 
     if (const auto* mousePressed = event.getIf<sf::Event::MouseButtonPressed>())
     {
-        if (mousePressed->button == sf::Mouse::Button::Left && isMouseOverPlayButton())
+        if (mousePressed->button == sf::Mouse::Button::Left && isMouseOverButton(m_playButton))
         {
             auto pgs = Client::playGame();
             
@@ -111,6 +122,11 @@ void MainMenuState::handleEvent(const sf::Event& event)
             else if (pgs.first == PlayGameStatus::TOO_MANY_PLAYERS) m_statusText.setString("Server lobby full!");
             else if (pgs.first == PlayGameStatus::SERVER_NO_RESPONSE) m_statusText.setString("Server no response! Try again later");
         }
+        else if (mousePressed->button == sf::Mouse::Button::Left && isMouseOverButton(m_quitButton))
+        {
+			Client::disconnect();
+			context().window.close();
+		}
     }
  //   else if (const auto* keyboardPressed = event.getIf<sf::Event::KeyPressed>())
  //   {
@@ -132,7 +148,7 @@ void MainMenuState::update(sf::Time)
 		m_localPlayerScore = leaderboardOpt->_playerScore;
     }
 
-    if (isMouseOverPlayButton()) {
+    if (isMouseOverButton(m_playButton)) {
         m_playButton.setFillColor(sf::Color(80, 80, 80));
         m_playButton.setOutlineColor(sf::Color(255, 100, 100));
     }
@@ -140,7 +156,14 @@ void MainMenuState::update(sf::Time)
         m_playButton.setFillColor(sf::Color(30, 30, 30));
 		m_playButton.setOutlineColor(sf::Color(220, 70, 70));
     }
-
+    if (isMouseOverButton(m_quitButton)) {
+        m_quitButton.setFillColor(sf::Color(80, 80, 80));
+        m_quitButton.setOutlineColor(sf::Color(255, 100, 100));
+    }
+    else {
+        m_quitButton.setFillColor(sf::Color(30, 30, 30));
+        m_quitButton.setOutlineColor(sf::Color(220, 70, 70));
+    }
     if (m_shouldStartGame)
     {
         m_shouldStartGame = false;
@@ -170,6 +193,8 @@ void MainMenuState::render()
     window.draw(m_GAMTITLE);
     window.draw(m_playButton);
     window.draw(m_playText);
+	window.draw(m_quitButton);
+	window.draw(m_quitText);
     window.draw(m_statusText);
     window.draw(m_leaderboardTitleText);
     if (m_localPlayerIndex >= leaderboardData.size()) {
@@ -226,11 +251,11 @@ void MainMenuState::render()
 
 }
 
-bool MainMenuState::isMouseOverPlayButton() const
+bool MainMenuState::isMouseOverButton(sf::RectangleShape shape) const
 {
     const sf::Vector2i pixelPosition = sf::Mouse::getPosition(context().window);
     const sf::Vector2f worldPosition = context().window.mapPixelToCoords(pixelPosition);
-    return m_playButton.getGlobalBounds().contains(worldPosition);
+    return shape.getGlobalBounds().contains(worldPosition);
 }
 
 void MainMenuState::updateLayout()
@@ -243,6 +268,7 @@ void MainMenuState::updateLayout()
     //m_playButton.setPosition(center);
 
     centerText(m_playText, m_playButton.getGlobalBounds().getCenter());
+	centerText(m_quitText, m_quitButton.getGlobalBounds().getCenter());
     centerText(m_statusText, m_playButton.getGlobalBounds().getCenter());
 
     auto stpos = m_statusText.getPosition();
