@@ -33,7 +33,7 @@ public:
     void render() override;
 
 private:
-    enum class Field { Username, Password, ServerIP, Port, COUNT };
+    enum class Field { Username, Password, ServerIP, COUNT };
     static constexpr int FIELD_COUNT = static_cast<int>(Field::COUNT);
 
     void updateLayout();

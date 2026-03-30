@@ -44,6 +44,7 @@ public:
     static void        terminate();
 
     static LoginStatus loginViaBroadcast(const std::string& username, const std::string& password);
+    static LoginStatus loginViaIp(const std::string& username, const std::string& password,const std::string& ip);
     static LoginStatus createAccountViaBroadcast(const std::string& username, const std::string& password);
     static void        disconnect();
 

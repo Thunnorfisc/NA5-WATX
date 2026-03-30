@@ -15,6 +15,7 @@
 #include "client.hpp"
 #include "loginstate.hpp"
 #include "state_machine.hpp"
+#include "shared_protocol.hpp"
 #include <algorithm>
 namespace
 {
@@ -63,7 +64,7 @@ LoginState::LoginState(StateMachine& stateMachine, StateContext& context) :
         m_fieldValues[i] = "";
 
     const std::array<std::string, FIELD_COUNT> labelStrings = {
-        "Username:", "Password:", "Server IP Address:", "Port:"
+        "Username:", "Password:", "Server IP Address:", /*"Port:"*/
     };
 
     for (int i = 0; i < FIELD_COUNT; ++i)
@@ -178,7 +179,7 @@ void LoginState::handleEvent(const sf::Event& event)
             case Field::Username:  maxLen = MAX_USERNAME_LEN - 1; break;
             case Field::Password:  maxLen = MAX_PASSWORD_LEN - 1; break;
             case Field::ServerIP:  maxLen = 45;  break;
-            case Field::Port:      maxLen = 5;   break;
+            //case Field::Port:      maxLen = 5;   break;
             default: break;
             }
 
@@ -193,8 +194,8 @@ void LoginState::handleEvent(const sf::Event& event)
             }
 
             // for the port field, only allow digits
-            if (m_activeField == Field::Port && (ch < '0' || ch > '9'))
-                return;
+            //if (m_activeField == Field::Port && (ch < '0' || ch > '9'))
+            //    return;
 
             if (maxLen > 0 && m_fieldValues[idx].size() < maxLen)
                 m_fieldValues[idx] += static_cast<char>(ch);
@@ -350,6 +351,10 @@ void LoginState::attemptLogin()
         m_statusMessage = "This account is already logged in";
         m_statusColor = sf::Color(255, 100, 100);
         break;
+    case LoginStatus::SERVER_NO_RESPONSE:
+        m_statusMessage = "Login failed (server unreachable or error)";
+        m_statusColor = sf::Color(255, 100, 100);
+        break;
     default:
         m_statusMessage = "Login failed (server unreachable or error)";
         m_statusColor = sf::Color(255, 100, 100);
@@ -362,7 +367,7 @@ void LoginState::attemptDirectConnect()
     const auto& user = m_fieldValues[static_cast<int>(Field::Username)];
     const auto& pass = m_fieldValues[static_cast<int>(Field::Password)];
     const auto& ip = m_fieldValues[static_cast<int>(Field::ServerIP)];
-    const auto& port = m_fieldValues[static_cast<int>(Field::Port)];
+    //const auto& port = m_fieldValues[static_cast<int>(Field::Port)];
 
     if (user.empty() || pass.empty())
     {
@@ -371,9 +376,9 @@ void LoginState::attemptDirectConnect()
         return;
     }
 
-    if (ip.empty() || port.empty())
+    if (ip.empty() /*|| port.empty()*/)
     {
-        m_statusMessage = "Server IP and port are required for direct connect";
+        m_statusMessage = "Server IP is required direct connect";
         m_statusColor = sf::Color(255, 100, 100);
         return;
     }
@@ -420,30 +425,43 @@ void LoginState::attemptDirectConnect()
     }
 
     // validate port is a valid number in range
-    int portNum = 0;
-    try { portNum = std::stoi(port); }
-    catch (...)
-    {
-        m_statusMessage = "Invalid port number";
-        m_statusColor = sf::Color(255, 100, 100);
-        return;
-    }
+    //int portNum = 0;
+    //try { portNum = std::stoi(port); }
+    //catch (...)
+    //{
+    //    m_statusMessage = "Invalid port number";
+    //    m_statusColor = sf::Color(255, 100, 100);
+    //    return;
+    //}
 
-    if (portNum < 1 || portNum > 65535)
-    {
-        m_statusMessage = "Port must be between 1 and 65535";
-        m_statusColor = sf::Color(255, 100, 100);
-        return;
-    }
+    //if (portNum < 1 || portNum > 65535)
+    //{
+    //    m_statusMessage = "Port must be between 1 and 65535";
+    //    m_statusColor = sf::Color(255, 100, 100);
+    //    return;
+    //}
 
-    m_statusMessage = "Connecting to " + ip + ":" + port + "...";
+    m_statusMessage = "Connecting to " + ip + ":" + std::to_string(ServerUdpPort) + "...";
     m_statusColor = sf::Color(200, 200, 100);
 
-    // TODO: TIMMMMMMMMMMMMMMMMMMMMMMMMM/NICHTSSSSSSS HERE
+    //// TODO: TIMMMMMMMMMMMMMMMMMMMMMMMMM/NICHTSSSSSSS HERE
 
-    // TODO: placeholder until direct connect is implemented
-    m_statusMessage = "Direct connect not yet implemented";
-    m_statusColor = sf::Color(255, 200, 100);
+    //// TODO: placeholder until direct connect is implemented
+    //m_statusMessage = "Direct connect not yet implemented";
+    //m_statusColor = sf::Color(255, 200, 100);
+
+    // Ok i hear u thunderfishy boi :3
+
+    LoginStatus status = Client::loginViaIp(user, pass, ip);
+    switch (status)
+    {
+        using enum LoginStatus;
+    case SUCCESS: m_statusMessage = "Login Successful!"; m_statusColor = sf::Color(100, 255, 100); m_shouldTransition = true; break;
+    default: m_statusColor = sf::Color(255, 100, 100); [[fallthrough]];
+    case INVALID_CREDENTIALS: m_statusMessage = "Invalid username or password"; break;
+    case ALREADY_LOGGED_IN: m_statusMessage = "This account is already logged in"; break;
+    case SERVER_NO_RESPONSE: m_statusMessage = "Login failed (server unreachable or error)"; break;
+    }
 }
 
 void LoginState::attemptCreateAccount()
