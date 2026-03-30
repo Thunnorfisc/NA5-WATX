@@ -124,8 +124,10 @@ void MainMenuState::handleEvent(const sf::Event& event)
         }
         else if (mousePressed->button == sf::Mouse::Button::Left && isMouseOverButton(m_quitButton))
         {
-			Client::disconnect();
-			context().window.close();
+			if (Client::quitGame()) {
+			    Client::disconnect();
+			    context().window.close();
+            }
 		}
     }
  //   else if (const auto* keyboardPressed = event.getIf<sf::Event::KeyPressed>())
