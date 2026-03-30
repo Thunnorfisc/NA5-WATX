@@ -3,7 +3,7 @@
         {
             "username": "admin",
             "password": "jGl25bVBBBW96Qi9Te4V37Fnqchz/Eu4qB9vKrRIqRg=",
-            "highscore": 0
+            "highscore": 75
         },
         {
             "username": "timothy",
@@ -19,6 +19,11 @@
             "username": "boy",
             "password": "zGp3hATqVX2lVD18uhT3UDDdBp9WyAr2Kw1+GECh/2c=",
             "highscore": 0
+        },
+        {
+            "username": "timothy",
+            "password": "GT0wQ+Apqfn7rE9KqtQ37cLFg3cZxcxfSZOVc7r3h2A=",
+            "highscore": 75
         },
         {
             "username": "hi",

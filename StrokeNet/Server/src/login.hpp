@@ -29,7 +29,7 @@ public:
     bool createAccount(const std::string& user, const std::string& pass);
     void saveHighscore(const std::string& user, const std::uint64_t& highscore);
     std::optional<std::uint64_t> getHighscore(const std::string& user) const;
-
+    std::vector<std::pair<std::string, std::uint16_t>> getHighscoresAndName() const;
 private:
     struct ClientData
     {

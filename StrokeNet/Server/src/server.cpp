@@ -141,7 +141,7 @@ Server::~Server()
 {
     _stopSource.request_stop();
     if (_thread.joinable()) _thread.join();
-    _userStore.save();
+    for (const auto& [_ignore, client] : _clientStorageMap) _userStore.saveHighscore(client.username, client.highscore);
     if (_socket != INVALID_SOCKET) closesocket(_socket);
     WSACleanup();
 }
@@ -433,8 +433,11 @@ void Server::handle_reqQuitGame(std::span<const char> udpPacketWithoutMID, socka
             auto it = map.find(sessionIdHost);
             if (it == map.end()) return false;
             it->second.inGame = false;
-            if (it->second.score > it->second.highscore) 
+            if (it->second.score > it->second.highscore)
+            {
                 it->second.highscore = it->second.score;
+                _userStore.saveHighscore(it->second.username, it->second.highscore);
+            }
             it->second.score = 0;
             it->second.currentStrokeId = std::nullopt;
 
@@ -2235,21 +2238,11 @@ void Server::LOCK_sendLeaderboard()
 
 void Server::NO_LOCK_sendLeaderboard()
 {
-    std::vector<std::pair<std::string, std::uint16_t>> leaderboardEntries;
-    leaderboardEntries.reserve(MAX_LEADERBOARD_ENTRIES);
+    for (const auto& [_ignore, client] : _clientStorageMap) _userStore.saveHighscore(client.username, client.highscore);
+    std::vector<std::pair<std::string, std::uint16_t>> leaderboardEntries = _userStore.getHighscoresAndName();
 
     std::uint32_t playerIndexHost = 0;
     std::uint16_t playerScoreHost = 0;
-    for (auto& [_ignore, client] : _clientStorageMap)
-    {
-        std::string username = client.username;
-        if (username.length() > MAX_SHOWN_USERNAME_LEN)
-        {
-            username = username.substr(0, MAX_SHOWN_USERNAME_LEN - 3);
-            username += "...";
-        }
-        leaderboardEntries.emplace_back(std::make_pair(username, client.highscore));
-    }
 
     std::ranges::sort(leaderboardEntries,
         [](const std::pair<std::string, std::uint16_t>& lhs,
