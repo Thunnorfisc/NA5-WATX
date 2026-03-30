@@ -1832,17 +1832,18 @@ void Server::resetRound(bool isGameStart)
         NO_LOCK_broadcastScoreboard();
         });
 
-    LOCK_sendNewWord();
-    LOCK_sendNewWordLen();
-    LOCK_sendNewRoundEndTime();
-    LOCK_sendClearCanvasCommand();
-
     if (wrapped) {
         std::unique_lock lock(_gameMutex);
         rounds.first = rounds.first > 1 ? rounds.first - 1 : 0;
         lock.unlock();
     }
     LOCK_sendCurrentRound();
+    if (rounds.first) {
+        LOCK_sendNewWord();
+        LOCK_sendNewWordLen();
+        LOCK_sendNewRoundEndTime();
+        LOCK_sendClearCanvasCommand();
+    }
 }
 
 // ============================================================
@@ -2525,6 +2526,8 @@ void Server::LOCK_sendCurrentRound()
 
 void Server::NO_LOCK_sendCurrentRound()
 {
+    std::cout << rounds.first << '\n';
+
     std::vector<char> msg;
     msg.resize(PacketSize::NTF_CURRENT_ROUND);
     ByteWriter wrt{ .buffer = msg };
