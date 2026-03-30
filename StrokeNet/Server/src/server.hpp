@@ -59,6 +59,9 @@ public:
     std::vector<std::string> word_list{};
     std::pair<bool, std::string> word{ 1,{} };
 
+    std::mutex roundsMutex;
+    std::pair<uint8_t, uint8_t> rounds{};
+
     void pick_word();
     void load_wordlist();
     int word_heuristic();
@@ -97,6 +100,9 @@ public:
     void NO_LOCK_forceEndStroke();
 
     void LOCK_sendMessage(const std::string& username, const std::string& message);
+
+    void LOCK_sendLeaderboard();
+    void NO_LOCK_sendLeaderboard();
 private:
     // ============================================================
     // Game State
@@ -117,6 +123,7 @@ private:
         std::string username;
         sockaddr_in sa;
         std::uint16_t score{};
+        std::uint16_t highscore{};
         std::optional<std::uint32_t> currentStrokeId;
         bool wordAlreadyGuessed = false;
         bool inGame = false;
@@ -150,6 +157,7 @@ private:
     std::uint32_t _roundEndTimeIdServer = 1;
     std::uint32_t _strokeHistoryIdServer = 1;
     std::uint32_t _sendNewWordLenIdServer = 1;
+    std::uint32_t _sendLeaderboardIdServer = 1;
 
     // ============================================================
     // NTF Handling
@@ -234,6 +242,12 @@ private:
     // ============================================================
     std::mutex _pendingNtfMessageHistoryMutex;
     std::unordered_map<NtfKey, PendingNTF, NtfKeyHash> _pendingNtfMessageHistory;
+
+    // ============================================================
+    // Check for pending NTFs for leaderboard
+    // ============================================================
+    std::mutex _pendingNtfLeaderboardMutex;
+    std::unordered_map<NtfKey, PendingNTF, NtfKeyHash> _pendingNtfLeaderboard;
 
     // ============================================================
     // Socket / session

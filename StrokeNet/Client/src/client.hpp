@@ -47,7 +47,11 @@ public:
     static LoginStatus createAccountViaBroadcast(const std::string& username, const std::string& password);
     static void        disconnect();
 
-    static PlayGameStatus       playGame();
+    static std::pair<PlayGameStatus,
+        std::optional<
+        std::pair<std::uint8_t,std::uint8_t>
+        >
+    > playGame();
     static bool                 quitGame();
 
     struct ReceivedStrokeCommand
@@ -74,6 +78,12 @@ public:
     struct ReceivedChatMessageHistory
     {
         std::vector<PastMessage> _chatMessageHistory;
+    };
+    struct ReceivedLeaderboard
+    {
+        std::vector<std::pair<std::string, std::uint16_t>> _leaderboardEntries;
+        std::uint32_t _playerIndex;
+        std::uint16_t _playerScore;
     };
     // ============================================================
     // Drawing canvas thingies - send
@@ -107,6 +117,11 @@ public:
     // Scoreboard - receive
     // ============================================================
     static std::optional<ReceivedScoreBoard> getLatestScoreboard();
+
+    // ============================================================
+    // Leaderboard - receive
+    // ============================================================
+    static std::optional<ReceivedLeaderboard> getLeaderboard();
 
     // ============================================================
     // Round end time - receive
@@ -164,6 +179,11 @@ private:
     // ============================================================
     static inline std::atomic<std::int32_t> _word_len = 0;
     static inline std::atomic<std::shared_ptr<std::string>> _word{};
+
+    // ============================================================
+    // Round info
+    // ============================================================
+    std::pair<uint8_t, uint8_t> rounds{};
 
     // ============================================================
     // Chat messages thingies - Seen msges id
@@ -243,6 +263,12 @@ private:
     static inline std::queue<ReceivedScoreBoard> _scoreboardReceived;
 
     // ============================================================
+    // Used for the game to check if there are any leaderboard updates
+    // ============================================================
+    static inline std::mutex _leaderboardReceivedMut;
+    static inline std::queue<ReceivedLeaderboard> _leaderboardReceived;
+
+    // ============================================================
     // Used for the game to check if there are any stroke history received
     // ============================================================
     static inline std::mutex _strokeHistoryReceivedMut;
@@ -273,6 +299,7 @@ private:
     static void handle_NTF_Msg(std::span<const char> msg);              // < send back ack to server
     static void handle_NTF_ClearCanvas(std::span<const char> msg);      // < send back ack to server
     static void handle_NTF_UpdateScoreboard(std::span<const char> msg); // < send back ack to server
+    static void handle_NTF_UpdateLeaderboard(std::span<const char> msg); // < send back ack to server
 
     static void handle_NTF_RoundEndTime(std::span<const char> msg); // < send back ack to server
     
@@ -299,6 +326,7 @@ private:
         { MessageType::NTF_MSG,                 &Client::handle_NTF_Msg                 },
         { MessageType::NTF_CLEAR_CANVAS,        &Client::handle_NTF_ClearCanvas         },
         { MessageType::NTF_UPDATE_SCOREBOARD,   &Client::handle_NTF_UpdateScoreboard    },
+        { MessageType::NTF_UPDATE_LEADERBOARD,  &Client::handle_NTF_UpdateLeaderboard   },
         { MessageType::NTF_ROUND_END_TIME,      &Client::handle_NTF_RoundEndTime        },
         { MessageType::NTF_SEND_WORD_LEN,       &Client::handle_NTF_NewWordLen          },
         { MessageType::NTF_SEND_WORD,           &Client::handle_NTF_NewWord             },

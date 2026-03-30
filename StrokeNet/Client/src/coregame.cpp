@@ -74,6 +74,9 @@ CoreGameState::CoreGameState(StateMachine& stateMachine, StateContext& context) 
     m_sliderKnob.setOutlineThickness(1.f);
 
     m_sliderValueText.setFillColor(sf::Color(230, 230, 230));
+    auto [currentRound, totalRounds] = context.roundInfo;
+    // alfred do yr thing here
+
 }
 
 CoreGameState::~CoreGameState()

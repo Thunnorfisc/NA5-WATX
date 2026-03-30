@@ -421,6 +421,37 @@ void Client::handle_NTF_UpdateScoreboard(std::span<const char> msg)
     _scoreboardReceived.push(std::move(sb));
 }
 
+void Client::handle_NTF_UpdateLeaderboard(std::span<const char> msg)
+{
+    ByteReader rdr{ .buffer = msg };
+    auto sessionIdHost = ntohl(rdr.read<SessionId>());
+    if (sessionIdHost != _sessionId)
+    {
+        log(std::cerr,
+            std::format("[Client] Received an invalid session id [{}] from the server, ignoring packet", sessionIdHost));
+        return;
+    }
+    auto leaderboardIdNetwork = rdr.read<std::uint32_t>();    
+    auto numLeaderboardEntryHost = rdr.read<std::uint8_t>();
+
+    ReceivedLeaderboard rlb;
+    rlb._leaderboardEntries.resize(numLeaderboardEntryHost);
+    for (std::uint8_t i = 0; i < numLeaderboardEntryHost; i++)
+    {
+        auto nameLen = rdr.read<std::uint8_t>();
+        
+        std::vector<char> nameBuffer = rdr.readBytes(nameLen);
+        auto& lbEntry = rlb._leaderboardEntries[i];
+        lbEntry.first = std::string(nameBuffer.begin(), nameBuffer.end());
+        lbEntry.second = ntohs(rdr.read<std::uint16_t>());
+    }
+    rlb._playerIndex = ntohl(rdr.read<std::uint32_t>());
+    rlb._playerScore = ntohs(rdr.read<std::uint16_t>());
+
+    std::lock_guard lock(_leaderboardReceivedMut);
+    _leaderboardReceived.push(std::move(rlb));
+}
+
 // ============================================================
 // NTF_ROUND_END_TIME
 // ============================================================
@@ -1029,14 +1060,18 @@ void Client::disconnect()
 // ============================================================
 // send play game
 // ============================================================
-PlayGameStatus Client::playGame()
+std::pair<PlayGameStatus,
+    std::optional<
+    std::pair<std::uint8_t, std::uint8_t>
+    >
+> Client::playGame()
 {
     PlayGameStatus ret;
     if(_playingGame)
     {
         log(std::cerr, "[Client] Play game called when game is already playing");
         ret = PlayGameStatus::SUCCESS;
-        return ret;
+        return std::make_pair(ret,std::make_pair(255,255));
     }
     std::array<char, PacketSize::REQ_PLAY_GAME> msg;
     ByteWriterN wrt{.buffer = msg};
@@ -1066,6 +1101,7 @@ PlayGameStatus Client::playGame()
             if(select(0, &rs, nullptr, nullptr, &tv) <= 0) break;
 
             sockaddr_in from{}; int fromLen = sizeof(from);
+            std::optional<std::pair<std::uint8_t, std::uint8_t>> opt = std::nullopt;
             while(true)
             {
                 int n = recvfrom(_socket, recvBuf.data(), static_cast<int>(recvBuf.size()),
@@ -1083,17 +1119,19 @@ PlayGameStatus Client::playGame()
                 SessionId sid = ntohl(rdr.read<SessionId>());
                 if (sid != _sessionId) continue; // continue, maybe received wrong
                 ret = rdr.read<PlayGameStatus>();
+                auto currRound = rdr.read<std::uint8_t>();
+                auto totalRound = rdr.read<std::uint8_t>();
                 switch (ret)
                 {
-                case PlayGameStatus::SUCCESS: _playingGame = true; break;
+                case PlayGameStatus::SUCCESS: _playingGame = true; opt = std::make_pair(currRound,totalRound); break;
                 default: _playingGame = false; break;
                 }
-                return ret;
+                return std::make_pair(ret, opt);
             }
         }
     }
     ret = PlayGameStatus::SERVER_NO_RESPONSE;
-    return ret;
+    return std::make_pair(ret,std::nullopt);
 }
 
 // ============================================================
@@ -1326,6 +1364,26 @@ std::optional<Client::ReceivedScoreBoard> Client::getLatestScoreboard()
     // Grab only the latest, discard older ones
     ReceivedScoreBoard latest = std::move(_scoreboardReceived.back());
     std::queue<ReceivedScoreBoard>().swap(_scoreboardReceived); // clear
+    return latest;
+}
+
+// ============================================================
+// for game to retrieve scoreboard if have
+// 
+// If lock is owned or no scoreboard in queue, return nullopt
+// 
+// Else get the latest scoreboard and empty the queue
+// ============================================================
+
+std::optional<Client::ReceivedLeaderboard> Client::getLeaderboard()
+{
+    std::unique_lock lock(_leaderboardReceivedMut, std::try_to_lock);
+    if (!lock.owns_lock() || _leaderboardReceived.empty())
+        return std::nullopt;
+
+    // Grab only the latest, discard older ones
+    ReceivedLeaderboard latest = std::move(_leaderboardReceived.back());
+    std::queue<ReceivedLeaderboard>().swap(_leaderboardReceived); // clear
     return latest;
 }
 

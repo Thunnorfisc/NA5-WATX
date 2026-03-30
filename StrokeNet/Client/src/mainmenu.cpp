@@ -64,9 +64,14 @@ void MainMenuState::handleEvent(const sf::Event& event)
         if (mousePressed->button == sf::Mouse::Button::Left && isMouseOverPlayButton())
         {
             auto pgs = Client::playGame();
-            if (pgs == PlayGameStatus::SUCCESS) m_shouldStartGame = true;
-            else if (pgs == PlayGameStatus::TOO_MANY_PLAYERS) m_statusText.setString("Server lobby full!");
-            else if (pgs == PlayGameStatus::SERVER_NO_RESPONSE) m_statusText.setString("Server no response! Try again later");
+            
+            if (pgs.first == PlayGameStatus::SUCCESS)
+            {
+                m_shouldStartGame = true;
+                if (pgs.second.has_value()) m_currRoundAndTotalRound = *pgs.second;
+            }
+            else if (pgs.first == PlayGameStatus::TOO_MANY_PLAYERS) m_statusText.setString("Server lobby full!");
+            else if (pgs.first == PlayGameStatus::SERVER_NO_RESPONSE) m_statusText.setString("Server no response! Try again later");
         }
     }
  //   else if (const auto* keyboardPressed = event.getIf<sf::Event::KeyPressed>())
@@ -82,9 +87,16 @@ void MainMenuState::update(sf::Time)
 {
     updateLayout();
 
+    auto leaderboardOpt = Client::getLeaderboard();
+    if (leaderboardOpt) 
+        m_lastestLeaderboard = *leaderboardOpt;
+
+    // render leaderboard here ig
+
     if (m_shouldStartGame)
     {
         m_shouldStartGame = false;
+        context().roundInfo = m_currRoundAndTotalRound;
         requestStateChange(StateId::CoreGame);
     }
 }

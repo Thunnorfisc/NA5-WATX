@@ -45,6 +45,7 @@ inline constexpr std::size_t MAX_PLAYERS_IN_GAME = 6;
 inline constexpr std::size_t MAX_CHAT_HISTORY_SHOWN = 15;
 inline constexpr std::size_t MAX_SHOWN_USERNAME_LEN = 15;
 inline constexpr std::size_t MAX_CHARS_PER_CHAT_MSG = 84;
+inline constexpr std::size_t MAX_LEADERBOARD_ENTRIES = 5;
 
 namespace PacketSize
 {
@@ -98,9 +99,9 @@ namespace PacketSize
     // [REQ_PLAY_GAME][SESSION_ID]
     constexpr inline std::size_t REQ_PLAY_GAME = 5;
 
-    //  1              4           1
-    // [RSP_PLAY_GAME][SESSION_ID][PLAY_GAME_STATUS]
-    constexpr inline std::size_t RSP_PLAY_GAME = 6;
+    //  1              4           1                 1              1
+    // [RSP_PLAY_GAME][SESSION_ID][PLAY_GAME_STATUS][CURRENT_ROUND][NUM_ROUNDS_TOTAL]
+    constexpr inline std::size_t RSP_PLAY_GAME = 8;
 
     //  1              4
     // [REQ_QUIT_GAME][SESSION_ID]
@@ -171,12 +172,23 @@ namespace PacketSize
     constexpr inline std::size_t NTF_UPDATE_SCOREBOARD_BASE = 15;
     static_assert(NTF_UPDATE_SCOREBOARD_BASE + 
         MAX_SHOWN_USERNAME_LEN +  // < drawer name
-        (MAX_PLAYERS_IN_GAME * (1 * MAX_SHOWN_USERNAME_LEN + 2)) <= MaxUdpPacketBytes,
+        (MAX_PLAYERS_IN_GAME * (1 + MAX_SHOWN_USERNAME_LEN + 2)) <= MaxUdpPacketBytes,
         "NTF_UPDATE_SCOREBOARD_BASE packet exceeds MaxUdpPacketBytes");
 
     // 1                     4           4        
     // [NTF_RCV_PLAYER_JOIN][SESSION_ID][SCORE_ID]
     constexpr inline std::size_t NTF_RCV_UPDATE_SCOREBOARD = 9;
+
+    //  1                4           4               1                      NUM_LEADERBOARD_ENTRY                       4             2
+    // [NTF_LEADERBOARD][SESSION_ID][LEADERBOARD_ID][NUM_LEADERBOARD_ENTRY][{ NAME_LEN(1) | NAME(VAR) | HIGHSCORE(2) }][PLAYER_INDEX][PLAYER_SCORE]
+    constexpr inline std::size_t NTF_LEADERBOARD_BASE = 16;
+    static_assert(NTF_LEADERBOARD_BASE +
+        (MAX_LEADERBOARD_ENTRIES * (1 + MAX_SHOWN_USERNAME_LEN + 2)) <= MaxUdpPacketBytes,
+        "NTF_LEADERBOARD_BASE packet exceeds MaxUdpPacketBytes");
+
+    //  1                    4           4
+    // [NTF_RCV_LEADERBOARD][SESSION_ID][LEADERBOARD_ID]
+    constexpr inline std::size_t NTF_RCV_LEADERBOARD = 9;
 
     //  1                   4           4                  8
     // [NTF_ROUND_END_TIME][SESSION_ID][ROUND_END_TIME_ID][ROUND_END_TIME]
@@ -250,6 +262,9 @@ enum class MessageType: std::uint8_t
 
     NTF_UPDATE_SCOREBOARD,                  // < Sent by server
     NTF_RCV_UPDATE_SCOREBOARD,              // < Ack by client
+
+    NTF_UPDATE_LEADERBOARD,                 // < Sent by server
+    NTF_RCV_UPDATE_LEADERBOARD,             // < Ack by client
 
     NTF_ROUND_END_TIME,                     // < Sent by server
     NTF_RCV_ROUND_END_TIME,                 // < Ack by client
