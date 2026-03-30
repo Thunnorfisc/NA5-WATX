@@ -30,7 +30,7 @@ const float SCOREBOARD_BACKGROUND_POSITION_Y = CHATBOX_POSITION_Y - 50.f;
 
 const uint8_t MAX_MESSAGE_LENGTH = static_cast<std::uint8_t>(MAX_CHARS_PER_CHAT_MSG);
 
-ChatBox::ChatBox(const std::string& fontPath) : text(font), sampleText(font), timerText(font), playerName(font), playerScore(font)
+ChatBox::ChatBox(const std::string& fontPath) : text(font), sampleText(font), timerText(font), playerName(font), playerScore(font), drawerTitle(font)
 {
 	if (!font.openFromFile(fontPath)) throw std::runtime_error("Failed to load font from: " + fontPath);
 
@@ -68,6 +68,11 @@ ChatBox::ChatBox(const std::string& fontPath) : text(font), sampleText(font), ti
 	scoreboardBackground.setFillColor(sf::Color(120, 120, 120));
 	scoreboardBackground.setOutlineThickness(1.f);
 	scoreboardBackground.setOutlineColor(sf::Color(80, 80, 80));
+
+	drawerTitle.setString("(Drawer)");
+	drawerTitle.setCharacterSize(24);
+	drawerTitle.setFillColor(sf::Color::Yellow);
+
 }
 
 void ChatBox::draw(sf::RenderWindow& window)
@@ -107,13 +112,6 @@ void ChatBox::draw(sf::RenderWindow& window)
 	if (auto sb = Client::getLatestScoreboard()) {
 		scoreboardData = sb->_users;
 		currentDrawerName = sb->_currentDrawer;
-		std::cout << "Current drawer: " << currentDrawerName << std::endl;
-		std::cout << "Scoreboard data:" << std::endl;
-#ifdef _DEBUG
-		for (const auto& [name, score] : scoreboardData) {
-			std::cout << " - " << name << ": " << score << std::endl;
-		}
-#endif
 	}
 
 	static float currentPosY = SCOREBOARD_BACKGROUND_POSITION_Y + 10.f;
@@ -124,6 +122,7 @@ void ChatBox::draw(sf::RenderWindow& window)
 		window.draw(playerScoreboard);
 		window.draw(playerName);
 		window.draw(playerScore);
+		window.draw(drawerTitle);
 		currentPosY += toAddY + MESSAGE_RECEIVED_SPACING;
 	}
 	currentPosY = SCOREBOARD_BACKGROUND_POSITION_Y + 10.f;
@@ -224,6 +223,7 @@ void ChatBox::drawScoreboardOfPlayer(float posX, float posY, float scaleX, float
 		playerName.setStyle(sf::Text::Bold);
 		playerName.setOutlineThickness(4.f);
 		playerName.setOutlineColor(sf::Color::Red);
+		drawerTitle.setPosition({ posX + scaleX - drawerTitle.getLocalBounds().size.x - TEXT_PADDING, posY + scaleY - drawerTitle.getLocalBounds().size.y - TEXT_PADDING * 2 });
 	}
 	else {
 		playerName.setFillColor(sf::Color::White);
@@ -239,4 +239,5 @@ void ChatBox::drawScoreboardOfPlayer(float posX, float posY, float scaleX, float
 	playerScore.setFillColor(sf::Color::Yellow);
 	playerScore.setOutlineThickness(1.f);
 	playerScore.setOutlineColor(sf::Color::Blue);
+
 }

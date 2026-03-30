@@ -4,6 +4,8 @@
 /*! \file   mainmenu.cpp
     \author Loh Boon Cheong, Timothy
     \par    email: loh.b@digipen.edu
+    \co-author Alfred Lo Kai Xuan
+    \par    email: alfredkaixuan.lo@digipen.edu
     \date   20th March, 2026
     \brief  Copyright (C) 2026 DigiPen Institute of Technology
 

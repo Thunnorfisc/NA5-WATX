@@ -35,6 +35,7 @@ struct ChatBox
 	sf::Text timerText;
 	sf::Text playerName;
 	sf::Text playerScore;
+	sf::Text drawerTitle;
 
 	std::string currentInput;
 	std::string currentDrawerName;
