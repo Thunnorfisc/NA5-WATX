@@ -173,9 +173,9 @@ private:
     struct PendingNTF
     {
         std::vector<char> _data;
-        sockaddr_in _clientAddr;
-        SessionId _targetSessionId;
-        std::uint32_t _ntfId;
+        sockaddr_in _clientAddr{};
+        SessionId _targetSessionId{};
+        std::uint32_t _ntfId{};
 
         std::chrono::steady_clock::time_point _nextSendTime;
         std::chrono::steady_clock::time_point _giveUpTime;
