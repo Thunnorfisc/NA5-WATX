@@ -58,7 +58,7 @@ int realMain()
         while (!server.isListeningThreadFinished())
         {
             
-            if (!server.gameStarted() && server.LOCK_getNumberOfPlayers() >= 1)
+            if (!server.gameStarted() && server.LOCK_getNumberOfPlayers() >= 2)
             {
                 server.startGame();
                 _roundEndTime =

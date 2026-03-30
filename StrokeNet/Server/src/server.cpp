@@ -1838,9 +1838,10 @@ void Server::resetRound(bool isGameStart)
     LOCK_sendClearCanvasCommand();
 
     if (wrapped) {
-        // HERE DADDY, PUT IT IN AHHHH~ MESSAGE HERE AHHHH~
-        std::lock_guard lock(_gameMutex);
+        LOCK_sendCurrentRound();
+        std::unique_lock lock(_gameMutex);
         rounds.first = rounds.first > 1 ? rounds.first - 1 : 0;
+        lock.unlock();
     }
 }
 

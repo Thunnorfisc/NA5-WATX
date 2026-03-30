@@ -183,7 +183,7 @@ private:
     // ============================================================
     // Current round
     // ============================================================
-    static inline std::atomic<std::uint8_t> _currentRound = 255;
+    static inline std::atomic<std::uint8_t> _currentRound = 1;
 
     // ============================================================
     // Word

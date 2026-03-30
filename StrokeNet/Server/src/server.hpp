@@ -71,7 +71,7 @@ public:
     void resetRound(bool isGameStart = false);
     bool gameStarted();
 
-    const double budgetAdvanceTurn{ 10.0 }; // advance turn every 60 seconds, just for testing
+    const double budgetAdvanceTurn{ 2.0 }; // advance turn every 60 seconds, just for testing
     const int budgetAdvanceTurnInt{ static_cast<int>(budgetAdvanceTurn) };
     std::atomic<std::chrono::steady_clock::time_point> advanceTurnNow{ std::chrono::steady_clock::now() };
 
