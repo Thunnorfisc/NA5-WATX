@@ -66,7 +66,7 @@ int realMain()
                     (std::chrono::steady_clock::now().time_since_epoch()).count();
                 _roundEndTime += (server.budgetAdvanceTurnInt * 1000);
                 server.advanceTurnNow = std::chrono::steady_clock::now();
-                server.resetRound();
+                server.resetRound(true);
             }
             else if (server.gameStarted() && server.LOCK_getNumberOfPlayers() == 0) {
                 server.stopGame();
