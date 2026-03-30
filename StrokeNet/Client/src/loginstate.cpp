@@ -52,8 +52,13 @@ LoginState::LoginState(StateMachine& stateMachine, StateContext& context) :
     m_broadcastButtonText(m_font, "Auto Connect", 28),
     m_directButtonText(m_font, "Direct Connect", 28),
     m_newText(m_font, "New?", 22),
-    m_createButtonText(m_font, "Create Account", 28)
+    m_createButtonText(m_font, "Create Account", 28),
+    m_sound(m_hoverBuffer)
 {
+    m_sound.setVolume(35.0f);
+    m_canPlayHover = m_hoverBuffer.loadFromFile("resources/UI_Hover_v1.wav");
+    m_canPlayClick = m_clickBuffer.loadFromFile("resources/UI_Select_v1.wav");
+
     m_titleText.setFillColor(sf::Color(230, 230, 230));
     m_titleText.setOutlineThickness(2.0f);
     m_titleText.setOutlineColor(sf::Color(220, 70, 70));
@@ -114,6 +119,11 @@ LoginState::LoginState(StateMachine& stateMachine, StateContext& context) :
     updateLayout();
 }
 
+LoginState::~LoginState()
+{
+    m_sound.stop();
+}
+
 void LoginState::handleEvent(const sf::Event& event)
 {
     if (const auto* mousePressed = event.getIf<sf::Event::MouseButtonPressed>())
@@ -136,16 +146,35 @@ void LoginState::handleEvent(const sf::Event& event)
             // check button clicks
             if (m_broadcastButton.getGlobalBounds().contains(pos))
             {
+                if (m_canPlayClick)
+                {
+                    m_sound.stop();
+                    m_sound.setBuffer(m_clickBuffer);
+                    m_sound.play();
+                }
                 attemptLogin();
                 return;
             }
             if (m_directButton.getGlobalBounds().contains(pos))
             {
+                if (m_canPlayClick)
+                {
+                    m_sound.stop();
+                    m_sound.setBuffer(m_clickBuffer);
+                    m_sound.play();
+                }
+                
                 attemptDirectConnect();
                 return;
             }
             if (m_createButton.getGlobalBounds().contains(pos))
             {
+                if (m_canPlayClick)
+                {
+                    m_sound.stop();
+                    m_sound.setBuffer(m_clickBuffer);
+                    m_sound.play();
+                }
                 attemptCreateAccount();
                 return;
             }
@@ -205,6 +234,49 @@ void LoginState::handleEvent(const sf::Event& event)
 
 void LoginState::update(sf::Time)
 {
+    sf::Vector2i ipos = sf::Mouse::getPosition(context().window);
+    sf::Vector2f pos = context().window.mapPixelToCoords(ipos);
+    m_isHoveringBroadcast = m_broadcastButton.getGlobalBounds().contains(pos);
+    m_isHoveringDirect = m_directButton.getGlobalBounds().contains(pos);
+    m_isHoveringCreate = m_createButton.getGlobalBounds().contains(pos);
+
+    if (m_isHoveringBroadcast && !m_wasHoveringBroadcast)
+    {
+        if (m_canPlayHover)
+        {
+            m_sound.stop();
+            m_sound.setBuffer(m_hoverBuffer);
+            m_sound.play();
+        }
+    }
+    if (m_isHoveringDirect && !m_wasHoveringDirect)
+    {
+        if (m_canPlayHover)
+        {
+            m_sound.stop();
+            m_sound.setBuffer(m_hoverBuffer);
+            m_sound.play();
+        }
+    }
+    if (m_isHoveringCreate && !m_wasHoveringCreate)
+    {
+        if (m_canPlayHover)
+        {
+            m_sound.stop();
+            m_sound.setBuffer(m_hoverBuffer);
+            m_sound.play();
+        }
+    }
+
+
+
+
+
+    m_wasHoveringBroadcast = m_isHoveringBroadcast;
+    m_wasHoveringDirect = m_isHoveringDirect;
+    m_wasHoveringCreate = m_isHoveringCreate;
+
+
     // update displayed text
     for (int i = 0; i < FIELD_COUNT; ++i)
     {
