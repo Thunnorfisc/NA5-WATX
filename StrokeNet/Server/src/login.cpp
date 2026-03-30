@@ -95,7 +95,7 @@ bool UserStore::createAccount(const std::string& user, const std::string& pass)
 
 void UserStore::saveHighscore(const std::string& user, const std::uint64_t& highscore)
 {
-    if (_users.contains(user)) return;
+    if (!_users.contains(user)) return;
 
     _users[user]._highscore = highscore;
     save();
@@ -108,4 +108,15 @@ std::optional<std::uint64_t> UserStore::getHighscore(const std::string& user) co
     auto it = _users.find(user);
     if (it == _users.end()) return std::nullopt;
     else return it->second._highscore;
+}
+
+std::vector<std::pair<std::string, std::uint16_t>> UserStore::getHighscoresAndName() const
+{
+    std::vector<std::pair<std::string, std::uint16_t>> ret;
+    ret.reserve(_users.size());
+    for (const auto& [name, highscore] : ret)
+    {
+        ret.emplace_back(name, static_cast<std::uint16_t>(highscore));
+    }
+    return ret;
 }
