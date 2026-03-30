@@ -56,8 +56,13 @@ MainMenuState::MainMenuState(StateMachine& stateMachine, StateContext& context) 
     m_playText(m_font, "Play Game", 48),
     m_statusText(m_font, "", 20),
     m_GAMTITLE(m_font, "DigiStroke", 82),
-	m_leaderboardTitleText(m_font, "Leaderboard", 40)
+	m_leaderboardTitleText(m_font, "Leaderboard", 40),
+	m_drawnBy(m_font, "Artwork by Xavier Koh (RTIS), drawn in-game", 16)
 {
+
+	m_drawnBy.setFillColor(sf::Color(50, 50, 50));
+	m_drawnBy.setPosition({ 50, 830 });
+
 	m_playButton.setPosition({ 700, 450 });
 	m_playButton.setSize({ 200, 80 });
     m_playButton.setFillColor(sf::Color(30, 30, 30));
@@ -120,6 +125,13 @@ void MainMenuState::update(sf::Time)
 {
     updateLayout();
 
+    auto leaderboardOpt = Client::getLeaderboard();
+    if (leaderboardOpt) {
+        leaderboardData = leaderboardOpt->_leaderboardEntries;
+        m_localPlayerIndex = leaderboardOpt->_playerIndex;
+		m_localPlayerScore = leaderboardOpt->_playerScore;
+    }
+
     if (isMouseOverPlayButton()) {
         m_playButton.setFillColor(sf::Color(80, 80, 80));
         m_playButton.setOutlineColor(sf::Color(255, 100, 100));
@@ -145,8 +157,9 @@ void MainMenuState::render()
 	sf::Sprite backgroundSprite(backgroundTexture);
 	centerSprite(backgroundSprite, { 400, 450 });
 	backgroundSprite.setScale({ 1.5f, 1.5f });
-	window.draw(backgroundSprite);
 
+	window.draw(backgroundSprite);
+    window.draw(m_drawnBy);
     window.draw(m_leaderboardBackground);
     window.draw(m_GAMTITLE);
     window.draw(m_playButton);
@@ -154,18 +167,21 @@ void MainMenuState::render()
     window.draw(m_statusText);
     window.draw(m_leaderboardTitleText);
 
-
-    auto leaderboardOpt = Client::getLeaderboard();
-    if (leaderboardOpt) leaderboardData = leaderboardOpt->_leaderboardEntries;
 	uint8_t i = 1;
 	float currentY = LEADERBOARD_BACKGROUND_POSITION_Y + PADDING;
     static float toAddY = (LEADERBOARD_BACKGROUND_HEIGHT / 5) - PADDING;
     for (const auto& [name, score] : leaderboardData) {
+
 		m_leaderboardEntriesBackground.setPosition({ LEADERBOARD_BACKGROUND_POSITION_X + PADDING, currentY});
         m_leaderboardEntriesBackground.setSize({ LEADERBOARD_BACKGROUND_WIDTH - PADDING * 2, toAddY });
-		m_leaderboardEntriesBackground.setFillColor(sf::Color(40, 40, 40));
+        if (i - 1 == m_localPlayerIndex) {
+            m_leaderboardEntriesBackground.setFillColor(sf::Color(40, 100, 100));
+        }
+        else {
+            m_leaderboardEntriesBackground.setFillColor(sf::Color(40, 40, 40));
+        }
 
-		sf::Text entryRank(m_font, std::to_string(i), 48);
+        sf::Text entryRank(m_font, std::to_string(i), 48);
         if (i == 1) entryRank.setFillColor(sf::Color(255, 215, 0));
         else if (i == 2) entryRank.setFillColor(sf::Color(192, 192, 192));
         else if (i == 3) entryRank.setFillColor(sf::Color(205, 127, 50));
@@ -186,7 +202,6 @@ void MainMenuState::render()
 		entryScore.setOutlineColor(sf::Color(70, 70, 70));
 		centerText(entryScore, { LEADERBOARD_BACKGROUND_POSITION_X + LEADERBOARD_BACKGROUND_WIDTH - PADDING * 12, currentY + toAddY / 2 });
 
-
         window.draw(m_leaderboardEntriesBackground);
 		window.draw(entryRank);
 		window.draw(entryName);
@@ -195,6 +210,8 @@ void MainMenuState::render()
         currentY += toAddY + PADDING;
         i += 1;
 	}
+
+
 }
 
 bool MainMenuState::isMouseOverPlayButton() const
