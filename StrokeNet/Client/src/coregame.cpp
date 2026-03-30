@@ -45,7 +45,7 @@ CoreGameState::CoreGameState(StateMachine& stateMachine, StateContext& context) 
     m_backText(m_font, "Main Menu", 34),
     m_chatBox("resources/Marvel-Regular.ttf"),
     m_sliderValueText(m_font, "10", 16),
-    m_clearText(m_font, "CLEAR DRAWING", 22)
+    m_clearText(m_font, "CLEAR DRAWING", 22),
     m_roundInfoText(m_font, "", 48)
 {
     m_backButton.setPosition({ 10, 830 });
