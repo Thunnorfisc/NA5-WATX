@@ -20,6 +20,7 @@ struct Canvas {
 	sf::FloatRect bounds;
 	sf::RectangleShape border;
 	Drawing drawing;
+	sf::Color bgColour = sf::Color::White;
 
 	Stroke currentStroke;
 	RenderStroke currentRender;

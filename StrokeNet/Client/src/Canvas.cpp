@@ -34,11 +34,11 @@ void Canvas::beginStroke(sf::Vector2f pos, sf::Color colour, float thickness) {
 	isDrawing = true;
 	currentStroke = {};
 	currentStroke.id = nextId;
-	currentStroke.colour = eraseMode ? sf::Color::Transparent : colour;
+	currentStroke.colour = eraseMode ? bgColour : colour;
 	currentStroke.thickness = thickness;
 	currentRender = {};
 	currentRender.quads.setPrimitiveType(sf::PrimitiveType::TriangleStrip);
-	currentRender.blend = eraseMode ? sf::BlendNone : sf::BlendAlpha;
+	currentRender.blend = sf::BlendAlpha;
 
 	sf::Vector2f local = pos - bounds.position;
 	Point pt{ local.x, local.y };

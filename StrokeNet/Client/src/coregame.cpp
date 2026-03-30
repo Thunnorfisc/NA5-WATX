@@ -14,8 +14,8 @@
     Reproduction or diclosure of this file or its contents without the prior
     written consent of DigiPen Institute of Technology is prohibited. */
 
-/* End Header
-***********************************************************************/
+    /* End Header
+    ***********************************************************************/
 #include "client.hpp"
 #include "coregame.hpp"
 #include "state_machine.hpp"
@@ -44,10 +44,11 @@ CoreGameState::CoreGameState(StateMachine& stateMachine, StateContext& context) 
     m_font("resources/Marvel-Bold.ttf"),
     m_titleText(m_font, "", 32), // was "Core Game" -imma remove it cus idk what it's for -snowpuppy
     m_backText(m_font, "Main Menu", 34),
-    m_chatBox("resources/Marvel-Regular.ttf")
+    m_chatBox("resources/Marvel-Regular.ttf"),
+    m_sliderValueText(m_font, "10", 16)
 {
-	m_backButton.setPosition({ 10, 830 });
-	m_backButton.setSize({ 150, 50 });
+    m_backButton.setPosition({ 10, 830 });
+    m_backButton.setSize({ 150, 50 });
     m_backButton.setFillColor(sf::Color(45, 45, 45));
     m_backButton.setOutlineThickness(5.0f);
     m_backButton.setOutlineColor(sf::Color(220, 70, 70));
@@ -62,6 +63,17 @@ CoreGameState::CoreGameState(StateMachine& stateMachine, StateContext& context) 
 
     setupTools();
     updateLayout();
+
+    // Thickness slider visuals
+    m_sliderTrack.setSize({ SLIDER_WIDTH, SLIDER_TRACK_H });
+    m_sliderTrack.setFillColor(sf::Color(80, 80, 80));
+
+    m_sliderKnob.setSize({ SLIDER_KNOB_W, SLIDER_KNOB_H });
+    m_sliderKnob.setFillColor(sf::Color(220, 70, 70));
+    m_sliderKnob.setOutlineColor(sf::Color(255, 100, 100));
+    m_sliderKnob.setOutlineThickness(1.f);
+
+    m_sliderValueText.setFillColor(sf::Color(230, 230, 230));
 }
 
 CoreGameState::~CoreGameState()
@@ -90,7 +102,7 @@ void CoreGameState::handleEvent(const sf::Event& event)
             else if (isMouseOverTextBox()) {
                 m_chatBox.setTyping(true);
                 return;
-			}
+            }
         }
     }
 
@@ -113,7 +125,7 @@ void CoreGameState::handleEvent(const sf::Event& event)
             m_chatBox.setTyping(true);
             return;
         }
-	}
+    }
     m_chatBox.handleEvent(event);
 }
 
@@ -126,13 +138,31 @@ void CoreGameState::update(sf::Time)
     bool leftDown = sf::Mouse::isButtonPressed(sf::Mouse::Button::Left);
 
     if (leftDown && !m_wasLeftDown) {
+        // Check slider hit first if visible
+        bool sliderHit = false;
+        if (m_showThicknessSlider) {
+            sf::FloatRect sliderHitArea(
+                m_sliderTrack.getPosition() - sf::Vector2f(0.f, (SLIDER_KNOB_H - SLIDER_TRACK_H) / 2.f),
+                { SLIDER_WIDTH, SLIDER_KNOB_H }
+            );
+            if (sliderHitArea.contains(pos)) {
+                m_draggingSlider = true;
+                sliderHit = true;
+                float trackX = m_sliderTrack.getPosition().x;
+                float t = std::clamp((pos.x - trackX) / SLIDER_WIDTH, 0.f, 1.f);
+                m_brushThickness = std::round(SLIDER_MIN + t * (SLIDER_MAX - SLIDER_MIN));
+            }
+        }
+
         // Check tool picker first, then colour picker, then canvas
-        if (!m_toolPicker.handleClick(pos) &&
+        if (!sliderHit &&
+            !m_toolPicker.handleClick(pos) &&
             !m_cpicker.handleClick(pos) &&
             m_canvas.contains(pos))
         { // < start stroke
             m_drawing = true;
             auto clr = m_cpicker.getSelectedColour();
+            if (m_canvas.eraseMode) clr = m_canvas.bgColour;
             Client::sendStartStroke(m_canvas.nextId, // < stroke id
                 std::array<std::uint16_t, 2>{ // < mouse pos
                 static_cast<std::uint16_t>(mousePos.x),
@@ -164,6 +194,16 @@ void CoreGameState::update(sf::Time)
 
     m_wasLeftDown = leftDown;
     m_lastMousePos = pos;
+
+    // Continuous slider drag
+    if (m_draggingSlider && leftDown) {
+        float trackX = m_sliderTrack.getPosition().x;
+        float t = std::clamp((pos.x - trackX) / SLIDER_WIDTH, 0.f, 1.f);
+        m_brushThickness = std::round(SLIDER_MIN + t * (SLIDER_MAX - SLIDER_MIN));
+    }
+    if (!leftDown) {
+        m_draggingSlider = false;
+    }
 
     m_cursorOnCanvas = m_canvas.contains(pos) && !m_drawing;
     if (m_cursorOnCanvas) {
@@ -209,16 +249,23 @@ void CoreGameState::render()
     m_canvas.draw(window);
     m_cpicker.draw(window);
     m_toolPicker.draw(window);
-	m_chatBox.draw(window);
+
+    if (m_showThicknessSlider) {
+        window.draw(m_sliderTrack);
+        window.draw(m_sliderKnob);
+        window.draw(m_sliderValueText);
+    }
+
+    m_chatBox.draw(window);
 
     std::int64_t retMs = Client::getRoundEndTimeMs();
-    
+
     std::int64_t nowMs =
         std::chrono::duration_cast<std::chrono::milliseconds>
         (std::chrono::steady_clock::now().time_since_epoch()).count();
 
     std::int64_t timeRemainingMs = retMs - nowMs;
-    if(timeRemainingMs < std::int64_t{0}) timeRemainingMs = std::int64_t{0};
+    if (timeRemainingMs < std::int64_t{ 0 }) timeRemainingMs = std::int64_t{ 0 };
 
     m_chatBox.displayTimer(timeRemainingMs / 1000);
 
@@ -227,23 +274,23 @@ void CoreGameState::render()
         wordText.setFillColor(sf::Color(0, 255, 255));
         wordText.setOutlineThickness(2.0f);
         wordText.setOutlineColor(sf::Color(220, 70, 70));
-		wordText.setPosition({ 750.f, 120.f });
+        wordText.setPosition({ 750.f, 120.f });
 #ifdef _DEBUG
-		//std::cout << "Word:" << wordText.getString().toAnsiString() << std::endl;
+        //std::cout << "Word:" << wordText.getString().toAnsiString() << std::endl;
 #endif
-		window.draw(wordText);
+        window.draw(wordText);
     }
     else {
-		auto wordLen = Client::getWordLength();
-		sf::Text wordHintText(m_font, std::string(wordLen, '-'), 58);
+        auto wordLen = Client::getWordLength();
+        sf::Text wordHintText(m_font, std::string(wordLen, '-'), 58);
         wordHintText.setFillColor(sf::Color(0, 255, 255));
         wordHintText.setOutlineThickness(2.0f);
         wordHintText.setOutlineColor(sf::Color(220, 70, 70));
-		wordHintText.setPosition({ 750.f, 120.f + wordHintText.getLocalBounds().size.y }); // seems to not be able to display underscore '_' so i use dash and lower the height to make it look like an underscore uwu
+        wordHintText.setPosition({ 750.f, 120.f + wordHintText.getLocalBounds().size.y }); // seems to not be able to display underscore '_' so i use dash and lower the height to make it look like an underscore uwu
 #ifdef _DEBUG
-		//std::cout << "Word Hint:" << wordHintText.getString().toAnsiString() << std::endl;
+        //std::cout << "Word Hint:" << wordHintText.getString().toAnsiString() << std::endl;
 #endif
-		window.draw(wordHintText);
+        window.draw(wordHintText);
     }
 
     if (m_cursorOnCanvas) {
@@ -258,7 +305,7 @@ bool CoreGameState::isMouseOverBackButton() const
     return m_backButton.getGlobalBounds().contains(worldPosition);
 }
 
-bool CoreGameState::isMouseOverTextBox() const 
+bool CoreGameState::isMouseOverTextBox() const
 {
     const sf::Vector2i pixelPosition = sf::Mouse::getPosition(context().window);
     const sf::Vector2f worldPosition = context().window.mapPixelToCoords(pixelPosition);
@@ -289,22 +336,43 @@ void CoreGameState::updateLayout()
 
     float belowCanvas = m_canvas.bounds.position.y + m_canvas.bounds.size.y + 10.f;
 
-    float maxToolsInGroup = 0.f;
-    for (const auto& g : m_toolPicker.groups) {
-        maxToolsInGroup = std::max(maxToolsInGroup, static_cast<float>(g.tools.size()));
-    }
-    float toolPickerWidth = maxToolsInGroup * (ToolPicker::TOOL_SIZE + ToolPicker::PADDING) - ToolPicker::PADDING;
     m_toolPicker.setPosition({
         m_canvas.bounds.position.x,
         belowCanvas
         });
 
-    float pickerWidth = ColourPicker::COLS * (ColourPicker::SWATCH_SIZE + ColourPicker::PADDING) - ColourPicker::PADDING;
-
     float belowTools = belowCanvas + m_toolPicker.getTotalHeight() + 10.f;
+
+    // Position the thickness slider between tool picker and colour picker
+    if (m_showThicknessSlider) {
+        float sliderX = m_canvas.bounds.position.x;
+        float sliderY = belowTools;
+
+        m_sliderTrack.setPosition({
+            sliderX,
+            sliderY + (SLIDER_KNOB_H - SLIDER_TRACK_H) / 2.f
+            });
+
+        // Position knob based on current thickness
+        float t = (m_brushThickness - SLIDER_MIN) / (SLIDER_MAX - SLIDER_MIN);
+        float knobX = sliderX + t * (SLIDER_WIDTH - SLIDER_KNOB_W);
+        m_sliderKnob.setPosition({ knobX, sliderY });
+
+        // Value text below slider
+        m_sliderValueText.setString(std::to_string(static_cast<int>(m_brushThickness)));
+        auto textBounds = m_sliderValueText.getLocalBounds();
+        m_sliderValueText.setPosition({
+            sliderX + SLIDER_WIDTH / 2.f - textBounds.size.x / 2.f,
+            sliderY + SLIDER_KNOB_H + 4.f
+            });
+    }
+
+    // Position colour picker so its right edge sits just left of the chatbox
+    float pickerWidth = ColourPicker::COLS * (ColourPicker::SWATCH_SIZE + ColourPicker::PADDING) - ColourPicker::PADDING;
+    float chatboxLeftX = 1270.f; // matches CHATBOX_POSITION_X in chatBox.cpp
     m_cpicker.setPosition({
-        m_canvas.bounds.position.x + (m_canvas.bounds.size.x - pickerWidth) / 2.f,
-        belowTools
+        chatboxLeftX - pickerWidth - 10.f,
+        belowCanvas
         });
 }
 
@@ -329,11 +397,21 @@ void CoreGameState::setupTools()
     m_toolPicker.addTool(helperGroup, "Thin", "resources/sprites/dot_small.png",
         [this]() {
             m_brushThickness = 10.f;
+            m_showThicknessSlider = false;
+            m_draggingSlider = false;
         });
 
     m_toolPicker.addTool(helperGroup, "Thick", "resources/sprites/dot_large.png",
         [this]() {
             m_brushThickness = 30.f;
+            m_showThicknessSlider = false;
+            m_draggingSlider = false;
+        });
+
+    m_toolPicker.addTool(helperGroup, "Custom", "resources/sprites/resize_c_cross_diagonal.png",
+        [this]() {
+            m_showThicknessSlider = true;
+            // Keep current m_brushThickness as-is
         });
 
     // Select defaults: Pencil (group 0, tool 0) and Thin (group 1, tool 0)
