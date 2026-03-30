@@ -1,13 +1,13 @@
 {
     "users": [
         {
-            "username": "test1",
-            "password": "1234",
+            "username": "admin",
+            "password": "jGl25bVBBBW96Qi9Te4V37Fnqchz/Eu4qB9vKrRIqRg=",
             "highscore": 0
         },
         {
-            "username": "admin",
-            "password": "jGl25bVBBBW96Qi9Te4V37Fnqchz/Eu4qB9vKrRIqRg=",
+            "username": "test1",
+            "password": "1234",
             "highscore": 0
         }
     ]

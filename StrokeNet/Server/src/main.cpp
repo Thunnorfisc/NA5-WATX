@@ -32,7 +32,7 @@
         \return Process exit code supplied by the operating system.
     */
 std::int64_t _roundEndTime{};
-int main()
+int realMain()
 {
     try
     {
@@ -115,4 +115,28 @@ int main()
     {
         std::cerr << "Exception caught from main: " << e.what() << '\n';
     }
+    return 1;
 }
+
+#ifdef _DEBUG
+int main()
+{
+    return realMain();
+}
+#else
+int
+#if defined(_M_CEE_PURE)
+__clrcall
+#else
+WINAPI
+#endif
+wWinMain(
+    _In_ HINSTANCE ,
+    _In_opt_ HINSTANCE ,
+    _In_ LPWSTR ,
+    _In_ int 
+)
+{
+    return realMain();
+}
+#endif
