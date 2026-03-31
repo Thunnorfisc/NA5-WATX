@@ -326,7 +326,7 @@ void Server::handle_reqCreateAccount(std::span<const char> udpPacketWithoutMID, 
             std::format("[Server] Client {}: Account creation failed, '{}' already exists", ipStrAndPort, username));
     }
 
-    // respond with RSP_LOGIN_AND_CREATE_ACCOUNT (session id is invalid — they still need to login after creating)
+    // respond with RSP_LOGIN_AND_CREATE_ACCOUNT (session id is invalid - they still need to login after creating)
     auto sessionIdNetworkOrder = htonl(InvalidSessionId);
     std::vector<char> sendPacket;
     sendPacket.resize(PacketSize::RSP_LOGIN_AND_CREATE_ACCOUNT);
@@ -1377,7 +1377,6 @@ void Server::actualStartListening(std::stop_token st) noexcept
         tickPendingNtf(_pendingNtfUpdateScoreboardMutex, _pendingNtfUpdateScoreboards, "NTF_UPDATE_SCOREBOARD");
 
 
-        if(true) LOCK_broadcastScoreboard();
 
 
         fd_set readSet;
@@ -2135,7 +2134,7 @@ void Server::LOCK_sendStrokeHistory()
             sendto(_socket, clientChunks[0].data(), static_cast<int>(clientChunks[0].size()), 0,
                 reinterpret_cast<sockaddr*>(&clientSa), sizeof(clientSa));
 
-            // Register into pending — _data starts as chunk 0, _nextChunkToSend starts at 0
+            // Register into pending - _data starts as chunk 0, _nextChunkToSend starts at 0
             PendingNTF& pending = _pendingNtfStrokeHistory[NtfKey{ ssiho, _strokeHistoryIdServer }];
             pending._chunks = std::move(clientChunks);
             pending._data = pending._chunks[0];       // safe: assigned after _chunks
@@ -2240,7 +2239,7 @@ void Server::LOCK_sendMessageHistory()
             sendto(_socket, clientChunks[0].data(), static_cast<int>(clientChunks[0].size()), 0,
                 reinterpret_cast<sockaddr*>(&clientSa), sizeof(clientSa));
 
-            // Register into pending — _data starts as chunk 0, _nextChunkToSend starts at 0
+            // Register into pending - _data starts as chunk 0, _nextChunkToSend starts at 0
             PendingNTF& pending = _pendingNtfMessageHistory[NtfKey{ ssiho, _msgHistoryIdServer }];
             pending._chunks = std::move(clientChunks);
             pending._data = pending._chunks[0];       // safe: assigned after _chunks

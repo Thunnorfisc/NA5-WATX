@@ -453,7 +453,7 @@ void Client::handle_NTF_UpdateScoreboard(std::span<const char> msg)
     sb._yourIndex = rdr.read<std::uint8_t>();
 
     std::lock_guard lock(_scoreboardReceivedMut);
-    _scoreboardReceived.push(std::move(sb));
+    _latestScoreboardReceived = std::move(sb);
 }
 
 void Client::handle_NTF_UpdateLeaderboard(std::span<const char> msg)
@@ -639,7 +639,7 @@ void Client::handle_NTF_StrokeHistory(std::span<const char> msg)
 
     if (strokeChunkNumberHost != _expectedStrokeChunkId) return; // ignore
 
-    // Append this chunk's payload — msg already has MID stripped, so header is WITHOUT_DATA - 1
+    // Append this chunk's payload - msg already has MID stripped, so header is WITHOUT_DATA - 1
     auto payloadSize = msg.size() - (PacketSize::NTF_STROKE_HISTORY_WITHOUT_DATA - 1);
     auto rawStrokeData = rdr.readBytes(payloadSize);
     _strokeHistoryId_AND_bufferedStrokeHistoryMsgChunks.second.insert(
@@ -742,7 +742,7 @@ void Client::handle_NTF_MsgHistory(std::span<const char> msg)
 
     if (msgChunkNumberHost != _expectedMsgChunkId) return; // ignore
 
-    // Append this chunk's payload — msg already has MID stripped, so header is WITHOUT_DATA - 1
+    // Append this chunk's payload - msg already has MID stripped, so header is WITHOUT_DATA - 1
     auto payloadSize = msg.size() - (PacketSize::NTF_MSG_HISTORY_WITHOUT_DATA - 1);
     auto rawMsgData = rdr.readBytes(payloadSize);
     _msgHistoryId_AND_bufferedChatMsgChunks.second.insert(
@@ -1000,7 +1000,7 @@ LoginStatus Client::loginViaBroadcast(const std::string& username, const std::st
                     _stopSource = std::stop_source{};
                     _listeningThread = std::jthread([](std::stop_token st) { startListening(st); }, _stopSource.get_token());
 
-                    log(std::cout, std::format("[Client] Login OK — session {}, server {}",
+                    log(std::cout, std::format("[Client] Login OK - session {}, server {}",
                         _sessionId.load(), _serverIpAndPort));
                 }
                 return status;
@@ -1103,7 +1103,7 @@ LoginStatus Client::loginViaIp(const std::string& username, const std::string& p
                     _stopSource = std::stop_source{};
                     _listeningThread = std::jthread([](std::stop_token st) { startListening(st); }, _stopSource.get_token());
 
-                    log(std::cout, std::format("[Client] Login OK — session {}, server {}",
+                    log(std::cout, std::format("[Client] Login OK - session {}, server {}",
                         _sessionId.load(), _serverIpAndPort));
                 }
                 return status;
@@ -1533,13 +1533,10 @@ std::queue<Client::ReceivedChatMessage> Client::getReceivedChatMessages()
 std::optional<Client::ReceivedScoreBoard> Client::getLatestScoreboard()
 {
     std::unique_lock lock(_scoreboardReceivedMut, std::try_to_lock);
-    if (!lock.owns_lock() || _scoreboardReceived.empty())
+    if (!lock.owns_lock() || !_latestScoreboardReceived.has_value())
         return std::nullopt;
 
-    // Grab only the latest, discard older ones
-    ReceivedScoreBoard latest = std::move(_scoreboardReceived.back());
-    std::queue<ReceivedScoreBoard>().swap(_scoreboardReceived); // clear
-    return latest;
+    return *_latestScoreboardReceived;
 }
 
 // ============================================================
