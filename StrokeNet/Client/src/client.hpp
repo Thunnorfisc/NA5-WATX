@@ -271,7 +271,7 @@ private:
     // Used for the game to check if there are any scoreboard updates
     // ============================================================
     static inline std::mutex _scoreboardReceivedMut;
-    static inline std::queue<ReceivedScoreBoard> _scoreboardReceived;
+    static inline std::optional<ReceivedScoreBoard> _latestScoreboardReceived;
 
     // ============================================================
     // Used for the game to check if there are any leaderboard updates
