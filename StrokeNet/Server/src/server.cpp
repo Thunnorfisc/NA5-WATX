@@ -1782,7 +1782,7 @@ void Server::startGame()
         rounds.second = MAX_ROUNDS;
         rounds.first = rounds.second;
         NO_LOCK_advanceDrawer();
-        //NO_LOCK_broadcastScoreboard();
+        NO_LOCK_broadcastScoreboard();
         });
 }
 
