@@ -183,7 +183,7 @@ namespace PacketSize
     constexpr inline std::size_t NTF_RCV_LEADERBOARD = 9;
 
     //  1                   4           4                  8
-    // [NTF_ROUND_END_TIME][SESSION_ID][ROUND_END_TIME_ID][ROUND_END_TIME]
+    // [NTF_ROUND_END_TIME][SESSION_ID][ROUND_END_TIME_ID][ROUND_END_TIME_UNIX_MS]
     constexpr inline std::size_t NTF_ROUND_END_TIME = 17;
 
     //  1                       4           4
