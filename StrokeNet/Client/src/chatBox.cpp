@@ -208,6 +208,7 @@ void ChatBox::clearChatHistory() {
 
 void ChatBox::displayTimer(std::int64_t seconds) {
 	timerText.setString(std::to_string(seconds) + "s");
+	//std::cout << "Timer updated: " << seconds << "s remaining." << std::endl;
 }
 
 void ChatBox::drawScoreboardOfPlayer(float posX, float posY, float scaleX, float scaleY, std::string name, uint16_t score, bool isDrawer, bool isYou) {
