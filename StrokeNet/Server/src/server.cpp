@@ -1377,7 +1377,7 @@ void Server::actualStartListening(std::stop_token st) noexcept
         tickPendingNtf(_pendingNtfUpdateScoreboardMutex, _pendingNtfUpdateScoreboards, "NTF_UPDATE_SCOREBOARD");
 
 
-        if(counter++ % 5000) LOCK_broadcastScoreboard();
+        if(counter++ % 5) LOCK_broadcastScoreboard();
 
 
         fd_set readSet;
