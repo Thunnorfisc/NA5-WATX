@@ -195,9 +195,9 @@ void ChatBox::handleEvent(const sf::Event& event)
 			text.setString(wrapText(currentInput));
 		}
 
-#ifdef _DEBUG
-		std::cout << "Current input: " << currentInput << std::endl;
-#endif
+//#ifdef _DEBUG
+//		std::cout << "Current input: " << currentInput << std::endl;
+//#endif
 	}
 
 }
