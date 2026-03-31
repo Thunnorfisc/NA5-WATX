@@ -50,7 +50,7 @@ CoreGameState::CoreGameState(StateMachine& stateMachine, StateContext& context) 
 {
     m_gameOverTriggered = false;
     stage2 = false;
-    stage3 = false;
+    //stage3 = false;
 
     m_backButton.setPosition({ 10, 830 });
     m_backButton.setSize({ 150, 50 });
@@ -261,7 +261,7 @@ void CoreGameState::update(sf::Time dt)
     if (m_currentRound >= 1) {
         m_gameOverTriggered = false;
         stage2 = false;
-        stage3 = false;
+        //stage3 = false;
     }
 
     if (auto sb = Client::getLatestScoreboard()) {
@@ -291,7 +291,7 @@ void CoreGameState::update(sf::Time dt)
     }
 
 
-    if (stage3 && SamplescoreboardData.size() >= 1) {
+    /*if (stage3 && SamplescoreboardData.size() >= 1) {
         static float endTimer = 0.f;
         endTimer += dt.asSeconds();
         if (endTimer >= m_returnToMenuDelay) {
@@ -299,7 +299,7 @@ void CoreGameState::update(sf::Time dt)
             stage3 = false;
             m_shouldReturnToMenu = true;
         }
-    }
+    }*/
 
     if (m_shouldReturnToMenu)
     {
@@ -326,10 +326,6 @@ void CoreGameState::render()
 
     m_currentRound = Client::getCurrentRound();
     m_roundInfoText.setString("Rounds Left: " + std::to_string(m_currentRound) + " / " + std::to_string(m_maxRound));
-
-    if (auto sb = Client::getLatestScoreboard()) {
-        SamplescoreboardData = sb->_users;
-    }
 
     if (m_currentRound == 0 && SamplescoreboardData.size() >= 1) {
         sf::RectangleShape winOverlay({ static_cast<float>(window.getSize().x), static_cast<float>(window.getSize().y) });
@@ -406,15 +402,15 @@ void CoreGameState::render()
                 window.draw(scoreText);
                 window.draw(nameText);
             }
-			stage3 = true;
+			//stage3 = true;
             
         }
+        window.draw(m_backButton);
+        window.draw(m_backText);
         return;
     }
 
     window.draw(m_titleText);
-    window.draw(m_backButton);
-    window.draw(m_backText);
     window.draw(m_roundInfoText);
     m_canvas.draw(window);
     m_cpicker.draw(window);
@@ -456,6 +452,9 @@ void CoreGameState::render()
     if (m_cursorOnCanvas) {
         window.draw(m_cursorPreview);
     }
+
+    window.draw(m_backButton);
+    window.draw(m_backText);
 
 }
 
