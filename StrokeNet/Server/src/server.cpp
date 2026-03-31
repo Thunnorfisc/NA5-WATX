@@ -1360,6 +1360,7 @@ void Server::actualStartListening(std::stop_token st) noexcept
 {
     std::vector<char> udpPacket;
     udpPacket.resize(MaxUdpPacketBytes);
+    int counter = 0;
     while (!st.stop_requested())
     {
         tickPendingNtf(_pendingNtfMsgMutex, _pendingNtfMsg, "NTF_MSG");
@@ -1374,6 +1375,10 @@ void Server::actualStartListening(std::stop_token st) noexcept
         tickPendingNtf(_pendingNtfLeaderboardMutex, _pendingNtfLeaderboard, "NTF_UPDATE_LEADERBOARD");
         tickPendingNtf(_pendingNtfMessageHistoryMutex, _pendingNtfMessageHistory, "NTF_MESSAGE_HISTORY");
         tickPendingNtf(_pendingNtfUpdateScoreboardMutex, _pendingNtfUpdateScoreboards, "NTF_UPDATE_SCOREBOARD");
+
+
+        if(counter++ % 5000) LOCK_broadcastScoreboard();
+
 
         fd_set readSet;
         FD_ZERO(&readSet);
