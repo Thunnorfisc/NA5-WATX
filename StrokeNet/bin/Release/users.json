@@ -3,11 +3,96 @@
         {
             "username": "admin",
             "password": "jGl25bVBBBW96Qi9Te4V37Fnqchz/Eu4qB9vKrRIqRg=",
+            "highscore": 150
+        },
+        {
+            "username": "test",
+            "password": "n4bQgYhMfWWaL+qgxVrQFaO/TxsrC4Is0V1sFbDwCgg=",
             "highscore": 0
         },
         {
-            "username": "test1",
-            "password": "1234",
+            "username": "boy",
+            "password": "zGp3hATqVX2lVD18uhT3UDDdBp9WyAr2Kw1+GECh/2c=",
+            "highscore": 0
+        },
+        {
+            "username": "timothy",
+            "password": "GT0wQ+Apqfn7rE9KqtQ37cLFg3cZxcxfSZOVc7r3h2A=",
+            "highscore": 150
+        },
+        {
+            "username": "hi",
+            "password": "asPDNuQJSDUpOj/tiktf7d4bXiYm2YOP7VBpO7o=",
+            "highscore": 225
+        },
+        {
+            "username": "marmala",
+            "password": "LeEGz9ZQp2Yw/A3Br9RhAl8FjhvTZIImEOEqpmQJ74E=",
+            "highscore": 0
+        },
+        {
+            "username": "sleep",
+            "password": "CvpbtdXxeHlF5VXpFHRnW+tvNN2aSQQjxNBGDk1FSIU=",
+            "highscore": 0
+        },
+        {
+            "username": "ni",
+            "password": "TbA6J3z7nvTGi0yXgEcO7keaustf0BuKLCs8uVWZjoc=",
+            "highscore": 0
+        },
+        {
+            "username": "snowpuppy",
+            "password": "pmWkWSBCL51Bfkhn79xPuKBKHz//H6B+mY6G9/eieuM=",
+            "highscore": 0
+        },
+        {
+            "username": "VERYLONGNAMEAHHHHHHHHHHHHHHHH",
+            "password": "pmWkWSBCL51Bfkhn79xPuKBKHz//H6B+mY6G9/eieuM=",
+            "highscore": 0
+        },
+        {
+            "username": "satu",
+            "password": "SJDXCd2Z56WKA9efAsfuwAXBHyiTo1h/9PqlKx0HjBA=",
+            "highscore": 0
+        },
+        {
+            "username": "dua lipa",
+            "password": "aDq1eg984FD3E8ZMaHGUx7765i4UZqYwctZg5V8fM5Q=",
+            "highscore": 0
+        },
+        {
+            "username": "admin2",
+            "password": "HBQrLQGqNOmja95IBkWlf9aeFBVdrPq1o/kle3f9yNg=",
+            "highscore": 0
+        },
+        {
+            "username": "admiin",
+            "password": "jGl25bVBBBW96Qi9Te4V37Fnqchz/Eu4qB9vKrRIqRg=",
+            "highscore": 0
+        },
+        {
+            "username": "admmin",
+            "password": "yK1YEH3vnq94r1wNTMXJrFArMDrvJW5HW/4mjDs8Nqo=",
+            "highscore": 0
+        },
+        {
+            "username": "jh",
+            "password": "aIeH2P8UTFAsf1z/qv4sxYjYYHn53ogwTCawy5nOkcY=",
+            "highscore": 0
+        },
+        {
+            "username": "mika",
+            "password": "aIeH2P8UTFAsf1z/qv4sxYjYYHn53ogwTCawy5nOkcY=",
+            "highscore": 0
+        },
+        {
+            "username": "marmalade",
+            "password": "F1K2zCsDuUHL0B63Q8GEkrIprfwPPPzK4yOySO3Uwsk=",
+            "highscore": 0
+        },
+        {
+            "username": "admins",
+            "password": "ydDnQarcRjPaJr0pzn7t0m+T2FdI/KGcJMqjeVQdMjk=",
             "highscore": 0
         }
     ]
