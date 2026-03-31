@@ -88,7 +88,7 @@ private:
 
     bool m_gameOverTriggered = false;
     bool stage2 = false;
-    bool stage3 = false;
+    //bool stage3 = false;
 	float m_returnToMenuDelay = 5.f;
     float m_gameOverDelay = 0.5f;
     float m_gameOverTimer = 0.f;

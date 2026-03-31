@@ -1360,6 +1360,7 @@ void Server::actualStartListening(std::stop_token st) noexcept
 {
     std::vector<char> udpPacket;
     udpPacket.resize(MaxUdpPacketBytes);
+    int counter = 0;
     while (!st.stop_requested())
     {
         tickPendingNtf(_pendingNtfMsgMutex, _pendingNtfMsg, "NTF_MSG");
@@ -1374,6 +1375,10 @@ void Server::actualStartListening(std::stop_token st) noexcept
         tickPendingNtf(_pendingNtfLeaderboardMutex, _pendingNtfLeaderboard, "NTF_UPDATE_LEADERBOARD");
         tickPendingNtf(_pendingNtfMessageHistoryMutex, _pendingNtfMessageHistory, "NTF_MESSAGE_HISTORY");
         tickPendingNtf(_pendingNtfUpdateScoreboardMutex, _pendingNtfUpdateScoreboards, "NTF_UPDATE_SCOREBOARD");
+
+
+        if(true) LOCK_broadcastScoreboard();
+
 
         fd_set readSet;
         FD_ZERO(&readSet);
@@ -1709,7 +1714,7 @@ void Server::NO_LOCK_broadcastScoreboard()
 
     for (const auto& [ssiho, client] : _clientStorageMap)
     {
-        if (!client.inGame) continue;
+//        if (!client.inGame) continue;
         std::vector<char> pkt(PacketSize::NTF_UPDATE_SCOREBOARD_BASE + varSize + drawer.size());
         ByteWriter wrt{ .buffer = pkt };
         wrt.write(static_cast<char>(MessageType::NTF_UPDATE_SCOREBOARD));
@@ -1777,7 +1782,7 @@ void Server::startGame()
         rounds.second = MAX_ROUNDS;
         rounds.first = rounds.second;
         NO_LOCK_advanceDrawer();
-        //NO_LOCK_broadcastScoreboard();
+        NO_LOCK_broadcastScoreboard();
         });
 }
 
