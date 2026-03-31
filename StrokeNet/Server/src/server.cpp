@@ -1709,7 +1709,7 @@ void Server::NO_LOCK_broadcastScoreboard()
 
     for (const auto& [ssiho, client] : _clientStorageMap)
     {
-        if (!client.inGame) continue;
+//        if (!client.inGame) continue;
         std::vector<char> pkt(PacketSize::NTF_UPDATE_SCOREBOARD_BASE + varSize + drawer.size());
         ByteWriter wrt{ .buffer = pkt };
         wrt.write(static_cast<char>(MessageType::NTF_UPDATE_SCOREBOARD));
