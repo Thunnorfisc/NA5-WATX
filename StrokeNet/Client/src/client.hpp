@@ -167,8 +167,8 @@ private:
     static inline std::jthread    _listeningThread;
     static inline std::stop_source _stopSource;
 
-    static inline const double _recvTimeOut = 0.075;
-    static inline const int    _maxRetries = 3;
+    static inline const double _recvTimeOut = 0.175;
+    static inline const int    _maxRetries = 10;
 
     // ============================================================
     // Play game bool
